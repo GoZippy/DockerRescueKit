@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Docker Rescue Kit — backup and restore for Docker containers, volumes, and stacks" />
+    <title>Docker Rescue Kit</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --glass-bg: rgba(15, 23, 42, 0.8);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --primary: #3b82f6;
+        --secondary: #6366f1;
+        --accent: #f43f5e;
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background: radial-gradient(circle at top left, #0f172a, #020617);
+        color: var(--text-primary);
+        font-family: 'Outfit', sans-serif;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

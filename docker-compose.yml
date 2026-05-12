@@ -1,0 +1,63 @@
+# DockerRescueKit — standalone deployment.
+# Usage:   docker compose up -d
+# Open:    http://localhost:42880
+
+services:
+  drk:
+    image: dockerrescuekit/backend:latest
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    container_name: drk
+    restart: unless-stopped
+    ports:
+      - "42880:42880"
+    environment:
+      NODE_ENV: production
+      DRK_DATA_DIR: /data
+      # Optional: pre-seed the API key/encryption key instead of letting
+      # the service generate them on first run.
+      # DRK_API_KEY: change-me
+      # DRK_ENCRYPTION_KEY: change-me-too
+    # On most Linux hosts the docker socket is in group 'docker' (gid 999).
+    # Override DOCKER_GID env if your host differs (Synology/QNAP often use 100,
+    # some Debian variants use 998). `group_add` adds the supplementary group
+    # to the running container so the `drk` user can read/write the socket
+    # regardless of how the host owns it.
+    group_add:
+      - "${DOCKER_GID:-999}"
+    volumes:
+      - drk-data:/data
+      - drk-backups:/backups
+      # Docker socket — required for listing/inspecting/exec into containers
+      # and volumes. We deliberately do NOT mount this read-only: the Docker
+      # SDK needs write access for `events` (long-poll), `attach`, `exec`,
+      # and any container/volume mutation. Read-only would break the entire
+      # backup/restore workflow.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:42880/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - drk-net
+
+networks:
+  drk-net:
+    driver: bridge
+
+volumes:
+  drk-data:
+  drk-backups:

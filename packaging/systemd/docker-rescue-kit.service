@@ -1,0 +1,33 @@
+[Unit]
+Description=DockerRescueKit backup service
+Documentation=https://github.com/DockerRescueKit
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# Adjust User= if you installed the service under a dedicated account.
+User=drk
+Group=docker
+EnvironmentFile=-/etc/docker-rescue-kit/drk.env
+# DRK_DATA_DIR must be writable by the service user.
+# Defaults to /var/lib/docker-rescue-kit when DRK_DATA_DIR is unset.
+Environment=DRK_DATA_DIR=/var/lib/docker-rescue-kit
+Environment=DRK_UI_DIR=/usr/share/docker-rescue-kit/ui
+Environment=PORT=42880
+# Node 20+ is required.
+ExecStart=/usr/bin/node /usr/lib/docker-rescue-kit/index.js
+Restart=on-failure
+RestartSec=5
+# Tighten the service's filesystem surface.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/docker-rescue-kit /var/log/docker-rescue-kit
+# Docker socket access is required.
+SupplementaryGroups=docker
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,57 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for helping shape DockerRescueKit! Please fill out the form below to help us understand your request."
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the problem or limitation you are running into. Focus on the **why**, not the what.
+        Example: "I often need to restore a single file from a volume backup, but today I have to restore the entire volume..."
+      placeholder: As a user, I find it frustrating when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like?
+      description: Describe the solution or feature you have in mind. Be as specific as you can.
+      placeholder: I would like DockerRescueKit to...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which tier should this apply to?
+      description: Select the deployment tier this feature is most relevant to.
+      options:
+        - Free
+        - Pro
+        - Enterprise
+        - All tiers
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried any workarounds or alternative approaches? What were their limitations?
+      placeholder: I tried using X, but it doesn't work because...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request to implement this feature.
+          required: false

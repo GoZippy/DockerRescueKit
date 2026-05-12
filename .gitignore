@@ -1,0 +1,76 @@
+# =============================================================================
+# DockerRescueKit — .gitignore
+# =============================================================================
+
+# ── Secrets and local runtime data ───────────────────────────────────────────
+.env
+.env.*
+!.env.example
+.local-data/
+secrets.json
+*.key
+*.pem
+
+# ── Log and checkpoint output (generated at runtime) ─────────────────────────
+WSL_Update_Logs/
+DockerCheckpoints/
+*.log
+*.log.*
+
+# ── Backup archives (can be very large) ──────────────────────────────────────
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+docker-backups/
+backup-temp-*
+
+# ── Node / npm ────────────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.cache/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Test and coverage artifacts ───────────────────────────────────────────────
+coverage/
+test-results/
+playwright-report/
+e2e-results/
+/tmp/
+
+# ── SQLite databases (generated at runtime) ───────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+
+# ── AI agent and IDE private configuration ───────────────────────────────────
+# Private workflow tooling — not useful to end users.
+.autoclaw/
+.clinerules/
+.agent/
+.qodo/
+.kilocodemodes
+.claude/rules/cross-agent-protocol.md
+
+# ── OS generated ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+*.tmp
+*~

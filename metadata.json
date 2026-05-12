@@ -1,0 +1,16 @@
+{
+  "icon": "drk-icon.svg",
+  "ui": {
+    "dashboard-tab": {
+      "title": "Docker Rescue Kit",
+      "root": "/ui",
+      "src": "index.html"
+    }
+  },
+  "vm": {
+    "composefile": "docker-compose.extension.yml"
+  },
+  "host": {
+    "binaries": []
+  }
+}

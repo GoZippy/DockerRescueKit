@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background rounded square -->
+  <rect width="64" height="64" rx="12" fill="#2563eb"/>
+  <!-- Container box body -->
+  <rect x="12" y="22" width="40" height="26" rx="3" fill="#fff" opacity="0.15" stroke="#fff" stroke-width="1.5"/>
+  <!-- Container lid -->
+  <rect x="10" y="16" width="44" height="8" rx="3" fill="#fff" opacity="0.25" stroke="#fff" stroke-width="1.5"/>
+  <!-- Circular backup arrow — clockwise arc with arrowhead -->
+  <path d="M32 30 a8 8 0 1 1 -5.66 2.34" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <!-- Arrowhead at end of arc -->
+  <polyline points="22,35 26.34,32.34 29,37" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

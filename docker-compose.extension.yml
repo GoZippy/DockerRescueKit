@@ -1,0 +1,14 @@
+# Docker Desktop Extension compose file — referenced by metadata.json.
+# The extension runs only the backend; the UI is served as a static asset
+# bundle by Docker Desktop from the `ui/` directory baked into the image.
+# ${DESKTOP_PLUGIN_IMAGE} is injected by `docker extension install`.
+
+services:
+  backend:
+    image: ${DESKTOP_PLUGIN_IMAGE}
+    command: node /app/packages/backend/dist/src/index.js
+    environment:
+      - DRK_DATA_DIR=/data
+      - NODE_ENV=production
+    volumes:
+      - /run/guest-services/backend.sock:/run/guest-services/backend.sock

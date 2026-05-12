@@ -1,0 +1,28 @@
+# DockerRescueKit — development override.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This override:
+#   - Mounts packages/backend/src and packages/backend/dist from the host so
+#     edits hot-reload inside the container (ts-node-dev --respawn).
+#   - Switches NODE_ENV to development.
+#   - Replaces the production CMD with `npx ts-node-dev --respawn src/index.ts`.
+#   - Does NOT rebuild the image — assumes dockerrescuekit/backend:latest is
+#     already built (run `make docker-build` first).
+#
+# Note: ts-node-dev must already be present in the image (it is in the
+# packages/backend devDependencies). If you stripped devDependencies in a
+# slimmer prod image, build the dev image with --target=dev or install
+# ts-node-dev inside the running container.
+
+services:
+  drk:
+    image: dockerrescuekit/backend:latest
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./packages/backend/src:/app/packages/backend/src
+      - ./packages/backend/dist:/app/packages/backend/dist
+    command: ["npx", "ts-node-dev", "--respawn", "src/index.ts"]
+    working_dir: /app/packages/backend

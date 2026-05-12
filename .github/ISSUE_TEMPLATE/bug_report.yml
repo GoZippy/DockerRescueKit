@@ -1,0 +1,78 @@
+name: Bug Report
+description: File a bug report
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for taking the time to fill out this bug report!"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal, reliable set of steps to reproduce the behavior.
+      placeholder: |
+        1. Start the backend with `docker compose up -d`
+        2. Navigate to the dashboard at http://localhost:42880
+        3. Click on '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: I expected...
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: DockerRescueKit version
+      description: Run `drk --version` or check the bottom of the dashboard.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: Which OS is the Docker host running on?
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste any relevant log output here. You can get logs via:
+        `docker compose logs backend` or `drk logs --lines 100`
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: search
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have searched the existing issues and this is not a duplicate.
+          required: true

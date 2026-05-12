@@ -1,0 +1,107 @@
+# DockerRescueKit — example Prometheus alerting rules.
+#
+# Drop this into your Prometheus rules directory (typically
+# /etc/prometheus/rules/) and reference it from prometheus.yml:
+#
+#   rule_files:
+#     - "rules/drk.rules.yml"
+#
+# Reload with `kill -HUP <prometheus-pid>` or `curl -X POST
+# http://prometheus:9090/-/reload`.
+#
+# All alerts assume DRK's /metrics endpoint is being scraped. The metric
+# names come from packages/backend/src/services/MetricsService.ts.
+
+groups:
+  - name: dockerrescuekit
+    interval: 1m
+    rules:
+
+      # ----------------------------------------------------------------
+      # Critical: backups have stopped happening entirely.
+      #
+      # 172800 seconds = 48 hours. Tune for your own RPO — if you back
+      # up every 6 hours, set this to 6h * 4 = 86400 (24h) for an
+      # earlier alarm.
+      # ----------------------------------------------------------------
+      - alert: BackupOlderThan48h
+        expr: drk_backup_last_success_age_seconds > 172800
+        for: 10m
+        labels:
+          severity: critical
+          service: dockerrescuekit
+        annotations:
+          summary: "DRK policy {{ $labels.policy_name }} has no successful backup in 48h"
+          description: |
+            Policy {{ $labels.policy_name }} (id: {{ $labels.policy_id }}) has
+            not completed a successful backup in {{ humanizeDuration $value }}.
+            Check the DRK dashboard or `docker logs drk` for the failure cause.
+
+      # ----------------------------------------------------------------
+      # Warning: failures are happening, even if some backups still succeed.
+      # increase() over 1h catches a single failure and stays firing for
+      # the alert window. We use [1h] to dampen retry storms.
+      # ----------------------------------------------------------------
+      - alert: BackupFailuresIncreasing
+        expr: increase(drk_backup_failed_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: dockerrescuekit
+        annotations:
+          summary: "DRK backup failures detected on {{ $labels.policy_name }}"
+          description: |
+            Policy {{ $labels.policy_name }} (id: {{ $labels.policy_id }}) has
+            recorded {{ $value }} backup failure(s) in the last hour.
+
+      # ----------------------------------------------------------------
+      # Warning: integrity verify is reporting bad bytes. A verify failure
+      # means a stored backup didn't round-trip — restoring from it would
+      # likely fail. Treat as a yellow flag, not a red flag, because the
+      # NEXT backup might overwrite the bad one.
+      # ----------------------------------------------------------------
+      - alert: VerifyFailuresDetected
+        expr: increase(drk_verify_failed_total[24h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: dockerrescuekit
+        annotations:
+          summary: "DRK verify run failed in the last 24h"
+          description: |
+            {{ $value }} verify run(s) have failed in the last 24 hours.
+            Inspect the verify history page in the DRK dashboard, or query
+            `/api/verify/history` for details. A failed verify usually means
+            either (a) the stored backup is corrupt or (b) the verify
+            environment lost access to the storage adapter.
+
+      # ----------------------------------------------------------------
+      # Warning: silent data loss canary.
+      #
+      # If the most recent backup is less than 50% of the size it was a
+      # week ago, something deleted a chunk of state — could be benign
+      # (someone pruned a noisy log volume) or could be catastrophic
+      # (a container that was being backed up is no longer in the
+      # selector). Either way, a human should look.
+      #
+      # The expression is guarded against the case where last week's
+      # backup didn't exist (offset returns no data); Prometheus drops
+      # those samples automatically.
+      # ----------------------------------------------------------------
+      - alert: BackupSizeShrunk
+        expr: |
+          drk_backup_last_size_bytes
+            < (drk_backup_last_size_bytes offset 7d) * 0.5
+        for: 30m
+        labels:
+          severity: warning
+          service: dockerrescuekit
+        annotations:
+          summary: "DRK backup {{ $labels.policy_name }} shrank >50% week-over-week"
+          description: |
+            Latest backup is {{ humanize $value }} bytes — less than half of
+            what it was 7 days ago ({{ humanize (printf "drk_backup_last_size_bytes{policy_id=\"%s\"} offset 7d" $labels.policy_id | query | first | value) }} bytes).
+            Possible causes: someone removed a volume from the selector,
+            a container with persistent data was deleted, or compression
+            settings changed. Verify the change was intentional before
+            relying on this backup for restore.

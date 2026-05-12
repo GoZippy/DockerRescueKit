@@ -1,0 +1,35 @@
+# Build artifacts and dev-only files that must NEVER ship in the production image
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+.git
+.github
+.vscode
+.idea
+.autoclaw
+
+# Local env files bake secrets into the Vite bundle if shipped — exclude them
+.env
+.env.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Logs and temp
+*.log
+**/*.log
+docker-backups
+backup-temp-*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Test scratch
+__tests__
+**/__tests__
+*.test.ts
+*.test.js

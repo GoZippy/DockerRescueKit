@@ -1,0 +1,21 @@
+{
+  "name": "docker-backup-service",
+  "version": "1.0.0",
+  "description": "Enterprise-grade Docker backup management with scheduling, retention policies, and multi-destination support",
+  "private": true,
+  "license": "MIT",
+  "workspaces": [
+    "packages/extension",
+    "packages/backend",
+    "packages/shared",
+    "packages/cli"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run bootstrap",
+    "bootstrap": "npm run build -ws",
+    "dev": "npm run dev -ws",
+    "build": "npm run build -ws",
+    "test": "npm test -ws",
+    "lint": "npm run lint -ws"
+  }
+}

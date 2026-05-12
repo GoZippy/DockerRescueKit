@@ -1,0 +1,27 @@
+{
+  "name": "@docker-rescue-kit/cli",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "drk": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@docker-rescue-kit/shared": "*",
+    "axios": "^1.6.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.7",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}

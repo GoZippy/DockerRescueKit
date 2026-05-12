@@ -1,0 +1,54 @@
+version: "3.9"
+
+# Production compose file for DockerRescueKit homelab deployment.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml down
+#   docker compose -f docker-compose.prod.yml logs -f
+#
+# The backend image bundles the built UI under /app/public and serves it
+# as static files — no separate frontend container required.
+#
+# Required env vars (pass via .env or shell):
+#   DRK_API_KEY        - API key accepted by every /api/* request
+#   DRK_ENCRYPTION_KEY - Encryption key for secrets at rest (set once, never change)
+
+services:
+  drk:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    image: dockerrescuekit/backend:latest
+    container_name: drk
+    restart: unless-stopped
+    ports:
+      - "42880:42880"
+    volumes:
+      - drk-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      NODE_ENV: production
+      DRK_DATA_DIR: /data
+      PORT: "42880"
+      # Pass secrets from the host environment (or a .env file).
+      # If DRK_API_KEY is not set, the backend generates one on first start
+      # and persists it in /data/secrets.json.
+      DRK_API_KEY: "${DRK_API_KEY:-}"
+      DRK_ENCRYPTION_KEY: "${DRK_ENCRYPTION_KEY:-}"
+    healthcheck:
+      test:
+        - "CMD"
+        - "curl"
+        - "-f"
+        - "-H"
+        - "x-api-key: ${DRK_API_KEY}"
+        - "http://localhost:42880/api/status"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  drk-data:
+    driver: local
