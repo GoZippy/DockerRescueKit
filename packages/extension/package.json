@@ -7,10 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:extension": "cross-env VITE_TRANSPORT=extension tsc && cross-env VITE_TRANSPORT=extension vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@docker-rescue-kit/shared": "*",
+    "@docker/extension-api-client": "^0.4.0",
     "axios": "^1.6.8",
     "chart.js": "^4.4.2",
     "date-fns": "^3.6.0",
@@ -24,6 +26,7 @@
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.25",
     "@vitejs/plugin-react": "^4.2.1",
+    "cross-env": "^7.0.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.4.5",
     "vite": "^5.2.10"

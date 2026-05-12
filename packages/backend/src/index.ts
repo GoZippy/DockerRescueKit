@@ -47,6 +47,23 @@ import { Server } from 'http'
 
 dotenv.config()
 
+// ---- Transport selection ---------------------------------------------------
+// Phase 8 — Docker Desktop extension integration.
+//
+// In stand-alone mode (the default) the backend listens on TCP :42880 with
+// `x-api-key` auth, which is suitable for self-hosted users hitting the API
+// over the network.
+//
+// When packaged as a Docker Desktop extension the backend is expected to bind
+// a Unix domain socket inside the extension's guest-services namespace at
+// `/run/guest-services/<name>.sock`. The Docker Desktop IPC bridge already
+// scopes that socket to the extension, so applying our own API-key check on
+// top would be both redundant and impossible (the frontend talks via the
+// extension SDK which doesn't propagate the key). The TRANSPORT env var picks
+// between the two; everything else (routes, middleware ordering) is shared.
+const TRANSPORT: 'tcp' | 'socket' =
+  process.env.DRK_TRANSPORT === 'socket' ? 'socket' : 'tcp'
+
 export class BackupService {
   private app: Express
   private db: Database
@@ -152,6 +169,12 @@ export class BackupService {
     this.app.use('/api', apiRateLimiter)
 
     this.app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+      // Phase 8: when bound to the Docker Desktop guest-services Unix socket
+      // the IPC bridge has already scoped the caller to this extension, so
+      // there's no API key to check (the frontend talks through the extension
+      // SDK which can't attach one). Bypass the auth middleware entirely on
+      // the socket transport; /healthz + /metrics remain public as today.
+      if (TRANSPORT === 'socket') return next()
       // Resolve on each request so API-key rotation takes effect without
       // restarting the server. Accept via header (preferred) or ?apiKey=.
       const presented = req.headers['x-api-key'] || req.query.apiKey
@@ -543,12 +566,42 @@ export class BackupService {
   }
 
   public async start() {
-    const port = Number(process.env.PORT || 42880)
     await this.scheduler.start()
-    this.httpServer = this.app.listen(port, () => {
-      console.log(`\x1b[32m[DockerRescueKit]\x1b[0m Service running on port ${port}`)
-      console.log(`\x1b[34m[Scheduler]\x1b[0m Engine initialized`)
-    })
+
+    // Single dispatch point — keep transport branching here so the rest of the
+    // class stays transport-agnostic. The auth middleware checks TRANSPORT at
+    // request time; everything else is shared.
+    if (TRANSPORT === 'socket') {
+      const socketPath = process.env.DRK_SOCKET_PATH || '/run/guest-services/drk.sock'
+      // Stale sockets from a previous crash will cause listen() to throw
+      // EADDRINUSE — best-effort unlink before we bind. ENOENT is the happy
+      // path (no leftover file). Anything else we let bubble so we don't
+      // silently mask a permission problem.
+      try {
+        fs.unlinkSync(socketPath)
+      } catch (err: any) {
+        if (err && err.code !== 'ENOENT') throw err
+      }
+      this.httpServer = this.app.listen({ path: socketPath } as any, () => {
+        // chmod after listen returns so the socket file actually exists.
+        // 0o660 = owner+group read/write — Docker Desktop runs the extension
+        // process as the same uid as the guest-services group, which is what
+        // it uses to gate access; 660 keeps the world out.
+        try {
+          fs.chmodSync(socketPath, 0o660)
+        } catch (err: any) {
+          console.warn(`[DRK] failed to chmod ${socketPath}: ${err?.message || err}`)
+        }
+        console.log(`[DRK] listening on unix:${socketPath} (transport=socket, auth=skipped)`)
+        console.log(`\x1b[34m[Scheduler]\x1b[0m Engine initialized`)
+      })
+    } else {
+      const port = Number(process.env.PORT || 42880)
+      this.httpServer = this.app.listen(port, () => {
+        console.log(`\x1b[32m[DockerRescueKit]\x1b[0m Service running on port ${port}`)
+        console.log(`\x1b[34m[Scheduler]\x1b[0m Engine initialized`)
+      })
+    }
 
     const shutdown = async (signal: string) => {
       console.log(`\x1b[33m[DockerRescueKit]\x1b[0m Received ${signal}, shutting down…`)

@@ -2,13 +2,28 @@
 # The extension runs only the backend; the UI is served as a static asset
 # bundle by Docker Desktop from the `ui/` directory baked into the image.
 # ${DESKTOP_PLUGIN_IMAGE} is injected by `docker extension install`.
+#
+# Backend listens on a Unix socket inside the container at
+# /run/guest-services/drk.sock. The parent dir is bind-mounted from Docker
+# Desktop's VM so the SDK can discover the socket and proxy it to the UI
+# via ddClient.extension.vm.service.
 
 services:
   backend:
     image: ${DESKTOP_PLUGIN_IMAGE}
-    command: node /app/packages/backend/dist/src/index.js
     environment:
-      - DRK_DATA_DIR=/data
       - NODE_ENV=production
+      - DRK_TRANSPORT=socket
+      - DRK_SOCKET_PATH=/run/guest-services/drk.sock
+      - DRK_DATA_DIR=/data
     volumes:
-      - /run/guest-services/backend.sock:/run/guest-services/backend.sock
+      - drk-data:/data
+      - /run/guest-services:/run/guest-services
+    labels:
+      # Docker Desktop SDK discovers this socket and exposes it to the UI
+      # via ddClient.extension.vm.service.
+      com.docker.desktop.extension.api.version: "0.3.4"
+      com.docker.desktop.service.socket: "/run/guest-services/drk.sock"
+
+volumes:
+  drk-data:

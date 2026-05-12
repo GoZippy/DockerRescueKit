@@ -50,8 +50,9 @@ const MainApp: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Show setup screen when no API key is configured
-  if (!getApiKey()) {
+  // Show setup screen when no API key is configured. Skipped entirely in
+  // Docker Desktop extension mode — Desktop's IPC channel handles auth.
+  if (import.meta.env.VITE_TRANSPORT !== 'extension' && !getApiKey()) {
     return <SetupScreen />
   }
 

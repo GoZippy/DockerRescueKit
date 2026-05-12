@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(() => ({
   plugins: [
     react(),
     tailwindcss(),
@@ -15,6 +15,9 @@ export default defineConfig({
       '@docker-rescue-kit/shared': path.resolve(__dirname, '../shared/src/types.ts'),
     },
   },
+  define: {
+    'import.meta.env.VITE_TRANSPORT': JSON.stringify(process.env.VITE_TRANSPORT ?? 'tcp'),
+  },
   server: {
     port: 5173,
     proxy: {
@@ -24,4 +27,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

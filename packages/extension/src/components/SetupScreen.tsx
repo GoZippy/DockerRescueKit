@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Shield, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 import { setApiKey, getApiBase } from '../api'
 
-export const SetupScreen: React.FC = () => {
+const TcpSetupScreen: React.FC = () => {
   const [key, setKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -220,3 +220,37 @@ export const SetupScreen: React.FC = () => {
     </div>
   )
 }
+
+// In Docker Desktop extension mode the API-key onboarding flow is irrelevant
+// — Desktop's IPC channel authenticates the request for us. We render a tiny
+// ready splash so the build flag DCEs the entire TCP onboarding card away.
+const ExtensionReadySplash: React.FC = () => (
+  <div style={{
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--surface-0)',
+    padding: 24,
+  }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <div style={{
+        width: 56,
+        height: 56,
+        borderRadius: 14,
+        background: 'var(--blue-500)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <Shield size={28} color="#fff" />
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 600 }}>Docker Rescue Kit</div>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Ready.</div>
+    </div>
+  </div>
+)
+
+export const SetupScreen: React.FC =
+  import.meta.env.VITE_TRANSPORT === 'extension' ? ExtensionReadySplash : TcpSetupScreen
+
