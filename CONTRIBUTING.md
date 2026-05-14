@@ -6,7 +6,7 @@ Thank you for your interest in contributing. This document covers how to report 
 
 ## Reporting Bugs
 
-1. Check [existing issues](https://github.com/DockerRescueKit/DockerRescueKit/issues) first
+1. Check [existing issues](https://github.com/gozippy/DockerRescueKit/issues) first
 2. Open a new issue and include:
    - Windows version (run `winver`)
    - WSL version (run `wsl --version`)
@@ -17,7 +17,7 @@ Thank you for your interest in contributing. This document covers how to report 
 
 ## Suggesting Features
 
-Open a [GitHub Discussion](https://github.com/DockerRescueKit/DockerRescueKit/discussions) describing the use case and the problem it solves. Include examples where possible.
+Open a [GitHub Discussion](https://github.com/gozippy/DockerRescueKit/discussions) describing the use case and the problem it solves. Include examples where possible.
 
 ---
 
@@ -26,7 +26,7 @@ Open a [GitHub Discussion](https://github.com/DockerRescueKit/DockerRescueKit/di
 ### Setup
 
 ```powershell
-git clone https://github.com/DockerRescueKit/DockerRescueKit.git
+git clone https://github.com/gozippy/DockerRescueKit.git
 cd DockerRescueKit
 ```
 
@@ -96,4 +96,4 @@ Be respectful and constructive. We follow the [Contributor Covenant](https://www
 
 Open an issue or start a discussion on GitHub. That is the best way to reach the maintainers.
 
-[github.com/DockerRescueKit/DockerRescueKit](https://github.com/DockerRescueKit/DockerRescueKit)
+[github.com/gozippy/DockerRescueKit](https://github.com/gozippy/DockerRescueKit)

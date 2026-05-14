@@ -93,7 +93,7 @@ If you're running Caddy on the host (not in a container) point the
 ```yaml
 services:
   drk:
-    image: dockerrescuekit/backend:latest
+    image: gozippy/dockerrescuekit:standalone-latest
     container_name: drk
     restart: unless-stopped
     # Note: no `ports:` — only Caddy is exposed publicly.
@@ -227,7 +227,7 @@ resolver named `le` and an entrypoint named `websecure` on port 443.
 ```yaml
 services:
   drk:
-    image: dockerrescuekit/backend:latest
+    image: gozippy/dockerrescuekit:standalone-latest
     container_name: drk
     restart: unless-stopped
     expose:

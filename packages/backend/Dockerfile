@@ -43,7 +43,7 @@ FROM node:20-alpine AS final
 
 LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
       org.opencontainers.image.description="Backup and restore service for Docker containers, volumes, and stacks" \
-      org.opencontainers.image.source="https://github.com/DockerRescueKit/DockerRescueKit"
+      org.opencontainers.image.source="https://github.com/gozippy/DockerRescueKit"
 
 # restic + rclone are required by all remote storage adapters.
 # restic:  official alpine build, battle-tested.

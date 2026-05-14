@@ -40,7 +40,7 @@ jobs:
       - name: Resolve image reference
         id: meta
         run: |
-          echo "image-ref=dockerrescuekit/backend:${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          echo "image-ref=gozippy/dockerrescuekit:standalone-${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v5
@@ -50,8 +50,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            dockerrescuekit/backend:${{ github.ref_name }}
-            dockerrescuekit/backend:latest
+            gozippy/dockerrescuekit:standalone-${{ github.ref_name }}
+            gozippy/dockerrescuekit:standalone-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

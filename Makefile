@@ -13,8 +13,8 @@
 SHELL          := /bin/bash
 .SHELLFLAGS    := -eu -o pipefail -c
 
-IMAGE          ?= dockerrescuekit/backend:latest
-EXT_IMAGE      ?= dockerrescuekit/extension:latest
+IMAGE          ?= gozippy/dockerrescuekit:standalone-latest
+EXT_IMAGE      ?= gozippy/dockerrescuekit:latest
 CONTAINER      ?= drk
 HEALTH_URL     ?= http://localhost:42880/healthz
 E2E_DIR        ?= /tmp/drk-ui-test
@@ -128,8 +128,6 @@ release: ## Tag a new version (prompts for version)
 # ── Legacy targets (kept for backwards compatibility) ─────────────────────────
 
 build-extension: ## (legacy) Build the Docker Desktop extension image
-	docker build -f packages/backend/Dockerfile -t $(IMAGE) .
-	docker tag $(IMAGE) dockerrescuekit/extension-backend:latest
 	docker build -t $(EXT_IMAGE) .
 
 install-extension: build-extension ## (legacy) Install the Docker Desktop extension

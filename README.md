@@ -2,9 +2,9 @@
 
 **Automated backup and restore for Docker containers, volumes, images, and networks.**
 
-[![CI](https://img.shields.io/badge/CI-pending-lightgrey.svg)](https://github.com/DockerRescueKit/DockerRescueKit/actions)
+[![CI](https://img.shields.io/badge/CI-pending-lightgrey.svg)](https://github.com/gozippy/DockerRescueKit/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker Pulls](https://img.shields.io/badge/docker%20pulls-pending-lightgrey.svg)](https://hub.docker.com/r/dockerrescuekit/backend)
+[![Docker Pulls](https://img.shields.io/badge/docker%20pulls-pending-lightgrey.svg)](https://hub.docker.com/r/gozippy/dockerrescuekit)
 
 DockerRescueKit is a self-hosted backup service for Docker. It runs as a
 single container next to your Docker daemon, discovers your containers
@@ -36,7 +36,7 @@ driven by the same service through a REST API, a web UI, and a CLI.
 ## Quick Start
 
 ```bash
-git clone https://github.com/DockerRescueKit/DockerRescueKit.git
+git clone https://github.com/gozippy/DockerRescueKit.git
 cd DockerRescueKit
 docker compose up -d
 ```

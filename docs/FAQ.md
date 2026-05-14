@@ -87,7 +87,7 @@ monorepo already contains a working React UI that mounts inside the
 Docker Desktop extension shell; we're waiting on Docker Desktop's
 extension marketplace review before shipping it as a one-click
 install. In the meantime you can side-load it via
-`docker extension install dockerrescuekit/extension:next`.
+`docker extension install gozippy/dockerrescuekit:next`.
 
 ## How do I contribute?
 

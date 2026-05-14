@@ -8,7 +8,7 @@
 #     edits hot-reload inside the container (ts-node-dev --respawn).
 #   - Switches NODE_ENV to development.
 #   - Replaces the production CMD with `npx ts-node-dev --respawn src/index.ts`.
-#   - Does NOT rebuild the image — assumes dockerrescuekit/backend:latest is
+#   - Does NOT rebuild the image — assumes gozippy/dockerrescuekit:standalone-latest is
 #     already built (run `make docker-build` first).
 #
 # Note: ts-node-dev must already be present in the image (it is in the
@@ -18,7 +18,7 @@
 
 services:
   drk:
-    image: dockerrescuekit/backend:latest
+    image: gozippy/dockerrescuekit:standalone-latest
     environment:
       NODE_ENV: development
     volumes:

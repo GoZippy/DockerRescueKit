@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Discussion
-    url: https://github.com/dockerrescuekit/docker-rescue-kit/discussions
+    url: https://github.com/gozippy/DockerRescueKit/discussions
     about: Ask questions and discuss ideas
   - name: Documentation
-    url: https://github.com/dockerrescuekit/docker-rescue-kit/wiki
+    url: https://github.com/gozippy/DockerRescueKit/wiki
     about: Check the docs first

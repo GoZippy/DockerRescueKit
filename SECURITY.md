@@ -20,7 +20,7 @@ Only the versions listed below receive security updates.
 You have two options:
 
 1. **Email:** Please report vulnerabilities to `gotadvantage@gmail.com` with subject prefix `[DRK SECURITY]`.
-2. **GitHub Security Advisory:** Open a [GitHub Security Advisory](https://github.com/dockerrescuekit/docker-rescue-kit/security/advisories/new) directly in this repository. This keeps the report private until a fix is ready.
+2. **GitHub Security Advisory:** Open a [GitHub Security Advisory](https://github.com/gozippy/DockerRescueKit/security/advisories/new) directly in this repository. This keeps the report private until a fix is ready.
 
 ### What to Include
 

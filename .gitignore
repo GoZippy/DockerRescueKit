@@ -74,3 +74,15 @@ $RECYCLE.BIN/
 *.swo
 *.tmp
 *~
+
+# ── Third-party license raw machine output (path-leaking) ────────────────────
+THIRD_PARTY_LICENSES.json
+
+# ── Generated screenshots (track only what's referenced in README) ───────────
+# (docs/screenshots/ is intentionally tracked — it's the README/Marketplace assets)
+
+# ── Misc IDE / harness leftovers ─────────────────────────────────────────────
+.aider*
+.cursorignore
+.continueignore
+.windsurfignore

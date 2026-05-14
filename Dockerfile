@@ -3,7 +3,7 @@
 # Packages the backend + built UI + extension metadata into a single image
 # that `docker extension install` can consume.
 #
-# Self-contained: no pulls from unpublished dockerrescuekit/* tags.
+# Self-contained: no pulls from unpublished gozippy/* tags.
 # Build context must be the REPO ROOT:
 #   docker build -t drk-extension:dev -f Dockerfile .
 
@@ -47,15 +47,15 @@ FROM node:20-alpine AS final
 LABEL org.opencontainers.image.title="Docker Rescue Kit" \
       org.opencontainers.image.description="Backup and restore for Docker containers, volumes, and stacks" \
       org.opencontainers.image.vendor="DockerRescueKit" \
-      org.opencontainers.image.source="https://github.com/DockerRescueKit/DockerRescueKit" \
+      org.opencontainers.image.source="https://github.com/gozippy/DockerRescueKit" \
       com.docker.desktop.extension.api.version="0.3.4" \
       com.docker.desktop.extension.icon="drk-icon.svg" \
-      com.docker.extension.screenshots='[{"alt":"Dashboard","url":"https://raw.githubusercontent.com/DockerRescueKit/DockerRescueKit/main/docs/screenshots/01-dashboard.png"},{"alt":"Policies","url":"https://raw.githubusercontent.com/DockerRescueKit/DockerRescueKit/main/docs/screenshots/02-policies.png"},{"alt":"Settings","url":"https://raw.githubusercontent.com/DockerRescueKit/DockerRescueKit/main/docs/screenshots/03-settings.png"}]' \
+      com.docker.extension.screenshots='[{"alt":"Dashboard","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/01-dashboard.png"},{"alt":"Policies","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/02-policies.png"},{"alt":"Settings","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/03-settings.png"}]' \
       com.docker.extension.detailed-description="Docker Rescue Kit is a complete backup and restore solution for Docker. It captures point-in-time snapshots of containers, named volumes, and full compose stacks, with scheduled policies, retention rules, and one-click restore. Backups can be stored locally or pushed to remote destinations (SMB, S3, and any rclone-supported provider). Built for homelab and small-team operators who need reliable rollback without leaving Docker Desktop." \
-      com.docker.extension.publisher-url="https://github.com/DockerRescueKit/DockerRescueKit" \
-      com.docker.extension.additional-urls='[{"title":"Changelog","url":"https://github.com/DockerRescueKit/DockerRescueKit/blob/main/CHANGELOG.md"},{"title":"Documentation","url":"https://github.com/DockerRescueKit/DockerRescueKit/blob/main/README.md"}]' \
+      com.docker.extension.publisher-url="https://github.com/gozippy/DockerRescueKit" \
+      com.docker.extension.additional-urls='[{"title":"Changelog","url":"https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md"},{"title":"Documentation","url":"https://github.com/gozippy/DockerRescueKit/blob/main/README.md"}]' \
       com.docker.extension.categories="backup,utility-tools" \
-      com.docker.extension.changelog="https://github.com/DockerRescueKit/DockerRescueKit/blob/main/CHANGELOG.md"
+      com.docker.extension.changelog="https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md"
 
 # restic + rclone are required by all remote storage adapters.
 RUN apk add --no-cache tini restic rclone ca-certificates fuse3 \

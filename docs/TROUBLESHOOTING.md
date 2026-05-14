@@ -193,9 +193,9 @@ explicitly.
 uname -m       # → aarch64 (64-bit Pi) or armv7l (32-bit)
 
 # Re-pull the right manifest
-docker pull --platform linux/arm64 dockerrescuekit/backend:latest
+docker pull --platform linux/arm64 gozippy/dockerrescuekit:standalone-latest
 # or for 32-bit Pi:
-docker pull --platform linux/arm/v7 dockerrescuekit/backend:latest
+docker pull --platform linux/arm/v7 gozippy/dockerrescuekit:standalone-latest
 ```
 
 If you're on 32-bit Raspbian, upgrade to 64-bit Bookworm — `better-

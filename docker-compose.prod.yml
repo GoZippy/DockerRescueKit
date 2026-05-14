@@ -19,7 +19,7 @@ services:
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
-    image: dockerrescuekit/backend:latest
+    image: gozippy/dockerrescuekit:standalone-latest
     container_name: drk
     restart: unless-stopped
     ports:

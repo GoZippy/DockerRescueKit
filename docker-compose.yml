@@ -4,7 +4,7 @@
 
 services:
   drk:
-    image: dockerrescuekit/backend:latest
+    image: gozippy/dockerrescuekit:standalone-latest
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
