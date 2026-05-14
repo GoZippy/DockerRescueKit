@@ -49,7 +49,7 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit" \
       org.opencontainers.image.vendor="DockerRescueKit" \
       org.opencontainers.image.source="https://github.com/gozippy/DockerRescueKit" \
       com.docker.desktop.extension.api.version="0.3.4" \
-      com.docker.desktop.extension.icon="drk-icon.svg" \
+      com.docker.desktop.extension.icon="https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/drk-icon.svg" \
       com.docker.extension.screenshots='[{"alt":"Dashboard","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/01-dashboard.png"},{"alt":"Policies","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/02-policies.png"},{"alt":"Settings","url":"https://raw.githubusercontent.com/gozippy/DockerRescueKit/main/docs/screenshots/03-settings.png"}]' \
       com.docker.extension.detailed-description="Docker Rescue Kit is a complete backup and restore solution for Docker. It captures point-in-time snapshots of containers, named volumes, and full compose stacks, with scheduled policies, retention rules, and one-click restore. Backups can be stored locally or pushed to remote destinations (SMB, S3, and any rclone-supported provider). Built for homelab and small-team operators who need reliable rollback without leaving Docker Desktop." \
       com.docker.extension.publisher-url="https://github.com/gozippy/DockerRescueKit" \
@@ -70,9 +70,11 @@ COPY --from=builder /workspace/packages/backend/package.json    ./packages/backe
 COPY --from=builder /workspace/packages/backend/dist            ./packages/backend/dist
 COPY --from=builder /workspace/packages/extension/dist          /ui
 
-# Extension metadata + assets at image root (Docker Desktop reads these)
+# Extension metadata + assets at image root (Docker Desktop reads these).
+# The compose file MUST be named compose.yaml (or docker-compose.yaml) per
+# the marketplace validator regex.
 COPY metadata.json                /metadata.json
-COPY docker-compose.extension.yml /docker-compose.extension.yml
+COPY docker-compose.extension.yml /compose.yaml
 COPY drk-icon.svg                 /drk-icon.svg
 
 # Socket transport — Docker Desktop SDK discovers /run/guest-services/drk.sock

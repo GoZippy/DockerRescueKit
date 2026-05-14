@@ -8,7 +8,7 @@
     }
   },
   "vm": {
-    "composefile": "docker-compose.extension.yml"
+    "composefile": "compose.yaml"
   },
   "host": {
     "binaries": []
