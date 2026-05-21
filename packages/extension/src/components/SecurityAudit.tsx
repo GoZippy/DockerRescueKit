@@ -170,7 +170,7 @@ export const SecurityAudit: React.FC = () => {
                 <Cpu size={16} /> System info
               </div>
               <div style={{ fontSize: 12, color: 'rgba(251,191,36,0.8)' }}>
-                Version {sysVer} running on port 42880.
+                Version {sysVer || 'Unknown'}.
               </div>
             </div>
           </div>

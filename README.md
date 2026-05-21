@@ -2,9 +2,9 @@
 
 **Automated backup and restore for Docker containers, volumes, images, and networks.**
 
-[![CI](https://img.shields.io/badge/CI-pending-lightgrey.svg)](https://github.com/gozippy/DockerRescueKit/actions)
+[![CI](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker Pulls](https://img.shields.io/badge/docker%20pulls-pending-lightgrey.svg)](https://hub.docker.com/r/gozippy/dockerrescuekit)
+[![Docker Hub](https://img.shields.io/docker/pulls/gozippy/dockerrescuekit.svg)](https://hub.docker.com/r/gozippy/dockerrescuekit)
 
 DockerRescueKit is a self-hosted backup service for Docker. It runs as a
 single container next to your Docker daemon, discovers your containers
@@ -136,12 +136,52 @@ enterprise deployments, see [`docs/DEPLOYMENT_BY_TIER.md`](docs/DEPLOYMENT_BY_TI
 
 ## Docker Desktop Extension
 
-DockerRescueKit currently ships as a standalone container. A native
-Docker Desktop extension that embeds the same UI inside Docker Desktop
-is on the **v1.1 roadmap**. The extension UI bundle is already built
-and served by the backend at `/`, so today's experience is functionally
-equivalent — you just navigate to `http://localhost:42880` in your
-browser instead of opening Docker Desktop.
+DockerRescueKit ships as both a **standalone container** and a native
+**Docker Desktop Extension** that embeds the UI directly inside Docker
+Desktop.
+
+Install the extension from Docker Desktop (Extensions Marketplace) or
+via CLI:
+
+```bash
+docker extension install gozippy/dockerrescuekit:latest
+```
+
+The extension and the standalone container share the same backend
+codebase. The only runtime difference is transport mode: the standalone
+container serves the UI on `http://localhost:42880` over TCP; the
+Docker Desktop Extension routes API calls through the Docker Desktop
+socket (`DRK_TRANSPORT=socket`). Both are available from the same
+published image.
+
+---
+
+## Roadmap
+
+| Feature | Free | Pro (coming) |
+|---|---|---|
+| Backup scheduling + retention | ✅ Unlimited | ✅ |
+| Local, SMB/CIFS, SFTP storage | ✅ | ✅ |
+| S3-compatible object storage | ✅ | ✅ |
+| Proxmox Backup Server | ✅ | ✅ |
+| Rclone (~40 providers incl. GDrive, OneDrive) | ✅ | ✅ |
+| Point-in-time restore + partial file extract | ✅ | ✅ |
+| Backup verify (scratch container test) | ✅ | ✅ |
+| CLI (`drk`) + REST API | ✅ | ✅ |
+| Prometheus metrics | ✅ | ✅ |
+| Docker Desktop Extension | ✅ | ✅ |
+| Concurrent policy limit | 5 | Unlimited |
+| Slack / email / webhook notifications | — | ✅ |
+| Managed offsite backup (hosted S3) | — | ✅ |
+| Backup encryption (AES-256, bring your own key) | — | ✅ |
+| Extended audit log retention | 30 days | 90 days |
+| Priority support | Community | 24-hour |
+| Multi-user / RBAC | — | Enterprise |
+| SSO (SAML/OIDC) | — | Enterprise |
+| Managed HA infrastructure (AWS/GCP) | — | Enterprise |
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full implementation
+status and planned feature timeline.
 
 ---
 

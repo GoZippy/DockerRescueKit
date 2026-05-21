@@ -218,7 +218,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   }
 
   return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start' }}>
+    <div className="modal-overlay" style={{ alignItems: 'flex-start', overflowY: 'auto' }}>
       <div
         ref={modalRef}
         role="dialog"

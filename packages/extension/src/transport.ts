@@ -100,24 +100,33 @@ function buildTcpClient(): ApiClient {
 function buildExtensionClient(): ApiClient {
   const ddClient = createDockerDesktopClient()
   const svc = () => ddClient.extension.vm!.service!
+  // Mirror the TCP transport's axios baseURL so all paths resolve under /api
+  const prefix = (path: string) => `/api${path}`
+
+  function parseRes<T>(res: unknown): T {
+    if (typeof res === 'string') {
+      try { return JSON.parse(res) as T } catch {}
+    }
+    return res as T
+  }
 
   return {
     async get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
-      const url = appendQuery(path, params)
+      const url = appendQuery(prefix(path), params)
       const res = await svc().get(url)
-      return res as T
+      return parseRes<T>(res)
     },
     async post<T>(path: string, body?: unknown): Promise<T> {
-      const res = await svc().post(path, body ?? {})
-      return res as T
+      const res = await svc().post(prefix(path), body ?? {})
+      return parseRes<T>(res)
     },
     async put<T>(path: string, body?: unknown): Promise<T> {
-      const res = await svc().put(path, body ?? {})
-      return res as T
+      const res = await svc().put(prefix(path), body ?? {})
+      return parseRes<T>(res)
     },
     async delete<T>(path: string): Promise<T> {
-      const res = await svc().delete(path)
-      return res as T
+      const res = await svc().delete(prefix(path))
+      return parseRes<T>(res)
     },
   }
 }

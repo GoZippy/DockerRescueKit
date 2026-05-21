@@ -378,8 +378,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px 16px;
-    /* The overlay itself does NOT scroll — the modal-body inside it does */
-    overflow: hidden;
+    overflow: auto;
   }
 
   .modal-panel {
@@ -389,8 +388,7 @@
     width: 100%;
     max-width: 860px;
     /* Take up to the full viewport height minus comfortable margin */
-    height: calc(100vh - 80px);
-    max-height: 900px;
+    max-height: min(calc(100dvh - 80px), 860px);
     display: flex;
     flex-direction: column;
     /* Panel itself doesn't scroll — only modal-body does */
@@ -431,8 +429,7 @@
   /* Small screens: full-screen modal */
   @media (max-width: 640px) {
     .modal-panel {
-      height: 100vh;
-      max-height: 100vh;
+      max-height: 100dvh;
       border-radius: 0;
     }
     .modal-overlay {

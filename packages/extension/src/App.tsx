@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Dashboard } from './components/Dashboard'
 import { VaultList } from './components/VaultList'
 import { SecurityAudit } from './components/SecurityAudit'
@@ -9,7 +9,7 @@ import { VerifyHistory } from './components/VerifyHistory'
 import { SettingsPage } from './components/SettingsPage'
 import { StacksPage } from './components/StacksPage'
 import { SetupScreen } from './components/SetupScreen'
-import { getApiKey } from './api'
+import { getApiKey, getStatus } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
@@ -49,6 +49,21 @@ const MainApp: React.FC = () => {
   const [active, setActive] = useState<TabId>('dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [dockerOnline, setDockerOnline] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const s = await getStatus()
+        setDockerOnline(s?.docker ?? null)
+      } catch {
+        setDockerOnline(false)
+      }
+    }
+    check()
+    const interval = setInterval(check, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Show setup screen when no API key is configured. Skipped entirely in
   // Docker Desktop extension mode — Desktop's IPC channel handles auth.
@@ -236,8 +251,10 @@ const MainApp: React.FC = () => {
             color: 'var(--text-secondary)',
             flexShrink: 0,
           }}>
-            <span className="status-dot success pulse-dot" />
-            <span style={{ display: 'none' }} id="status-label">Online</span>
+            <span className={`status-dot ${dockerOnline === null ? 'idle' : dockerOnline ? 'success pulse-dot' : 'failed'}`} />
+            <span id="status-label" style={{ display: 'none' }}>
+              {dockerOnline === null ? 'Connecting' : dockerOnline ? 'Online' : 'Offline'}
+            </span>
           </div>
         </header>
 

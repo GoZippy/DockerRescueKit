@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [Unreleased]
+
+### Added
+
+**Docker Desktop Extension — Dual-Transport Support (Phase 8)**
+- Native Docker Desktop Extension integration via Unix socket transport (`DRK_TRANSPORT=socket`), in addition to the existing TCP path
+- Extension UI now served inside Docker Desktop using the socket transport; standalone container deployments continue to use TCP (port 42880) unchanged
+- Vite build flag `VITE_TRANSPORT=extension` sets relative `base` path (`./`) required for `file://` serving within Docker Desktop — TCP builds keep `/`
+- `import.meta.env.VITE_TRANSPORT` injected at build time so the React UI can select the correct API transport at runtime
+- Tailwind CSS via `@tailwindcss/vite` plugin added to the extension build
+
+### Changed
+
+- Docker Hub image namespace updated to `gozippy` across all image tags, CI references, and documentation (`gozippy/dockerrescuekit`)
+- CI/CD pipeline (`.github/workflows/docker.yml`) now builds **and pushes** both the standalone backend image (`gozippy/dockerrescuekit:standalone-*`) and the Docker Desktop Extension image (`gozippy/dockerrescuekit:*`) on `v*` tag pushes; previously only one image was published per release
+
+### Fixed
+
+- `metadata.json` updated to satisfy Docker Desktop Marketplace validator requirements: correct icon reference (`drk-icon.svg`), UI tab definition with `root`/`src` fields, and `vm.composefile` pointing to `compose.yaml`
+
+---
+
 ## [1.0.0] - 2026-05-11
 
 First public release.

@@ -5,6 +5,8 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
+  // Extension is served from file:// in Docker Desktop — relative base is required
+  base: process.env.VITE_TRANSPORT === 'extension' ? './' : '/',
   plugins: [
     react(),
     tailwindcss(),

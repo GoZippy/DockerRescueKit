@@ -146,12 +146,15 @@ export class BackupService {
       res.json({ status: 'ok', uptime: process.uptime() })
     })
 
-    // General API rate limiter — 100 requests per 15 minutes per IP
+    // General API rate limiter — 100 requests per 15 minutes per IP.
+    // Unix socket connections (Docker Desktop extension transport) have no
+    // req.ip; skip rate limiting for those — Docker Desktop is the only caller.
     const apiRateLimiter = rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 100,
       standardHeaders: true,
-      legacyHeaders: false
+      legacyHeaders: false,
+      skip: (req) => !req.ip,
     })
 
     // Tighter brute-force limiter for auth failures — 10 FAILED requests per
@@ -163,7 +166,8 @@ export class BackupService {
       max: 10,
       standardHeaders: true,
       legacyHeaders: false,
-      skipSuccessfulRequests: true
+      skipSuccessfulRequests: true,
+      skip: (req) => !req.ip,
     })
 
     this.app.use('/api', apiRateLimiter)
@@ -573,6 +577,12 @@ export class BackupService {
     // request time; everything else is shared.
     if (TRANSPORT === 'socket') {
       const socketPath = process.env.DRK_SOCKET_PATH || '/run/guest-services/drk.sock'
+      // Ensure the parent directory exists. The compose bind-mount
+      // (source=/run/guest-services/gozippy_dockerrescuekit, create_host_path:true)
+      // handles this on install; mkdirSync is a safety net for bare dev runs.
+      try {
+        fs.mkdirSync(require('path').dirname(socketPath), { recursive: true, mode: 0o755 })
+      } catch (_) { /* ignore */ }
       // Stale sockets from a previous crash will cause listen() to throw
       // EADDRINUSE — best-effort unlink before we bind. ENOENT is the happy
       // path (no leftover file). Anything else we let bubble so we don't
@@ -584,11 +594,11 @@ export class BackupService {
       }
       this.httpServer = this.app.listen({ path: socketPath } as any, () => {
         // chmod after listen returns so the socket file actually exists.
-        // 0o660 = owner+group read/write — Docker Desktop runs the extension
-        // process as the same uid as the guest-services group, which is what
-        // it uses to gate access; 660 keeps the world out.
+        // 0o777 matches the pattern used by all Docker Desktop bundled extensions
+        // (e.g. volumes-backup, grafana, harpoon) — Docker Desktop's proxy
+        // service runs as a different uid so it needs world-execute to connect.
         try {
-          fs.chmodSync(socketPath, 0o660)
+          fs.chmodSync(socketPath, 0o777)
         } catch (err: any) {
           console.warn(`[DRK] failed to chmod ${socketPath}: ${err?.message || err}`)
         }

@@ -3,12 +3,18 @@
   "ui": {
     "dashboard-tab": {
       "title": "Docker Rescue Kit",
-      "root": "/ui",
-      "src": "index.html"
+      "root": "ui",
+      "src": "index.html",
+      "backend": {
+        "socket": "drk.sock"
+      }
     }
   },
   "vm": {
-    "composefile": "compose.yaml"
+    "composefile": "compose.yaml",
+    "exposes": {
+      "socket": "drk.sock"
+    }
   },
   "host": {
     "binaries": []

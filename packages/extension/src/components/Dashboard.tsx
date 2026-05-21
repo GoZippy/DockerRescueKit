@@ -301,12 +301,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-card-icon" style={{ background: sysStatus?.docker ? 'var(--emerald-dim)' : 'var(--rose-dim)' }}>
-            <Server size={20} color={sysStatus?.docker ? 'var(--emerald)' : 'var(--rose)'} />
+          <div className="stat-card-icon" style={{
+            background: sysStatus === null ? 'var(--surface-3)' : sysStatus?.docker ? 'var(--emerald-dim)' : 'var(--rose-dim)'
+          }}>
+            <Server size={20} color={sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? 'var(--emerald)' : 'var(--rose)'} />
           </div>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: sysStatus?.docker ? '#34d399' : '#fb7185' }}>
-              {sysStatus?.docker ? 'Online' : 'Offline'}
+            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? '#34d399' : '#fb7185' }}>
+              {sysStatus === null ? '—' : sysStatus.docker ? 'Online' : 'Offline'}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Docker Status · {containerCount}c</div>
           </div>

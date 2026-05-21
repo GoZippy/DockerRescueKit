@@ -3,10 +3,13 @@
 # bundle by Docker Desktop from the `ui/` directory baked into the image.
 # ${DESKTOP_PLUGIN_IMAGE} is injected by `docker extension install`.
 #
-# Backend listens on a Unix socket inside the container at
-# /run/guest-services/drk.sock. The parent dir is bind-mounted from Docker
-# Desktop's VM so the SDK can discover the socket and proxy it to the UI
-# via ddClient.extension.vm.service.
+# Mount convention (matches docker/volumes-backup-extension and others):
+#   source: /run/guest-services/gozippy_dockerrescuekit  (host VM subdirectory)
+#   target: /run/guest-services                          (inside container)
+# Backend writes drk.sock to /run/guest-services/ inside the container,
+# which resolves to /run/guest-services/gozippy_dockerrescuekit/drk.sock on
+# the host. Docker Desktop reads the mount source + metadata.json vm.exposes.socket
+# to discover and proxy the socket — no label override needed.
 
 services:
   backend:
@@ -18,12 +21,10 @@ services:
       - DRK_DATA_DIR=/data
     volumes:
       - drk-data:/data
-      - /run/guest-services:/run/guest-services
+      - /run/guest-services/gozippy_dockerrescuekit:/run/guest-services
+      - /var/run/docker.sock:/var/run/docker.sock
     labels:
-      # Docker Desktop SDK discovers this socket and exposes it to the UI
-      # via ddClient.extension.vm.service.
       com.docker.desktop.extension.api.version: "0.3.4"
-      com.docker.desktop.service.socket: "/run/guest-services/drk.sock"
 
 volumes:
   drk-data:
