@@ -2,16 +2,21 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X, Save, ArrowRight, ArrowLeft, Layers, HardDrive,
   Box, Search, CheckSquare, Square, Server, Cloud, Network as NetIcon,
-  HardDrive as DriveIcon, Wifi,
+  HardDrive as DriveIcon, Wifi, Info,
 } from 'lucide-react'
 import {
   getVolumes, getContainers, listImages, listNetworks,
-  listStacks, getConnectorInstances, createPolicy
+  listStacks, getConnectorInstances, createPolicy, updatePolicy,
 } from '../api'
+import { BackupPolicy } from '@docker-rescue-kit/shared'
+import { CronPicker } from './CronPicker'
 
 interface WizardProps {
   onClose: () => void
   onSuccess: () => void
+  /** When provided, the wizard runs in edit mode: state is pre-filled from
+   *  the policy and submit calls updatePolicy(id, ...) instead of createPolicy. */
+  initialPolicy?: BackupPolicy
 }
 
 type TargetType = 'volume' | 'container' | 'image' | 'network'
@@ -42,7 +47,8 @@ const STORAGE_TYPES = [
   { id: 'smb',    label: 'SMB / CIFS',     desc: 'Windows shares / NAS',           Icon: NetIcon },
 ]
 
-export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
+export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initialPolicy }) => {
+  const isEdit = !!initialPolicy
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -56,7 +62,17 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   const [connectors, setConnectors] = useState<any[]>([])
   const [targetSearch, setTargetSearch] = useState('')
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => initialPolicy ? {
+    name: initialPolicy.name,
+    schedule: initialPolicy.schedule,
+    verifySchedule: initialPolicy.verifySchedule || '',
+    backupType: initialPolicy.backupType,
+    retentionCount: initialPolicy.retention.count ?? 7,
+    storageType: initialPolicy.storage.type,
+    storageConnectorId: initialPolicy.storage.connectorId || '',
+    targets: initialPolicy.targets.map(t => ({ type: t.type as TargetType, selector: t.selector })),
+    enabled: initialPolicy.enabled,
+  } : {
     name: '',
     schedule: '0 2 * * *',
     verifySchedule: '',
@@ -65,6 +81,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
     storageType: 'local',
     storageConnectorId: '',
     targets: [] as TargetDraft[],
+    enabled: true,
   })
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -178,24 +195,34 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
-      await createPolicy({
+      const payload = {
         name: form.name || `policy-${Date.now()}`,
-        enabled: true,
+        enabled: form.enabled,
         targets: form.targets,
         schedule: form.schedule,
         verifySchedule: form.verifySchedule || undefined,
         backupType: form.backupType,
         retention: { strategy: 'count', count: form.retentionCount },
-        storage: {
+        storage: isEdit && initialPolicy ? {
+          ...initialPolicy.storage,
+          type: form.storageType,
+          connectorId: form.storageConnectorId || undefined,
+        } : {
           id: form.storageConnectorId || `storage-${Date.now()}`,
           type: form.storageType,
           path: 'data/backups',
+          connectorId: form.storageConnectorId || undefined,
         },
-      })
+      }
+      if (isEdit && initialPolicy) {
+        await updatePolicy(initialPolicy.id, payload)
+      } else {
+        await createPolicy(payload)
+      }
       onSuccess()
     } catch (err) {
       console.error(err)
-      alert('Failed to create policy')
+      alert(isEdit ? 'Failed to save policy' : 'Failed to create policy')
     } finally {
       setSubmitting(false)
     }
@@ -232,7 +259,9 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
         {/* Header */}
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span id="policy-wizard-title" style={{ fontWeight: 700, fontSize: 15 }}>Create Protection Policy</span>
+            <span id="policy-wizard-title" style={{ fontWeight: 700, fontSize: 15 }}>
+              {isEdit ? `Edit Policy — ${initialPolicy?.name}` : 'Create Protection Policy'}
+            </span>
             {form.targets.length > 0 && (
               <span className="badge badge-info">{form.targets.length} targets</span>
             )}
@@ -281,6 +310,10 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                       value={form.name}
                       onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                     />
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Info size={11} />
+                      Choose a short, descriptive name. You can have multiple policies per stack — e.g. nightly-db + weekly-full.
+                    </div>
                   </div>
 
                   {/* Docker offline banner */}
@@ -448,48 +481,36 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
               {/* ─── Step 2: SCHEDULE ────────────────────────── */}
               {step === 2 && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                  {/* Left: schedule presets */}
-                  <div>
-                    <label className="form-label">Backup schedule</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {SCHEDULE_PRESETS.map(p => (
-                        <button
-                          key={p.cron}
-                          onClick={() => setForm(f => ({ ...f, schedule: p.cron }))}
-                          className={`radio-card ${form.schedule === p.cron ? 'selected' : ''}`}
-                        >
-                          <div className="radio-dot"><div className="radio-dot-inner" /></div>
-                          <div style={{ textAlign: 'left' }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{p.desc}</div>
-                            <div className="font-mono" style={{ fontSize: 11, color: '#60a5fa', marginTop: 2 }}>{p.cron}</div>
-                          </div>
-                        </button>
-                      ))}
-                      <div>
-                        <label className="form-label" style={{ marginTop: 8 }}>Custom cron expression</label>
-                        <input
-                          className="form-input font-mono"
-                          placeholder="0 2 * * *"
-                          value={form.schedule}
-                          onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
-                        />
-                      </div>
+                  {/* Left: backup schedule via CronPicker */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <CronPicker
+                      label="Backup schedule"
+                      value={form.schedule}
+                      onChange={v => setForm(f => ({ ...f, schedule: v }))}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: 'var(--surface-1)', borderRadius: 'var(--r-sm)', fontSize: 12 }}>
+                      <Info size={13} color="var(--blue-400, #60a5fa)" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Backups run inside the Docker Desktop VM. Pick a window when your data is quiet —
+                        typically overnight or between deployments.
+                      </span>
                     </div>
                   </div>
 
-                  {/* Right: retention + verify */}
+                  {/* Right: retention + type + verify */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div>
-                      <label className="form-label">Retention count</label>
+                      <label className="form-label">Retention — how many backups to keep</label>
                       <input
                         type="number" min={1} max={365}
                         className="form-input"
                         value={form.retentionCount}
                         onChange={e => setForm(f => ({ ...f, retentionCount: parseInt(e.target.value) || 7 }))}
                       />
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                        Keep the last {form.retentionCount} successful backup(s)
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 11, color: 'var(--text-muted)' }}>
+                        <Info size={11} />
+                        Older backups are pruned automatically once the limit is reached.
+                        7 is a good default for daily schedules.
                       </div>
                     </div>
 
@@ -500,17 +521,22 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                         value={form.backupType}
                         onChange={e => setForm(f => ({ ...f, backupType: e.target.value }))}
                       >
-                        <option value="full">Full</option>
-                        <option value="incremental">Incremental</option>
-                        <option value="snapshot">Snapshot</option>
+                        <option value="full">Full — complete snapshot every run</option>
+                        <option value="incremental">Incremental — only changed files</option>
+                        <option value="snapshot">Snapshot — filesystem-level snapshot</option>
                       </select>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        <strong>Full</strong> is safest and simplest. Use incremental only if backup size is a concern.
+                      </div>
                     </div>
 
                     <div>
                       <label className="form-label">Verify schedule</label>
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Periodically scratch-restore the latest backup to prove it is recoverable.
-                      </p>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <Info size={11} color="var(--emerald)" style={{ flexShrink: 0, marginTop: 1 }} />
+                        Automatically scratch-restores your latest backup to confirm it is actually recoverable.
+                        Highly recommended for critical data.
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {VERIFY_PRESETS.map(p => (
                           <button
@@ -555,6 +581,13 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                       ))}
                     </div>
 
+                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      <Info size={11} color="var(--blue-400, #60a5fa)" style={{ flexShrink: 0, marginTop: 1 }} />
+                      {form.storageType === 'local'
+                        ? 'Backups are stored on the Docker Desktop VM disk under /data/backups. Good for development; not recommended for sole production backups.'
+                        : 'Set up a connector first in the Connectors page to store credentials securely. Then select it here.'}
+                    </div>
+
                     {form.storageType !== 'local' && (
                       <div style={{ marginTop: 12 }}>
                         <label className="form-label">Saved connector (optional)</label>
@@ -563,11 +596,16 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                           value={form.storageConnectorId}
                           onChange={e => setForm(f => ({ ...f, storageConnectorId: e.target.value }))}
                         >
-                          <option value="">— none —</option>
+                          <option value="">— none — (will use inline config)</option>
                           {connectors.filter(c => c.type === form.storageType).map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
+                        {connectors.filter(c => c.type === form.storageType).length === 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--amber, #f59e0b)', marginTop: 4 }}>
+                            No {form.storageType} connectors saved yet. Add one in the Connectors page, then come back.
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -590,6 +628,19 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                           <span className={k === 'Schedule' || k === 'Verify' ? 'font-mono' : ''} style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
                         </div>
                       ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--surface-4)', paddingTop: 10 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Active</span>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={form.enabled}
+                            onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+                          />
+                          <span style={{ fontSize: 12, fontWeight: 600, color: form.enabled ? '#34d399' : 'var(--text-muted)' }}>
+                            {form.enabled ? 'Enabled' : 'Paused'}
+                          </span>
+                        </label>
+                      </div>
                     </div>
 
                     {/* Targets breakdown */}
@@ -638,7 +689,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
               disabled={submitting || form.targets.length === 0}
             >
               <Save size={14} />
-              {submitting ? 'Creating…' : 'Create Policy'}
+              {submitting ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create Policy')}
             </button>
           )}
         </div>

@@ -9,6 +9,7 @@ import { VerifyHistory } from './components/VerifyHistory'
 import { SettingsPage } from './components/SettingsPage'
 import { StacksPage } from './components/StacksPage'
 import { SetupScreen } from './components/SetupScreen'
+import { VersionBadge } from './components/VersionBadge'
 import { getApiKey, getStatus } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
@@ -35,7 +36,7 @@ const NAV: NavItem[] = [
   { id: 'history',    label: 'Backup History',   icon: Clock,       bottomNav: true },
   { id: 'verify',     label: 'Verify History',   icon: ShieldCheck, bottomNav: false },
   { id: 'storage',    label: 'Storage Vault',    icon: Server,      bottomNav: false },
-  { id: 'connectors', label: 'Connectors',       icon: Plug,        bottomNav: false },
+  { id: 'connectors', label: 'Integrations',     icon: Plug,        bottomNav: false },
   { id: 'audit',      label: 'Security Audit',   icon: Shield,      bottomNav: false },
   { id: 'settings',   label: 'Settings',         icon: Settings,    bottomNav: false },
 ]
@@ -50,6 +51,7 @@ const MainApp: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [dockerOnline, setDockerOnline] = useState<boolean | null>(null)
+  const [deepLinkPolicyId, setDeepLinkPolicyId] = useState<string | undefined>()
 
   useEffect(() => {
     const check = async () => {
@@ -126,6 +128,11 @@ const MainApp: React.FC = () => {
           ))}
         </nav>
 
+        {/* Version badge — hidden when sidebar is collapsed (non-invasive) */}
+        {!sidebarCollapsed && (
+          <VersionBadge onOpenSettings={() => navigate('settings')} />
+        )}
+
         {/* Collapse toggle */}
         <button
           onClick={() => setSidebarCollapsed(c => !c)}
@@ -181,6 +188,9 @@ const MainApp: React.FC = () => {
                 <span>{item.label}</span>
               </button>
             ))}
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--surface-4)', paddingTop: 8 }}>
+              <VersionBadge compact onOpenSettings={() => navigate('settings')} />
+            </div>
           </div>
         </div>
       )}
@@ -270,8 +280,14 @@ const MainApp: React.FC = () => {
         >
           <div className="animate-fade-up">
             {active === 'dashboard'  && <Dashboard onNavigate={id => setActive(id as TabId)} />}
-            {active === 'policies'   && <PolicyList />}
-            {active === 'stacks'     && <StacksPage />}
+            {active === 'policies'   && <PolicyList initialPolicyId={deepLinkPolicyId} />}
+            {active === 'stacks'     && (
+              <StacksPage onEditPolicy={p => {
+                setDeepLinkPolicyId(p.id)
+                setActive('policies')
+                setMobileMenuOpen(false)
+              }} />
+            )}
             {active === 'history'    && <BackupHistory />}
             {active === 'verify'     && <VerifyHistory />}
             {active === 'storage'    && <VaultList />}

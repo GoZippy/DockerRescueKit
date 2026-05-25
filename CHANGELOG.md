@@ -9,7 +9,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+---
+
+## [1.2.0-rc.1] - 2026-05-24
+
+Competitive-response release driven by [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md).
+The Docker Desktop Extension Marketplace category for backup/restore is
+effectively empty since Docker archived their own
+`docker/volumes-backup-extension` on 2024-10-29. This release closes
+the visible feature gap to `tiredofit/docker-db-backup` (DB-engine
+parity) and adds positioning content vs. `offen/docker-volume-backup`,
+`kopia`, `restic`, and `Duplicati`.
+
 ### Added
+
+**Database exporters**
+- **InfluxDB** (`{ kind: 'influxdb', version: 'v1' | 'v2', ... }`) — renders
+  `influx backup` for v2 (token / org / bucket arguments) and
+  `influxd backup -portable` for v1 (with optional `-db <name>`)
+- **MSSQL** (`{ kind: 'mssql', db, server?, authMode?, user?, password?, outPath? }`)
+  — emits `sqlcmd -Q "BACKUP DATABASE [db] TO DISK = N'...' WITH INIT"`
+  with default Windows trusted auth (`-E`) or SQL auth (`-U`/`-P`).
+  `WITH INIT` overwrites instead of appending so re-runs don't grow the
+  `.bak`. `COMPRESSION` is intentionally omitted for SQL Server Express
+  portability.
+- Shared `DatabaseExporter` discriminated union in
+  `@docker-rescue-kit/shared` updated to match.
+- 8 new unit tests covering v1 + v2 InfluxDB paths and Windows-auth,
+  SQL-auth, named-instance, and quote-escaping MSSQL paths.
+
+**Documentation — SEO + positioning**
+- New `docs/COMPETITIVE_ANALYSIS.md` — SWOT, gap analysis, and watchlist
+  for the Docker backup/restore competitive surface
+- New `docs/BACKUP_TOOLS_COMPARISON.md` — buyer's-guide comparison vs.
+  `offen/docker-volume-backup`, `kopia`, `restic`, `Duplicati`, and
+  `tiredofit/docker-db-backup` (linked from README)
+- New `docs/STACK_RECIPES.md` — copy-paste DRK policies for Home
+  Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden, and n8n,
+  each with pre/post hooks and restore notes
+
+**Marketplace**
+- `.autoclaw/internal/marketplace-submission.md` updated: tag bumped
+  to `1.2.0`, license field corrected from "MIT" to
+  "Source-available (Zippy Technologies Source-Available Commercial
+  License v1.3)" per LICENSE §11.2/§11.3, Verified Publisher
+  application track added with prerequisite/anti-criteria checklist
+- README adds a "two pages to read first" callout pointing to the new
+  comparison + recipes docs
+
+**Coordination**
+- v1.2 sprint plan filed at
+  `.autoclaw/orchestrator/sprints/v1.2-launch.yaml` with P0/P1/P2/P3
+  task IDs, owners, acceptance criteria, and a quarterly watchlist
+- Cross-agent sprint kickoff and task-assignment messages delivered
+  through `.autoclaw/orchestrator/comms/inboxes/`
+
+### Known gaps deferred to v1.2.1
+
+- **Wizard UI for DB exporters** — the new InfluxDB / MSSQL kinds are
+  reachable via REST API and JSON-policy import, but no kind has a
+  PolicyWizard step yet. Adding a "Database backups" step that covers
+  all 7 kinds consistently is tracked as task D-3-followup.
+- **Marketplace screenshots** — three of the five screenshots in the
+  Verified Publisher packet (`04-restore-browser.png`,
+  `05-storage-vault.png`) require a running app to capture; deferred
+  pending a dedicated screenshot session.
+- All P1 items (restore-rehearsal MVP, notification delivery,
+  license-key validation) — tracked in the sprint plan.
+
+---
+
+## [1.1.0] - 2026-05-23
+
+### Added
+
+**Storage Vault — credentials-focused redesign**
+- Storage Vault page now reads from `/api/connectors` (the actual AES-256-GCM-encrypted credential store) instead of projecting `policy.storage` blocks; local-filesystem mounts no longer appear here because they have no credentials to vault
+- Each credential card shows owning policies, encrypted-field count, connector status, and a delete affordance with a "policies still reference this credential" warning
+- New stat tiles: **Stored Credentials**, **Encryption: AES-256-GCM** (with live encrypted-field count), **Unused Credentials** (flags credentials not referenced by any policy)
+- **Add Credential** button now opens the existing `AddConnectorWizard` — previously the button was inert and disabled
+- Empty state with a single CTA when no credentials are saved yet
+
+**Version label + controls (non-invasive)**
+- Small `v<version>` chip in the sidebar footer (also in the mobile drawer) reading from `/api/settings/meta`
+- Click-to-open popover with links to **Release notes**, **Changelog**, **All versions on Docker Hub**, and a shortcut to **Open Settings**
+- Closes on outside-click or Escape; hidden when the sidebar is collapsed to icon-only
 
 **Docker Desktop Extension — Dual-Transport Support (Phase 8)**
 - Native Docker Desktop Extension integration via Unix socket transport (`DRK_TRANSPORT=socket`), in addition to the existing TCP path
@@ -20,11 +104,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ### Changed
 
+- **Connectors page renamed to Integrations** in the sidebar nav, and trimmed to a marketplace + Rclone banner only. The duplicated "Active Connections" list is gone — Storage Vault is now the single source of truth for saved credentials
+- `/api/settings/meta` now reports the backend's own `package.json` version rather than a hardcoded `'1.0.0'`; the lookup walks up from `__dirname` so it works in both dev (ts-node) and prod (compiled `dist/`) layouts
 - Docker Hub image namespace updated to `gozippy` across all image tags, CI references, and documentation (`gozippy/dockerrescuekit`)
 - CI/CD pipeline (`.github/workflows/docker.yml`) now builds **and pushes** both the standalone backend image (`gozippy/dockerrescuekit:standalone-*`) and the Docker Desktop Extension image (`gozippy/dockerrescuekit:*`) on `v*` tag pushes; previously only one image was published per release
 
 ### Fixed
 
+- Storage Vault no longer shows duplicate "Local Mount" cards for policies that share the same default backup path. Local-filesystem destinations are now visible only through the **Backup Policies** page where they're actually owned
 - `metadata.json` updated to satisfy Docker Desktop Marketplace validator requirements: correct icon reference (`drk-icon.svg`), UI tab definition with `root`/`src` fields, and `vm.composefile` pointing to `compose.yaml`
 
 ---

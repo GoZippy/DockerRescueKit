@@ -3,7 +3,7 @@
 **Automated backup and restore for Docker containers, volumes, images, and networks.**
 
 [![CI](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Source-Available](https://img.shields.io/badge/License-Source--Available-orange.svg)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/gozippy/dockerrescuekit.svg)](https://hub.docker.com/r/gozippy/dockerrescuekit)
 
 DockerRescueKit is a self-hosted backup service for Docker. It runs as a
@@ -30,6 +30,15 @@ driven by the same service through a REST API, a web UI, and a CLI.
   policies, tiered retention (count, time, or daily/weekly/monthly tags),
   background verify in a scratch container, and partial restore down to
   individual files inside a volume.
+
+> **New here? Two pages to read first:**
+> - **[Backup Tools Buyer's Guide](docs/BACKUP_TOOLS_COMPARISON.md)** —
+>   honest comparison to `offen/docker-volume-backup`, `kopia`, `restic`,
+>   `Duplicati`, and `tiredofit/docker-db-backup`. Helps you decide if
+>   DRK is actually the right tool for your problem.
+> - **[Stack Recipes](docs/STACK_RECIPES.md)** — copy-paste DRK policies
+>   for Home Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden,
+>   and n8n.
 
 ---
 
@@ -313,7 +322,33 @@ reload. Contributions welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Docker Rescue Kit is **source-available under the Zippy Technologies
+Source-Available Commercial License** — see [LICENSE](LICENSE).
+
+- **Free** for Personal Use and Educational Use (homelab, hobbyists,
+  students, classroom, non-commercial research) within the documented
+  free-tier limits.
+- **Personal Pro Upgrade** — USD $29 one-time, lifetime updates within the
+  current Major Version, unlocks unlimited policies, notifications, 90-day
+  audit log, and bring-your-own-key encryption. Personal/educational use
+  only.
+- **Commercial Pro** — USD $149 per Seat per year (3-Seat minimum). **Launch
+  pricing: USD $99/Seat/year locked in for life for continuous subscribers
+  through the first 1,000 Seats or 2026-12-31, whichever comes first.**
+- **Enterprise** — custom, USD $5,000 minimum annually. RBAC, SSO, WORM,
+  compliance docs, managed cloud backup. Contact Support@GoZippy.com.
+- **Priority Queue Add-on** — optional USD $750/year for a 48-hour
+  best-effort response window, capped at 25 active subscribers per quarter.
+
+Community help is provided on a best-effort basis through public GitHub
+Discussions. No tier includes a service level agreement or committed
+support response time — see Section 5.7 of the LICENSE.
+
+Component classification (Open Materials vs Restricted Materials) is
+recorded in [COMPONENTS.md](COMPONENTS.md). Versions of Docker Rescue Kit
+released before the LICENSE Effective Date (2026-05-24) remain available
+under the MIT License as to copies obtained before that date — see
+Section 23 of the LICENSE.
 
 ---
 

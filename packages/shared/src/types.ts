@@ -94,6 +94,39 @@ export type DatabaseExporter =
   | { kind: 'redis'; container: string }
   | { kind: 'mongodb'; container: string; outPath?: string }
   | { kind: 'sqlite'; container: string; dbPath: string; outPath?: string }
+  | {
+      kind: 'influxdb'
+      container: string
+      version: 'v1' | 'v2'
+      /** v2 only — auth token; v1 ignores this. Read from $INFLUX_TOKEN
+       *  inside the container if omitted. */
+      token?: string
+      /** v2 only — organization name. */
+      org?: string
+      /** v2 only — single bucket to back up. Backs up all buckets if omitted. */
+      bucket?: string
+      /** v1 only — single database to back up. Backs up all DBs if omitted. */
+      db?: string
+      /** Output directory inside the container. Defaults to /var/backups/drk-influxdb. */
+      outPath?: string
+    }
+  | {
+      kind: 'mssql'
+      container: string
+      /** Required — MSSQL has no "all databases" BACKUP statement. */
+      db: string
+      /** Server name; defaults to '.' (local). Use '.\\SQLEXPRESS' for
+       *  named instances. */
+      server?: string
+      /** 'windows' uses -E (trusted connection, default). 'sql' uses -U/-P. */
+      authMode?: 'windows' | 'sql'
+      /** Required when authMode='sql'. */
+      user?: string
+      /** Required when authMode='sql'. */
+      password?: string
+      /** Output file path inside the container. Defaults to /var/backups/drk-mssql.bak. */
+      outPath?: string
+    }
 
 export interface NotificationConfig {
   readonly type: 'slack' | 'email' | 'webhook' | 'ntfy'

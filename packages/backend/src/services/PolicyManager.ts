@@ -309,8 +309,17 @@ export class PolicyManager {
   /**
    * One-click protect for a compose stack: create a daily policy that
    * targets every container + volume attached to the project.
+   * Idempotent: returns the existing policy if one already exists for this stack.
    */
-  public async protectStack(project: string, stack: { containers: any[]; volumes: string[] }): Promise<BackupPolicy> {
+  public async protectStack(
+    project: string,
+    stack: { containers: any[]; volumes: string[] }
+  ): Promise<BackupPolicy & { existing?: boolean }> {
+    const policyName = `stack-${project}`
+    const policies = await this.listPolicies()
+    const existing = policies.find(p => p.name === policyName)
+    if (existing) return { ...existing, existing: true }
+
     const targets: any[] = []
     for (const c of stack.containers || []) {
       const name = (c.Names && c.Names[0] ? c.Names[0].replace(/^\//, '') : c.Id) as string
@@ -321,7 +330,7 @@ export class PolicyManager {
     }
 
     return this.createPolicy({
-      name: `stack-${project}`,
+      name: policyName,
       description: `Auto-protect for compose stack ${project}`,
       enabled: true,
       targets,
@@ -329,7 +338,7 @@ export class PolicyManager {
       backupType: 'full',
       retention: { strategy: 'count', count: 7 },
       storage: { id: `storage-stack-${project}`, type: 'local', path: 'data/backups' },
-      verifySchedule: '0 4 * * 0' // weekly verify on Sunday 04:00
+      verifySchedule: '0 4 * * 0',
     })
   }
 

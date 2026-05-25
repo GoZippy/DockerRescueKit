@@ -47,6 +47,26 @@ import { Server } from 'http'
 
 dotenv.config()
 
+// Read backend version from package.json once at startup. Walks up from
+// __dirname until it finds the backend's own manifest — works in both dev
+// (src/index.ts) and prod (dist/backend/src/index.js).
+const APP_VERSION: string = (() => {
+  let dir = __dirname
+  for (let i = 0; i < 6; i++) {
+    const p = path.join(dir, 'package.json')
+    try {
+      const pkg = JSON.parse(fs.readFileSync(p, 'utf8'))
+      if (pkg?.name === '@docker-rescue-kit/backend' && typeof pkg.version === 'string') {
+        return pkg.version
+      }
+    } catch { /* keep walking */ }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return 'unknown'
+})()
+
 // ---- Transport selection ---------------------------------------------------
 // Phase 8 — Docker Desktop extension integration.
 //
@@ -400,7 +420,7 @@ export class BackupService {
       res.json({
         dataDir: process.env.DRK_DATA_DIR || 'data',
         hasEncryptionKey: true,
-        version: '1.0.0',
+        version: APP_VERSION,
         staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging')
       })
     })
@@ -457,9 +477,12 @@ export class BackupService {
         const match = stacks.find((s: any) => s.project === project)
         if (!match) return res.status(404).json({ error: `Stack ${project} not found` })
         const policy = await this.policyManager.protectStack(project, match)
-        this.scheduler.schedulePolicy(policy)
-        await this.audit.record('stack.protect', { project, policyId: policy.id })
-        res.status(201).json(policy)
+        if (!policy.existing) {
+          this.scheduler.schedulePolicy(policy)
+          await this.audit.record('stack.protect', { project, policyId: policy.id })
+        }
+        const { existing: _existing, ...policyOut } = policy as any
+        res.status(policy.existing ? 200 : 201).json(policyOut)
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }

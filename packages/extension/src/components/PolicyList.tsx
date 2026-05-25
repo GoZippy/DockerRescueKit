@@ -11,7 +11,11 @@ import { PolicyDetail } from './PolicyDetail'
 import { PageError, PageErrorKind } from './PageError'
 import { useToast } from '../hooks/useToast'
 
-export const PolicyList: React.FC = () => {
+interface PolicyListProps {
+  initialPolicyId?: string
+}
+
+export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
   const [policies, setPolicies] = useState<BackupPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [errorKind, setErrorKind] = useState<PageErrorKind | null>(null)
@@ -25,6 +29,10 @@ export const PolicyList: React.FC = () => {
     try {
       const data = await getPolicies()
       setPolicies(data)
+      if (initialPolicyId && !selected) {
+        const pre = data.find(p => p.id === initialPolicyId)
+        if (pre) setSelected(pre)
+      }
     } catch (e) {
       console.error('Failed to load policies', e)
       if (axios.isAxiosError(e)) {

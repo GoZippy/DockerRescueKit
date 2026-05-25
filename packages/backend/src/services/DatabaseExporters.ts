@@ -13,6 +13,26 @@ export type DatabaseExporter =
   | { kind: 'redis'; container: string }
   | { kind: 'mongodb'; container: string; outPath?: string }
   | { kind: 'sqlite'; container: string; dbPath: string; outPath?: string }
+  | {
+      kind: 'influxdb'
+      container: string
+      version: 'v1' | 'v2'
+      token?: string
+      org?: string
+      bucket?: string
+      db?: string
+      outPath?: string
+    }
+  | {
+      kind: 'mssql'
+      container: string
+      db: string
+      server?: string
+      authMode?: 'windows' | 'sql'
+      user?: string
+      password?: string
+      outPath?: string
+    }
 
 export class DatabaseExporterService {
   constructor(private docker: DockerService) {}
@@ -81,6 +101,45 @@ export class DatabaseExporterService {
           'sh', '-c',
           `mkdir -p $(dirname ${shellEscape(out)}) && ` +
           `sqlite3 ${shellEscape(exporter.dbPath)} ".backup '${shellEscape(out)}'"`
+        ]
+      }
+      case 'influxdb': {
+        const out = exporter.outPath || '/var/backups/drk-influxdb'
+        if (exporter.version === 'v2') {
+          // influx CLI (v2): writes a directory of files. Token can come from
+          // the env so we only inject it when the caller explicitly set one.
+          const tokenArg = exporter.token ? `--token ${shellEscape(exporter.token)} ` : ''
+          const orgArg = exporter.org ? `--org ${shellEscape(exporter.org)} ` : ''
+          const bucketArg = exporter.bucket ? `--bucket ${shellEscape(exporter.bucket)} ` : ''
+          return [
+            'sh', '-c',
+            `mkdir -p ${shellEscape(out)} && ` +
+            `influx backup ${tokenArg}${orgArg}${bucketArg}${shellEscape(out)}`
+          ]
+        }
+        // v1: influxd backup -portable [-db <db>] <path>
+        const dbArg = exporter.db ? `-db ${shellEscape(exporter.db)} ` : ''
+        return [
+          'sh', '-c',
+          `mkdir -p ${shellEscape(out)} && ` +
+          `influxd backup -portable ${dbArg}${shellEscape(out)}`
+        ]
+      }
+      case 'mssql': {
+        const out = exporter.outPath || '/var/backups/drk-mssql.bak'
+        const server = exporter.server || '.'
+        const authMode = exporter.authMode || 'windows'
+        const authArgs = authMode === 'sql'
+          ? `-U ${shellEscape(exporter.user || 'sa')} -P ${shellEscape(exporter.password || '')}`
+          : '-E'
+        // WITH INIT overwrites instead of appending, so re-runs don't grow the
+        // .bak with stacked copies. COMPRESSION isn't supported on Express
+        // edition, so we omit it for portability across SKUs.
+        const query = `BACKUP DATABASE [${exporter.db}] TO DISK = N'${out}' WITH INIT`
+        return [
+          'sh', '-c',
+          `mkdir -p $(dirname ${shellEscape(out)}) && ` +
+          `sqlcmd -S ${shellEscape(server)} ${authArgs} -Q ${shellEscape(query)}`
         ]
       }
     }
