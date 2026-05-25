@@ -248,3 +248,54 @@ export const testConnector = async (type: string, config: any) => {
 export const discoverConnector = async (type: string, config: any) => {
   return apiClient.post<any>('/connectors/discover', { type, config })
 }
+
+// ── Restore-rehearsal workflow (R-2) ──────────────────────────────────────
+
+export const listRehearsals = async (opts?: { policyId?: string; limit?: number }) => {
+  const params = new URLSearchParams()
+  if (opts?.policyId) params.set('policyId', opts.policyId)
+  if (opts?.limit) params.set('limit', String(opts.limit))
+  const q = params.toString()
+  return apiClient.get<Array<{
+    id: string
+    policyId?: string
+    status: string
+    ok: boolean
+    startedAt: string
+    finishedAt?: string
+    durationMs?: number
+  }>>(`/rehearsals${q ? '?' + q : ''}`)
+}
+
+export const getRehearsalReport = async (id: string) => {
+  return apiClient.get<any>(`/rehearsals/${id}`)
+}
+
+export const startRehearsal = async (payload: {
+  policyId?: string
+  backupIds?: string[]
+  smokeChecks: any[]
+  options?: {
+    stopOnFirstCheckFailure?: boolean
+    networkSubnet?: string
+    timeoutMs?: number
+    allowEnvVars?: string[]
+  }
+}) => {
+  return apiClient.post<{ id: string; status: string }>('/rehearsals', payload)
+}
+
+export const abortRehearsal = async (id: string) => {
+  return apiClient.post<any>(`/rehearsals/${id}/abort`)
+}
+
+export const deleteRehearsal = async (id: string) => {
+  return apiClient.delete<any>(`/rehearsals/${id}`)
+}
+
+export const getRehearsalStreamUrl = (id: string) => {
+  if (import.meta.env.VITE_TRANSPORT === 'extension') {
+    return `/api/rehearsals/${id}/stream`
+  }
+  return `/api/rehearsals/${id}/stream?apiKey=${encodeURIComponent(getApiKey())}`
+}

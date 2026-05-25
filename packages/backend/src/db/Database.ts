@@ -1,12 +1,13 @@
 import DatabaseConstructor, { Database as SQLiteDatabase } from 'better-sqlite3'
 import path from 'path'
 import fs from 'fs-extra'
-import { 
-  BackupPolicy, 
-  StorageConfig, 
-  Backup, 
-  BackupStatus 
+import {
+  BackupPolicy,
+  StorageConfig,
+  Backup,
+  BackupStatus
 } from '@docker-rescue-kit/shared'
+import type { TriagedEvent } from '../services/LogTriageService'
 
 export class Database {
   private db: SQLiteDatabase
@@ -109,6 +110,26 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_rehearsals_policy ON rehearsals(policyId);
       CREATE INDEX IF NOT EXISTS idx_rehearsals_started ON rehearsals(startedAt DESC);
+
+      CREATE TABLE IF NOT EXISTS log_events (
+        id TEXT PRIMARY KEY,
+        containerId TEXT NOT NULL,
+        containerName TEXT,
+        image TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        category TEXT NOT NULL,
+        severity TEXT DEFAULT 'error',
+        logSnippet TEXT,
+        fullMessage TEXT,
+        fixSuggestion TEXT,
+        exitCode INTEGER,
+        detectedAt TEXT NOT NULL,
+        ttl INTEGER DEFAULT 604800
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_log_events_container ON log_events(containerId);
+      CREATE INDEX IF NOT EXISTS idx_log_events_category ON log_events(category);
+      CREATE INDEX IF NOT EXISTS idx_log_events_timestamp ON log_events(timestamp DESC);
     `)
 
     // Lightweight migration: older databases won't have verifySchedule on
@@ -443,5 +464,88 @@ export class Database {
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
     }
+  }
+
+  // Log Events (Triage Service)
+  public async insertLogEvent(event: TriagedEvent): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO log_events (
+        id, containerId, containerName, image, category, severity,
+        logSnippet, fullMessage, fixSuggestion, exitCode, detectedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      event.id,
+      event.containerId,
+      event.containerName,
+      event.image,
+      event.category,
+      event.severity,
+      event.logSnippet,
+      event.fullMessage,
+      event.fixSuggestion,
+      event.exitCode || null,
+      event.detectedAt
+    )
+  }
+
+  public async getLogEvents(options?: {
+    containerId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    since?: string
+  }): Promise<{ events: TriagedEvent[]; total: number }> {
+    const limit = Math.max(1, Math.min(10000, options?.limit ?? 50))
+    const offset = Math.max(0, options?.offset ?? 0)
+    let query = 'SELECT * FROM log_events WHERE 1=1'
+    const params: any[] = []
+
+    if (options?.containerId) {
+      query += ' AND containerId = ?'
+      params.push(options.containerId)
+    }
+
+    if (options?.category) {
+      query += ' AND category = ?'
+      params.push(options.category)
+    }
+
+    if (options?.since) {
+      query += ' AND detectedAt >= ?'
+      params.push(options.since)
+    }
+
+    // Get total count
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as count')
+    const countResult = this.db.prepare(countQuery).get(...params) as any
+    const total = countResult?.count ?? 0
+
+    // Get paginated results
+    query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+    const rows = this.db.prepare(query).all(...params, limit, offset) as any[]
+
+    const events: TriagedEvent[] = rows.map(r => ({
+      id: r.id,
+      containerId: r.containerId,
+      containerName: r.containerName,
+      image: r.image,
+      category: r.category,
+      severity: r.severity,
+      fullMessage: r.fullMessage,
+      logSnippet: r.logSnippet,
+      fixSuggestion: r.fixSuggestion,
+      detectedAt: r.detectedAt,
+      exitCode: r.exitCode ?? undefined
+    }))
+
+    return { events, total }
+  }
+
+  public async deleteOldLogEvents(olderThanDays: number = 7): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM log_events WHERE detectedAt < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
   }
 }

@@ -409,3 +409,52 @@ export interface BrokenContainer {
   exitCode?: number
   lastSeen: string // ISO 8601
 }
+
+// ===========================================================================
+// Log Triage Service (v1.3 P1 — Logs Explorer++ Event Triage Backend)
+// ===========================================================================
+
+export type LogEventCategory = 'oomkilled' | 'port_conflict' | 'permission_denied' | 'dns_failed' | 'healthcheck_failed' | 'other'
+
+export type LogEventSeverity = 'error' | 'warning'
+
+/**
+ * A single triaged log event with categorization and fix suggestion.
+ * Returned by GET /api/logs/triage and GET /api/logs/triage/all.
+ */
+export interface TriagedEvent {
+  readonly id: string
+  readonly containerId: string
+  readonly containerName: string
+  readonly image: string
+  readonly category: LogEventCategory
+  readonly severity: LogEventSeverity
+  readonly fullMessage: string  // Full matched log line (with timestamp)
+  readonly logSnippet: string   // First 200 chars for preview
+  readonly fixSuggestion: string
+  readonly detectedAt: string // ISO 8601
+  readonly exitCode?: number
+}
+
+/**
+ * Summary of categorized events from a single container.
+ * Response type for GET /api/logs/triage.
+ */
+export interface LogTriageResponse {
+  readonly events: TriagedEvent[]
+  readonly fetchedLines: number
+  readonly categories: Record<LogEventCategory, number>
+  readonly responseTimeMs?: number
+}
+
+/**
+ * Paginated query response for historical log events.
+ * Response type for GET /api/logs/triage/all.
+ */
+export interface LogTriageHistoryResponse {
+  readonly events: TriagedEvent[]
+  readonly total: number
+  readonly offset: number
+  readonly limit: number
+  readonly pages?: number
+}

@@ -41,10 +41,13 @@ import { MetricsService } from './services/MetricsService'
 import { VerifyService } from './services/VerifyService'
 import { RehearsalService } from './services/RehearsalService'
 import { HealthCheckService } from './services/HealthCheckService'
+import { LogTriageService } from './services/LogTriageService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
+import { mountLogsRoutes } from './routes/logs'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
+import { LicenseService } from './services/LicenseService'
 import { EncryptionUtility } from './utils/Encryption'
 import { Server } from 'http'
 
@@ -101,9 +104,11 @@ export class BackupService {
   private verify: VerifyService
   private rehearsal: RehearsalService
   private health: HealthCheckService
+  private logTriage: LogTriageService
   private partial: PartialRestoreService
   private audit: AuditService
   private rclone: RcloneService
+  private license: LicenseService
   private httpServer: Server | null = null
 
   constructor() {
@@ -120,11 +125,15 @@ export class BackupService {
     EncryptionUtility.init(loaded.encryptionKey, dataDir)
 
     this.db = new Database(process.env.DB_PATH || path.join(dataDir, 'docker_rescue.db'))
-    this.policyManager = new PolicyManager(this.db, path.join(dataDir, 'staging'))
+    // SettingsService and LicenseService must be constructed before
+    // PolicyManager so the latter can enforce the Free-tier policy cap.
+    // Without this wiring, gating in PolicyManager.createPolicy is a no-op.
+    this.settings = new SettingsService(this.db)
+    this.license = new LicenseService(this.settings)
+    this.policyManager = new PolicyManager(this.db, path.join(dataDir, 'staging'), this.license)
     this.dockerService = new DockerService()
     this.connectorManager = new ConnectorManager(this.db)
     this.telemetry = new TelemetryService()
-    this.settings = new SettingsService(this.db)
     this.metrics = new MetricsService(this.policyManager, this.db)
     this.verify = new VerifyService(this.policyManager, this.dockerService, path.join(dataDir, 'staging'), this.db)
     this.partial = new PartialRestoreService(this.policyManager, path.join(dataDir, 'staging'))
@@ -139,10 +148,31 @@ export class BackupService {
       db: this.db,
     })
     this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db)
+    this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
+
+    // Schedule daily cleanup of old log events (TTL enforcement)
+    // Runs at 02:00 UTC daily to delete events older than 7 days
+    const logCleanupInterval = setInterval(async () => {
+      try {
+        const deletedCount = await this.db.deleteOldLogEvents(7)
+        if (deletedCount > 0) {
+          logger.info(`Log event TTL cleanup: deleted ${deletedCount} events older than 7 days`)
+        }
+      } catch (err) {
+        logger.error({ err }, 'Log event TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    logCleanupInterval.unref() // Don't keep process alive just for this timer
 
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
+    try {
+      mountLogsRoutes(this.app, { triageService: this.logTriage, db: this.db })
+    } catch (err) {
+      logger.error({ err }, 'Failed to mount logs routes')
+      throw err
+    }
     this.setupStaticUI()
     this.setupErrorHandler()
 
@@ -453,6 +483,49 @@ export class BackupService {
       res.json({ success: true })
     })
 
+    // ---- License (paid-tier activation) ---------------------------------
+    // GET surfaces the current tier + features + expiry for the Settings
+    // UI to render. POST activates a token pasted by the user. DELETE
+    // returns the install to Free.
+    //
+    // Online revocation check via the license server lives in
+    // LicenseService.refreshFromServer() and is called periodically by
+    // the periodic-tasks loop below; the routes here are synchronous
+    // local operations only so the UI feels instant.
+    this.app.get('/api/license', async (_req, res) => {
+      const status = await this.license.getStatus()
+      res.json(status)
+    })
+
+    this.app.post('/api/license/activate', async (req, res) => {
+      const token = String(req.body?.token || '').trim()
+      if (!token) {
+        res.status(400).json({ error: 'token_required' })
+        return
+      }
+      try {
+        const status = await this.license.setToken(token)
+        if (status.tier === 'free') {
+          // Token was persisted but failed verification — return 400 so the
+          // UI can show "this token isn't valid" instead of pretending it
+          // worked.
+          await this.license.clearToken()
+          res.status(400).json({ error: 'token_invalid' })
+          return
+        }
+        await this.audit.record('license.activate', { tier: status.tier, seats: status.seats })
+        res.json(status)
+      } catch (err: any) {
+        res.status(400).json({ error: 'activation_failed', detail: err?.message })
+      }
+    })
+
+    this.app.delete('/api/license', async (_req, res) => {
+      await this.license.clearToken()
+      await this.audit.record('license.clear')
+      res.json({ ok: true })
+    })
+
     // ---- Docker inspection ----------------------------------------------
     // All Docker routes degrade gracefully when Docker Desktop is offline.
     // Codes that all mean "the docker socket is not usable from this process":
@@ -615,6 +688,24 @@ export class BackupService {
 
   public async start() {
     await this.scheduler.start()
+
+    // Online license revocation check. Fires once on start, then every 24h.
+    // No-op if DRK_LICENSE_SERVER_URL isn't set — the install runs in
+    // offline-only mode and stays Free until a token is pasted in
+    // Settings, at which point the verifier does its work locally.
+    // The 24h cadence matches the maximum staleness window we accept
+    // between a Square webhook revoking a license and DRK noticing.
+    this.license.refreshFromServer().catch(err => {
+      console.warn(`[DRK] license refresh on start failed: ${err?.message || err}`)
+    })
+    const LICENSE_REFRESH_MS = 24 * 60 * 60 * 1000
+    const licenseTimer = setInterval(() => {
+      this.license.refreshFromServer().catch(err => {
+        console.warn(`[DRK] periodic license refresh failed: ${err?.message || err}`)
+      })
+    }, LICENSE_REFRESH_MS)
+    // Don't hold the event loop open on shutdown.
+    if (typeof licenseTimer.unref === 'function') licenseTimer.unref()
 
     // Single dispatch point — keep transport branching here so the rest of the
     // class stays transport-agnostic. The auth middleware checks TRANSPORT at

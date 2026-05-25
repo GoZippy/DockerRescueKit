@@ -10,6 +10,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { StacksPage } from './components/StacksPage'
 import { SetupScreen } from './components/SetupScreen'
 import { VersionBadge } from './components/VersionBadge'
+import { RehearsalsPage } from './components/RehearsalsPage'
 import { getApiKey, getStatus } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react'
 
 type TabId =
-  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify'
+  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals'
   | 'storage' | 'connectors' | 'audit' | 'settings'
 
 interface NavItem {
@@ -35,6 +36,7 @@ const NAV: NavItem[] = [
   { id: 'stacks',     label: 'Compose Stacks',   icon: Layers,      bottomNav: true },
   { id: 'history',    label: 'Backup History',   icon: Clock,       bottomNav: true },
   { id: 'verify',     label: 'Verify History',   icon: ShieldCheck, bottomNav: false },
+  { id: 'rehearsals', label: 'Rehearsals',        icon: ShieldCheck, bottomNav: false },
   { id: 'storage',    label: 'Storage Vault',    icon: Server,      bottomNav: false },
   { id: 'connectors', label: 'Integrations',     icon: Plug,        bottomNav: false },
   { id: 'audit',      label: 'Security Audit',   icon: Shield,      bottomNav: false },
@@ -290,6 +292,7 @@ const MainApp: React.FC = () => {
             )}
             {active === 'history'    && <BackupHistory />}
             {active === 'verify'     && <VerifyHistory />}
+            {active === 'rehearsals' && <RehearsalsPage />}
             {active === 'storage'    && <VaultList />}
             {active === 'connectors' && <ConnectorsPage />}
             {active === 'audit'      && <SecurityAudit />}

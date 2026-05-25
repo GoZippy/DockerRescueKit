@@ -41,7 +41,10 @@ export class PolicyManager {
   ) {
     this.dockerService = new DockerService()
     this.hookRunner = new HookRunner(this.dockerService)
-    this.notifier = new NotificationService()
+    // Pass the LicenseService through so notifications get gated to Pro
+    // when a license is wired in. Without it, the notifier falls back to
+    // its no-license-supplied path (always fires) for backward compat.
+    this.notifier = new NotificationService(this.license)
     this.dbExporters = new DatabaseExporterService(this.dockerService)
     this.connectorManager = new ConnectorManager(db)
     fs.ensureDirSync(this.stagingDir)
