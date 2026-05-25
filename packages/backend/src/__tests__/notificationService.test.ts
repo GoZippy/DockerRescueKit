@@ -1,6 +1,7 @@
 /**
  * Tests for NotificationService.
- * axios is fully mocked — no real HTTP requests are made.
+ * axios is fully mocked for the webhook/slack/ntfy channels.
+ * nodemailer is fully mocked for the email channel — no real SMTP is opened.
  */
 
 import axios from 'axios'
@@ -9,6 +10,13 @@ import { BackupPolicy, Backup, NotificationConfig } from '@docker-rescue-kit/sha
 
 jest.mock('axios')
 const mockedAxios = axios as jest.Mocked<typeof axios>
+
+const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'test-msg-id' })
+jest.mock('nodemailer', () => ({
+  createTransport: jest.fn(() => ({ sendMail: mockSendMail })),
+}))
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const nodemailerMock = require('nodemailer') as { createTransport: jest.Mock }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,6 +54,9 @@ const makeBackup = (overrides: Partial<Backup> = {}): Backup => ({
 beforeEach(() => {
   jest.clearAllMocks()
   mockedAxios.post = jest.fn().mockResolvedValue({ status: 200, data: 'ok' })
+  mockSendMail.mockClear().mockResolvedValue({ messageId: 'test-msg-id' })
+  nodemailerMock.createTransport.mockClear()
+  nodemailerMock.createTransport.mockReturnValue({ sendMail: mockSendMail })
 })
 
 const svc = new NotificationService()
@@ -185,86 +196,155 @@ describe('NotificationService — edge cases', () => {
 })
 
 // ---------------------------------------------------------------------------
-// email (Resend)
+// email (self-hosted SMTP via nodemailer)
 // ---------------------------------------------------------------------------
 
-describe('NotificationService — email (Resend)', () => {
+describe('NotificationService — email (SMTP)', () => {
   afterEach(() => {
-    delete process.env.DRK_RESEND_API_KEY
+    delete process.env.DRK_SMTP_HOST
+    delete process.env.DRK_SMTP_PORT
+    delete process.env.DRK_SMTP_USER
+    delete process.env.DRK_SMTP_PASS
+    delete process.env.DRK_SMTP_SECURE
     delete process.env.DRK_EMAIL_FROM
   })
 
-  it('POSTs to Resend with bearer auth + JSON body when config is fully inline', async () => {
+  it('connects to inline-config SMTP and sends mail', async () => {
     const policy = makePolicy([
       {
         type: 'email', events: ['success'],
         config: {
-          apiKey: 're_test_key',
           from: 'DRK <alerts@gozippy.com>',
           to: 'ops@example.com',
+          smtp: {
+            host: 'mail.gozippy.com',
+            port: 587,
+            secure: false,
+            user: 'alerts@gozippy.com',
+            pass: 'secret',
+          },
         },
       } as any,
     ])
 
     await svc.notify('success', policy, makeBackup())
 
-    expect(mockedAxios.post).toHaveBeenCalledTimes(1)
-    const [url, body, opts] = (mockedAxios.post as jest.Mock).mock.calls[0]
-    expect(url).toBe('https://api.resend.com/emails')
-    expect(body.from).toBe('DRK <alerts@gozippy.com>')
-    expect(body.to).toBe('ops@example.com')
-    expect(body.subject).toContain('Backup succeeded')
-    expect(body.subject).toContain('Test Policy')
-    expect(typeof body.text).toBe('string')
-    expect(opts.headers.Authorization).toBe('Bearer re_test_key')
-    expect(opts.headers['Content-Type']).toBe('application/json')
+    expect(nodemailerMock.createTransport).toHaveBeenCalledTimes(1)
+    const transportOpts = nodemailerMock.createTransport.mock.calls[0][0]
+    expect(transportOpts.host).toBe('mail.gozippy.com')
+    expect(transportOpts.port).toBe(587)
+    expect(transportOpts.secure).toBe(false)
+    expect(transportOpts.auth).toEqual({ user: 'alerts@gozippy.com', pass: 'secret' })
+
+    expect(mockSendMail).toHaveBeenCalledTimes(1)
+    const mailOpts = mockSendMail.mock.calls[0][0]
+    expect(mailOpts.from).toBe('DRK <alerts@gozippy.com>')
+    expect(mailOpts.to).toBe('ops@example.com')
+    expect(mailOpts.subject).toContain('Backup succeeded')
+    expect(mailOpts.subject).toContain('Test Policy')
+    expect(typeof mailOpts.text).toBe('string')
+
+    // No outbound HTTP for email — confirms we're not calling a 3rd-party
+    expect(mockedAxios.post).not.toHaveBeenCalled()
   })
 
-  it('falls back to DRK_RESEND_API_KEY + DRK_EMAIL_FROM env vars', async () => {
-    process.env.DRK_RESEND_API_KEY = 're_env_key'
+  it('falls back to DRK_SMTP_* env vars when no inline smtp block', async () => {
+    process.env.DRK_SMTP_HOST = 'mail.gozippy.com'
+    process.env.DRK_SMTP_PORT = '465'
+    process.env.DRK_SMTP_SECURE = 'true'
+    process.env.DRK_SMTP_USER = 'alerts@gozippy.com'
+    process.env.DRK_SMTP_PASS = 'envsecret'
     process.env.DRK_EMAIL_FROM = 'env-from@gozippy.com'
 
     const policy = makePolicy([
-      // Only `to` provided — apiKey + from come from env
       { type: 'email', events: ['failure'], config: { to: 'on-call@example.com' } } as any,
     ])
-
     await svc.notify('failure', policy, makeBackup({ status: 'failed' }))
 
-    expect(mockedAxios.post).toHaveBeenCalledTimes(1)
-    const [, body, opts] = (mockedAxios.post as jest.Mock).mock.calls[0]
-    expect(body.from).toBe('env-from@gozippy.com')
-    expect(body.to).toBe('on-call@example.com')
-    expect(body.subject).toContain('FAILED')
-    expect(opts.headers.Authorization).toBe('Bearer re_env_key')
+    const transportOpts = nodemailerMock.createTransport.mock.calls[0][0]
+    expect(transportOpts.host).toBe('mail.gozippy.com')
+    expect(transportOpts.port).toBe(465)
+    expect(transportOpts.secure).toBe(true)
+    expect(transportOpts.auth.user).toBe('alerts@gozippy.com')
+
+    const mailOpts = mockSendMail.mock.calls[0][0]
+    expect(mailOpts.from).toBe('env-from@gozippy.com')
+    expect(mailOpts.to).toBe('on-call@example.com')
+    expect(mailOpts.subject).toContain('FAILED')
   })
 
-  it('inline config wins over env when both are set', async () => {
-    process.env.DRK_RESEND_API_KEY = 're_env'
-    process.env.DRK_EMAIL_FROM = 'env-from@gozippy.com'
+  it('inline smtp config wins over env when both are set', async () => {
+    process.env.DRK_SMTP_HOST = 'env.example.com'
+    process.env.DRK_EMAIL_FROM = 'env-from@example.com'
 
     const policy = makePolicy([
       {
         type: 'email', events: ['success'],
-        config: { apiKey: 're_inline', from: 'inline@gozippy.com', to: 'ops@example.com' },
+        config: {
+          from: 'inline@gozippy.com',
+          to: 'ops@example.com',
+          smtp: { host: 'inline.smtp.example.com', port: 587 },
+        },
       } as any,
     ])
 
     await svc.notify('success', policy, makeBackup())
-    const [, body, opts] = (mockedAxios.post as jest.Mock).mock.calls[0]
-    expect(body.from).toBe('inline@gozippy.com')
-    expect(opts.headers.Authorization).toBe('Bearer re_inline')
+    const transportOpts = nodemailerMock.createTransport.mock.calls[0][0]
+    expect(transportOpts.host).toBe('inline.smtp.example.com')
+    const mailOpts = mockSendMail.mock.calls[0][0]
+    expect(mailOpts.from).toBe('inline@gozippy.com')
   })
 
-  it('does not throw if Resend returns an error', async () => {
-    mockedAxios.post = jest.fn().mockRejectedValue(new Error('resend 5xx'))
+  it('does not throw if SMTP send rejects', async () => {
+    mockSendMail.mockRejectedValueOnce(new Error('connection refused'))
     const policy = makePolicy([
       {
         type: 'email', events: ['success'],
-        config: { apiKey: 'k', from: 'f@x', to: 't@x' },
+        config: {
+          from: 'a@b', to: 'c@d',
+          smtp: { host: 'mail.example.com', port: 587 },
+        },
       } as any,
     ])
     await expect(svc.notify('success', policy, makeBackup())).resolves.toBeUndefined()
+  })
+
+  it('skips email when no SMTP config can be resolved at all', async () => {
+    // no env, no inline smtp, no settings injected
+    const policy = makePolicy([
+      { type: 'email', events: ['success'], config: { to: 'ops@example.com' } } as any,
+    ])
+    await svc.notify('success', policy, makeBackup())
+    expect(mockSendMail).not.toHaveBeenCalled()
+    expect(nodemailerMock.createTransport).not.toHaveBeenCalled()
+  })
+
+  it('resolves SMTP from SettingsService when no env or inline', async () => {
+    const settings = {
+      getSetting: jest.fn(async (key: string) => {
+        const map: Record<string, string> = {
+          'smtp.host': 'settings.mail.gozippy.com',
+          'smtp.port': '587',
+          'smtp.secure': 'false',
+          'smtp.user': 'alerts@gozippy.com',
+          'smtp.pass': 'settings-secret',
+          'email.from': 'settings-from@gozippy.com',
+        }
+        return map[key]
+      }),
+    } as any
+    const withSettings = new NotificationService(undefined, settings)
+
+    const policy = makePolicy([
+      { type: 'email', events: ['success'], config: { to: 'ops@example.com' } } as any,
+    ])
+    await withSettings.notify('success', policy, makeBackup())
+
+    const transportOpts = nodemailerMock.createTransport.mock.calls[0][0]
+    expect(transportOpts.host).toBe('settings.mail.gozippy.com')
+    expect(transportOpts.auth.pass).toBe('settings-secret')
+    const mailOpts = mockSendMail.mock.calls[0][0]
+    expect(mailOpts.from).toBe('settings-from@gozippy.com')
   })
 })
 

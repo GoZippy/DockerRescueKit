@@ -2,6 +2,7 @@ import { BackupPolicy, Backup, NotificationConfig } from '@docker-rescue-kit/sha
 import axios from 'axios'
 import { logger } from '../utils/logger'
 import { LicenseService } from './LicenseService'
+import type { SettingsService } from './SettingsService'
 
 export type NotifyEvent = 'success' | 'failure'
 
@@ -18,7 +19,14 @@ export type NotifyEvent = 'success' | 'failure'
  * scheduler ticks).
  */
 export class NotificationService {
-  constructor(private license?: LicenseService) {}
+  constructor(
+    private license?: LicenseService,
+    /** Optional. When supplied, email config can be read from settings
+     *  (smtp.host / smtp.port / smtp.user / smtp.pass / smtp.secure +
+     *  email.from) so the user can configure SMTP from the Settings UI
+     *  without restarting. */
+    private settings?: SettingsService,
+  ) {}
 
   public async notify(event: NotifyEvent, policy: BackupPolicy, backup: Backup): Promise<void> {
     if (!policy.notifications || policy.notifications.length === 0) return
@@ -104,17 +112,25 @@ export class NotificationService {
   }
 
   /**
-   * Email via Resend HTTP API.
+   * Email via user-supplied SMTP (no third-party HTTP service).
    *
-   * Configured by either:
-   *  - per-notification `config.apiKey` + `config.from` + `config.to`, OR
-   *  - env-wide `DRK_RESEND_API_KEY` + `DRK_EMAIL_FROM` + per-notification `config.to`
+   * Each install brings its own SMTP server — Synology Mail, Postfix on a
+   * VPS, cpanel mail, Microsoft 365, Gmail SMTP, whatever. We never call
+   * an external email API; everything stays self-hosted.
    *
-   * Why Resend (and not nodemailer / SMTP): the backend doesn't currently
-   * depend on a SMTP client, and Resend's free tier (3K emails/mo, 100/day)
-   * is more than enough for backup notifications. Operators who need SMTP
-   * can run an HTTP-to-SMTP relay (e.g. mailrise, smtp2http) or wait for
-   * SMTP support to be added with a separate transport dep.
+   * Config resolution order (first that's complete wins):
+   *   1. Per-notification `config.smtp` block (UI per-policy override)
+   *   2. SettingsService keys 'smtp.host' / 'smtp.port' / 'smtp.user' /
+   *      'smtp.pass' / 'smtp.secure' + 'email.from' (Settings UI)
+   *   3. Env vars DRK_SMTP_HOST / _PORT / _USER / _PASS / _SECURE +
+   *      DRK_EMAIL_FROM (docker-compose / systemd)
+   *
+   * Recipient (`to`) MUST come from the per-notification `config.to` —
+   * the per-policy alert target is policy-level, not install-level.
+   *
+   * Implementation note: nodemailer is the standard for SMTP in Node.
+   * We lazy-require it so installs that never send email don't pay the
+   * import cost and so older test rigs that mock the service still work.
    */
   private async sendEmail(
     config: Record<string, any>,
@@ -123,32 +139,95 @@ export class NotificationService {
     backup: Backup,
     message: string,
   ): Promise<void> {
-    const apiKey = config.apiKey || process.env.DRK_RESEND_API_KEY
-    const from = config.from || process.env.DRK_EMAIL_FROM
     const to = config.to
-
-    if (!apiKey || !from || !to) {
+    if (!to) {
+      logger.warn('[Notify:email] missing config.to')
+      return
+    }
+    const smtp = await this.resolveSmtpConfig(config)
+    if (!smtp) {
       logger.warn(
-        { hasApiKey: !!apiKey, hasFrom: !!from, hasTo: !!to },
-        '[Notify:email] missing config — need apiKey + from + to (or DRK_RESEND_API_KEY + DRK_EMAIL_FROM env + config.to)',
+        '[Notify:email] no SMTP config found — set DRK_SMTP_HOST/PORT/USER/PASS + DRK_EMAIL_FROM env, or save smtp.* settings via the Settings UI, or pass config.smtp inline',
       )
       return
     }
+
+    // Lazy import — nodemailer is only loaded the first time an email
+    // notification actually fires.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodemailer = require('nodemailer') as typeof import('nodemailer')
+    const transport = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+      // Keep the connect attempt bounded so a misconfigured host doesn't
+      // wedge the scheduler tick.
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
+    })
 
     const subject = event === 'success'
       ? `[DRK] Backup succeeded: ${policy.name}`
       : `[DRK] Backup FAILED: ${policy.name}`
 
-    await axios.post(
-      'https://api.resend.com/emails',
-      { from, to, subject, text: message },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15_000,
-      },
-    )
+    await transport.sendMail({
+      from: smtp.from,
+      to,
+      subject,
+      text: message,
+    })
+  }
+
+  private async resolveSmtpConfig(config: Record<string, any>): Promise<{
+    host: string
+    port: number
+    secure: boolean
+    user?: string
+    pass?: string
+    from: string
+  } | null> {
+    // 1. inline override on the notification config
+    if (config.smtp && config.smtp.host && config.from) {
+      const s = config.smtp
+      return {
+        host: String(s.host),
+        port: Number(s.port || 587),
+        secure: s.secure === true || String(s.secure).toLowerCase() === 'true',
+        user: s.user || undefined,
+        pass: s.pass || undefined,
+        from: String(config.from),
+      }
+    }
+    // 2. SettingsService (UI-pasted creds)
+    if (this.settings) {
+      const host = await this.settings.getSetting('smtp.host')
+      const from = await this.settings.getSetting('email.from')
+      if (host && from) {
+        return {
+          host,
+          port: Number((await this.settings.getSetting('smtp.port')) || 587),
+          secure: (await this.settings.getSetting('smtp.secure')) === 'true',
+          user: (await this.settings.getSetting('smtp.user')) || undefined,
+          pass: (await this.settings.getSetting('smtp.pass')) || undefined,
+          from,
+        }
+      }
+    }
+    // 3. env vars (compose / systemd)
+    const envHost = process.env.DRK_SMTP_HOST
+    const envFrom = process.env.DRK_EMAIL_FROM
+    if (envHost && envFrom) {
+      return {
+        host: envHost,
+        port: Number(process.env.DRK_SMTP_PORT || '587'),
+        secure: (process.env.DRK_SMTP_SECURE || '').toLowerCase() === 'true',
+        user: process.env.DRK_SMTP_USER || undefined,
+        pass: process.env.DRK_SMTP_PASS || undefined,
+        from: envFrom,
+      }
+    }
+    return null
   }
 }
