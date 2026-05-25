@@ -11,6 +11,13 @@ secrets.json
 *.key
 *.pem
 
+# ── License server lives in a SEPARATE PRIVATE REPO ──────────────────────────
+# Holds the RS256 JWT signing private key + Square API tokens. MUST NOT be
+# committed here under any circumstance. Real repo at:
+#   K:\Projects\DRK_LicenseServer\
+# Push target: private GitHub repo under personal account (NOT the gozippy org).
+/license-server/
+
 # ── Log and checkpoint output (generated at runtime) ─────────────────────────
 WSL_Update_Logs/
 DockerCheckpoints/
