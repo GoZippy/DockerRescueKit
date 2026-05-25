@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
-import { BackupPolicy, Backup } from '@docker-rescue-kit/shared'
+import { BackupPolicy, Backup, DatabaseExporter } from '@docker-rescue-kit/shared'
 import { getPolicyHistory, runPolicy, verifyPolicy, deletePolicy } from '../api'
 import {
   Play, ShieldCheck, CheckCircle2, AlertCircle, Clock, X,
@@ -252,6 +252,45 @@ export const PolicyDetail: React.FC<Props> = ({ policy, onClose, onChange }) => 
                   >
                     {t.type}:{t.selector}
                   </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Database exporters */}
+          {policy.hooks?.databases && policy.hooks.databases.length > 0 && (
+            <div>
+              <label className="form-label" style={{ marginBottom: 6 }}>
+                <Database size={11} style={{ marginRight: 4, verticalAlign: 'text-top' }} />
+                Database exporters ({policy.hooks.databases.length})
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {policy.hooks.databases.map((db, idx) => (
+                  <div key={idx} className="card" style={{
+                    background: 'var(--surface-1)', padding: '6px 10px',
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+                  }}>
+                    <Database size={12} color="var(--text-muted)" />
+                    <span style={{ fontWeight: 600 }}>
+                      {db.kind === 'postgres' && 'PostgreSQL'}
+                      {db.kind === 'mysql' && 'MySQL / MariaDB'}
+                      {db.kind === 'redis' && 'Redis'}
+                      {db.kind === 'mongodb' && 'MongoDB'}
+                      {db.kind === 'sqlite' && 'SQLite'}
+                      {db.kind === 'influxdb' && `InfluxDB ${db.version === 'v2' ? 'v2' : 'v1'}`}
+                      {db.kind === 'mssql' && 'MS SQL Server'}
+                    </span>
+                    <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{db.container}</span>
+                    {db.kind === 'mssql' && db.authMode === 'sql' && (
+                      <span className="badge badge-muted" style={{ fontSize: 10 }}>SQL auth</span>
+                    )}
+                    {db.kind === 'mssql' && db.server && db.server !== '.' && (
+                      <span className="badge badge-muted" style={{ fontSize: 10, fontFamily: 'monospace' }}>{db.server}</span>
+                    )}
+                    {db.kind === 'influxdb' && db.version === 'v2' && db.org && (
+                      <span className="badge badge-muted" style={{ fontSize: 10 }}>{db.org}</span>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

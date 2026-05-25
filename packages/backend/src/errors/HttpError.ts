@@ -58,3 +58,19 @@ export class InternalError extends HttpError {
     this.name = 'InternalError'
   }
 }
+
+/**
+ * 402 Payment Required — feature gated behind a paid license tier.
+ * Carries the current tier and a hint at the upgrade URL so the UI can
+ * render an inline upgrade prompt instead of a generic error.
+ */
+export class LicenseRequiredError extends HttpError {
+  constructor(
+    message: string,
+    public currentTier: string,
+    public requiredFeature?: string,
+  ) {
+    super(402, message, 'LICENSE_REQUIRED')
+    this.name = 'LicenseRequiredError'
+  }
+}

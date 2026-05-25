@@ -367,3 +367,45 @@ export interface ConnectorResource {
   available?: number
   metadata?: Record<string, any>
 }
+
+// ===========================================================================
+// Rescue Dashboard health-check endpoints (v1.3+)
+// ===========================================================================
+
+/**
+ * Dashboard health scorecard — 6-category summary for at-a-glance system status.
+ *
+ * Returned by GET /api/health/dashboard. Categories:
+ * 1. Engine status (running/stuck/unhealthy + version)
+ * 2. Disk pressure (total, reclaimable, high-risk %)
+ * 3. Broken containers (exited, restarting, unhealthy, OOMKilled, permission errors)
+ * 4. Network problems (port conflicts, exposed ports, failed DNS)
+ * 5. Security warnings (root containers, privileged, CVEs if scanned)
+ * 6. Backup posture (volumes without backups, last backup age, failed restores)
+ */
+export interface DashboardHealthScore {
+  engineStatus: 'running' | 'stuck' | 'unhealthy'
+  engineVersion: string
+  diskPressure: { totalBytes: number; reclaimableBytes: number; highRiskPercent: number }
+  brokenContainers: {
+    count: number
+    byReason: { exited: number; restarting: number; unhealthy: number; oomkilled: number; permerror: number }
+  }
+  networkProblems: { portConflicts: string[]; exposedPorts: string[]; failedDns: string[] }
+  securityWarnings: { rootContainers: string[]; privilegedContainers: string[]; cveCount: number }
+  backupPosture: { volumesWithoutBackups: string[]; lastBackupAgeDays: number | null; failedRestoresCount: number }
+}
+
+/**
+ * Detailed broken-container record for GET /api/health/containers.
+ *
+ * Returned as an array of broken containers with categorization and reasoning.
+ */
+export interface BrokenContainer {
+  id: string
+  name: string
+  state: 'exited' | 'restarting' | 'unhealthy' | 'oomkilled' | 'permerror'
+  reason?: string
+  exitCode?: number
+  lastSeen: string // ISO 8601
+}

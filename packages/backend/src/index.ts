@@ -40,6 +40,7 @@ import { SecretsService } from './services/SecretsService'
 import { MetricsService } from './services/MetricsService'
 import { VerifyService } from './services/VerifyService'
 import { RehearsalService } from './services/RehearsalService'
+import { HealthCheckService } from './services/HealthCheckService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
@@ -99,6 +100,7 @@ export class BackupService {
   private metrics: MetricsService
   private verify: VerifyService
   private rehearsal: RehearsalService
+  private health: HealthCheckService
   private partial: PartialRestoreService
   private audit: AuditService
   private rclone: RcloneService
@@ -136,6 +138,7 @@ export class BackupService {
       stagingDir: path.join(dataDir, 'staging'),
       db: this.db,
     })
+    this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db)
 
     this.setupMiddleware()
     this.setupRoutes()
@@ -478,6 +481,9 @@ export class BackupService {
     this.app.get('/api/docker/stacks',     dockerRoute(() => this.dockerService.listComposeStacks()))
     this.app.get('/api/docker/images',     dockerRoute(() => this.dockerService.listImages()))
     this.app.get('/api/docker/networks',   dockerRoute(() => this.dockerService.listNetworks()))
+
+    this.app.get('/api/health/dashboard', dockerRoute(() => this.health.getDashboardScore()))
+    this.app.get('/api/health/containers', dockerRoute(() => this.health.getBrokenContainers()))
 
     this.app.post('/api/docker/stacks/:project/protect', validateParams(projectParamSchema), async (req, res) => {
       try {

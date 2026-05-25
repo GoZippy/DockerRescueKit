@@ -10,9 +10,12 @@
 import os from 'os'
 import path from 'path'
 import fs from 'fs-extra'
+import crypto from 'crypto'
 import { Database } from '../db/Database'
 import { PolicyManager } from '../services/PolicyManager'
+import { LicenseService } from '../services/LicenseService'
 import { EncryptionUtility } from '../utils/Encryption'
+import { LicenseRequiredError } from '../errors'
 
 // DockerService constructor tries to connect to dockerode; mock to prevent
 // any accidental side-effects from the PolicyManager constructor.
@@ -146,5 +149,91 @@ describe('PolicyManager.getBackupHistory()', () => {
   it('returns empty array for a new policy with no backups', async () => {
     const p = await pm.createPolicy({ name: 'NoBackups' })
     expect(await pm.getBackupHistory(p.id)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// License gating
+// ---------------------------------------------------------------------------
+
+describe('PolicyManager license gating', () => {
+  // Generate a real RSA keypair so we can mint Personal Pro tokens for the
+  // "unlimited" half of the test pair.
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  })
+
+  function signProToken(): string {
+    const header = { alg: 'RS256', typ: 'JWT' }
+    const payload = {
+      iss: 'license.gozippy.com', sub: 'lic-test', aud: 'drk',
+      tier: 'personal-pro', iat: Math.floor(Date.now() / 1000),
+    }
+    const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const signingInput = `${enc(header)}.${enc(payload)}`
+    const sig = crypto.sign('RSA-SHA256', Buffer.from(signingInput), privateKey).toString('base64url')
+    return `${signingInput}.${sig}`
+  }
+
+  // Stand-in for SettingsService — keeps the gating tests self-contained.
+  class MemorySettings {
+    private store = new Map<string, string>()
+    async getSetting(key: string, def?: string): Promise<string | undefined> {
+      return this.store.has(key) ? this.store.get(key)! : def
+    }
+    async saveSetting(key: string, value: string): Promise<void> {
+      this.store.set(key, value)
+    }
+    async getBooleanSetting(): Promise<boolean> { return false }
+    async saveBooleanSetting(): Promise<void> { /* noop */ }
+  }
+
+  beforeEach(() => {
+    process.env.DRK_LICENSE_PUBLIC_KEY = publicKey
+  })
+
+  afterEach(() => {
+    delete process.env.DRK_LICENSE_KEY
+    delete process.env.DRK_LICENSE_PUBLIC_KEY
+  })
+
+  it('Free tier rejects the 6th policy with LicenseRequiredError', async () => {
+    const license = new LicenseService(new MemorySettings() as any)
+    const gated = new PolicyManager(db, staging, license)
+
+    // Five policies should succeed.
+    for (let i = 1; i <= 5; i++) {
+      await gated.createPolicy({ name: `Policy ${i}` })
+    }
+
+    // The sixth should be rejected with a typed error.
+    await expect(gated.createPolicy({ name: 'Policy 6' }))
+      .rejects.toThrow(LicenseRequiredError)
+    await expect(gated.createPolicy({ name: 'Policy 6' }))
+      .rejects.toMatchObject({ statusCode: 402, code: 'LICENSE_REQUIRED' })
+
+    // And the count is still 5.
+    expect((await gated.listPolicies()).length).toBe(5)
+  })
+
+  it('Personal Pro lifts the 5-policy cap', async () => {
+    process.env.DRK_LICENSE_KEY = signProToken()
+    const license = new LicenseService(new MemorySettings() as any)
+    const gated = new PolicyManager(db, staging, license)
+
+    for (let i = 1; i <= 7; i++) {
+      await gated.createPolicy({ name: `Pro Policy ${i}` })
+    }
+    expect((await gated.listPolicies()).length).toBe(7)
+  })
+
+  it('omitting LicenseService leaves quota enforcement off (backward compat)', async () => {
+    // pm from outer beforeEach has no license attached — should accept 6+ policies.
+    for (let i = 1; i <= 6; i++) {
+      await pm.createPolicy({ name: `Legacy Policy ${i}` })
+    }
+    expect((await pm.listPolicies()).length).toBe(6)
   })
 })
