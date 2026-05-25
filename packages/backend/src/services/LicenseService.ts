@@ -218,6 +218,96 @@ export class LicenseService {
     this.cachedRawToken = null
   }
 
+  /**
+   * Online revocation check against the license server.
+   *
+   * Posts the current token to `${DRK_LICENSE_SERVER_URL}/license/verify`
+   * and applies the server's authoritative status (active / expired /
+   * refunded / revoked). Locally-valid signatures alone don't tell us
+   * about server-side revocation — a refunded customer's JWT still has a
+   * valid signature, but the server's `licenses.status` reads 'refunded'.
+   *
+   * Behavior:
+   *   - No-op when DRK_LICENSE_SERVER_URL is not set (offline-only mode).
+   *   - On network failure, leaves the local cache alone (offline grace
+   *     remains in effect for up to OFFLINE_GRACE_DAYS).
+   *   - On a 200 with status='active', refreshes the lastVerifiedAt
+   *     timestamp so the grace window resets.
+   *   - On a 200 with status != 'active', downgrades to Free immediately.
+   *   - On 4xx (token mismatch / forged / unknown), downgrades to Free.
+   *
+   * Callers should invoke this on app start and then periodically (every
+   * 24h works for most deployments — Square webhook events propagate to
+   * the license server in seconds, so 24h is the maximum staleness
+   * window for revocations).
+   */
+  public async refreshFromServer(): Promise<LicenseStatus> {
+    const serverUrl = process.env.DRK_LICENSE_SERVER_URL
+    if (!serverUrl) return this.getStatus()
+
+    const token = await this.loadToken()
+    if (!token) return this.getStatus()
+
+    try {
+      const url = serverUrl.replace(/\/+$/, '') + '/license/verify'
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+
+      if (res.status >= 400 && res.status < 500) {
+        logger.warn({ status: res.status }, 'License server rejected token; downgrading to Free')
+        this.cached = this.freeStatus()
+        this.cachedRawToken = null
+        return this.cached
+      }
+      if (!res.ok) {
+        logger.warn({ status: res.status }, 'License server returned non-2xx; keeping cached status under offline grace')
+        return this.getStatus()
+      }
+
+      const body = await res.json() as {
+        status: string
+        tier: LicenseTier
+        seats: number
+        features: LicenseFeature[]
+        expires_at: number | null
+        launch_lock_in: boolean
+        major_version: string | null
+      }
+
+      if (body.status !== 'active') {
+        logger.warn({ serverStatus: body.status }, 'License server reports non-active status; downgrading to Free')
+        this.cached = this.freeStatus()
+        this.cachedRawToken = null
+        return this.cached
+      }
+
+      // Server says active — refresh the grace-window timestamp and
+      // adopt the server's view of features (it can scope down, never
+      // up; the verifier checks intersection anyway when minting).
+      if (this.settings) {
+        await this.settings.saveSetting(SETTINGS_KEY_LAST_OK_AT, Date.now().toString())
+      }
+      this.cached = {
+        tier: body.tier,
+        seats: body.seats,
+        features: body.features,
+        majorVersion: body.major_version || undefined,
+        launchLockIn: body.launch_lock_in === true,
+        expiresAt: body.expires_at ? new Date(body.expires_at) : undefined,
+        staleButValid: false,
+        devMode: this.isDevPublicKey,
+      }
+      this.cachedRawToken = token
+      return this.cached
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, 'License server unreachable; keeping cached status under offline grace')
+      return this.getStatus()
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
