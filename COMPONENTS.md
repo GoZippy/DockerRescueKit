@@ -55,9 +55,6 @@ limited to:
 - `packages/extension/` (React UI for the Docker Desktop Extension)
 - `packages/cli/` (the `drk` command-line interface)
 - `packages/shared/` (shared TypeScript types and utilities)
-- `license-server/` (RS256 license-token issuance service, Square webhook
-  handler, renewal scheduler — operates only on Licensor infrastructure;
-  not part of any product distribution; holds the JWT signing private key)
 - `tools/` (internal tooling)
 - `Dockerfile`, `Makefile`, build configuration, CI workflows
 - `package.json`, `package-lock.json`, all `node_modules/`
@@ -95,7 +92,7 @@ LICENSE.
 | v1.2-rc | 2026-05-24 | `packages/shared/src/types.ts` extensions (InfluxDB + MSSQL DatabaseExporter variants), `packages/backend/src/services/DatabaseExporters.ts` extensions, `packages/backend/src/__tests__/dbExporters.test.ts` extensions | Restricted (covered by `packages/` pattern) |
 | v1.2-rc | 2026-05-25 | `sidecars/plex/` (V-1 prototype) | **Open** (community-grade side-car templates — see §Open Materials above) |
 | v1.2-rc | 2026-05-24 | `.autoclaw/orchestrator/sprints/v1.2-launch.yaml`, `.autoclaw/orchestrator/comms/inboxes/**`, `.autoclaw/internal/marketplace-submission.md`, `.autoclaw/kdream/memory/MEMORY.md` updates | Restricted (covered by `.autoclaw/` pattern; also `.gitignore`d so not redistributed) |
-| v1.2-rc | 2026-05-25 | `license-server/` — RS256 license-token issuance service, Square webhook handler, SKU→tier mapping, SQLite license ledger, renewal-invoice scheduler. Holds the JWT signing private key. Operates only on Licensor infrastructure. | **Restricted** (explicitly listed above; not part of any product distribution — never ship with DRK images) |
+| v1.2-rc | 2026-05-25 | `license-server/` — initially added here, then **extracted to a separate private repository** at `K:\Projects\DRK_LicenseServer\` on 2026-05-25 for security isolation. It is `.gitignore`d in this repo so accidental re-add is blocked. Holds the RS256 JWT signing private key + Square API tokens — must not appear in any source-available distribution. | **Not in this repository** (lives in a separate private repo; explicitly `.gitignore`d here) |
 | 2026-05-24 | 2026-05-24 | `LICENSE` switch from MIT to Zippy Technologies Source-Available Commercial License v1.3, `COMPONENTS.md` created | Open (as listed above) |
 
 This audit log is informational; the patterns in §Open Materials and
