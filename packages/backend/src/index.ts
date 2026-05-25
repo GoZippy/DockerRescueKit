@@ -39,6 +39,8 @@ import { SettingsService } from './services/SettingsService'
 import { SecretsService } from './services/SecretsService'
 import { MetricsService } from './services/MetricsService'
 import { VerifyService } from './services/VerifyService'
+import { RehearsalService } from './services/RehearsalService'
+import { mountRehearsalRoutes } from './routes/rehearsals'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
@@ -96,6 +98,7 @@ export class BackupService {
   private secrets: SecretsService
   private metrics: MetricsService
   private verify: VerifyService
+  private rehearsal: RehearsalService
   private partial: PartialRestoreService
   private audit: AuditService
   private rclone: RcloneService
@@ -126,11 +129,23 @@ export class BackupService {
     this.audit = new AuditService(this.db)
     this.rclone = new RcloneService(dataDir)
     this.scheduler = new SchedulerEngine(this.policyManager, this.verify)
+    this.rehearsal = new RehearsalService({
+      docker: this.dockerService,
+      policyManager: this.policyManager,
+      audit: this.audit,
+      stagingDir: path.join(dataDir, 'staging'),
+      db: this.db,
+    })
 
     this.setupMiddleware()
     this.setupRoutes()
+    mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
     this.setupStaticUI()
     this.setupErrorHandler()
+
+    // Best-effort cleanup of any resources left by a previously-crashed run.
+    // Doesn't block startup; logs whatever it reaps.
+    this.rehearsal.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
   }
 
   private setupMiddleware() {

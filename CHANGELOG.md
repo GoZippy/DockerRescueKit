@@ -11,6 +11,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.2.0-rc.2] - 2026-05-25
+
+Second release candidate of the v1.2 competitive-response sprint. Adds the
+**restore-rehearsal workflow** — the single highest-leverage differentiator
+identified in `docs/COMPETITIVE_ANALYSIS.md`. No tool in the OSS Docker
+backup space ships end-to-end stack restore rehearsal; DRK now does.
+
+### Added
+
+**Restore-rehearsal workflow (R-1)** — see `docs/design/R-1_RESTORE_REHEARSAL.md`
+- `RehearsalService` spins up an isolated bridge network (`Internal: true`,
+  default subnet `172.31.255.0/24`), restores selected backups into temp
+  volumes, brings up stand-in containers with the same image and scrubbed
+  env, runs operator-supplied smoke checks, and tears down every resource
+  it created. Teardown is guaranteed even on mid-run crash.
+- 5 smoke-check runners: `http`, `exec`, `tcp`, `file_exists`,
+  `sql_select_1` (postgres/mysql/mssql). Registry pattern — adding a new
+  kind requires no edits to the service.
+- Concurrency semaphore (default 2; override via `DRK_REHEARSAL_CONCURRENCY`).
+- Orphan reaper runs at process start to clean resources labelled
+  `com.gozippy.drk.rehearsal=<run-id>` whose run is not in-flight.
+- Env scrub strips `*_TOKEN`, `*_SECRET`, `*_KEY`, `*_PASSWORD`, `AWS_*`,
+  `STRIPE_*`, `LICENSE_*`, `OAUTH_*`, and `DATABASE_URL` from stand-in
+  containers by default. Opt back in per-rehearsal via `options.allowEnvVars`.
+- New shared types in `@docker-rescue-kit/shared`: `SmokeCheck`,
+  `SmokeCheckResult`, `RehearsalRequest`, `RehearsalReport`,
+  `RehearsalStatus`, `RehearsalStep`, `SCRUB_ENV_DEFAULT_PATTERNS`,
+  `SMOKE_CHECK_TEMPLATES` (pre-made for the 6 stacks in `STACK_RECIPES.md`).
+- New DB table `rehearsals` with policy index + started-desc index.
+- REST surface:
+  - `POST   /api/rehearsals`            — enqueue, 202 + `{ id, status: 'pending' }`
+  - `GET    /api/rehearsals`            — list (`?policyId=&limit=`)
+  - `GET    /api/rehearsals/:id`        — full `RehearsalReport`
+  - `GET    /api/rehearsals/:id/stream` — Server-Sent Events
+    (`event=hello|status|step|check|done`)
+  - `POST   /api/rehearsals/:id/abort`  — signal cancel
+  - `DELETE /api/rehearsals/:id`        — drop persisted record
+- Audit events: `rehearsal.start`, `rehearsal.complete`, `rehearsal.abort`,
+  `rehearsal.teardown_failed`.
+- 31 new unit tests in `rehearsalService.test.ts` and `rehearsalRoutes.test.ts`
+  (validation, env-scrub, registry shape, helper coverage, route status
+  codes). Plus a gated integration test
+  `integration/rehearsalService.real.test.ts` that exercises the real
+  Docker daemon when `CI_INTEGRATION=1`.
+
+**License compliance + positioning (parallel work bundled into this RC)**
+- `COMPONENTS.md` — added `sidecars/` as Open Material; appended a
+  classification audit log of every v1.2 file addition for LICENSE §22
+  compliance.
+- `docs/MARKETPLACE_LISTING_DRAFT.md` — status flipped DRAFT → READY TO
+  PUBLISH. Locked categories (Databases & storage / Developer tools /
+  Monitoring & observability). Incorporated SWOT findings inline and
+  added a pricing/feature drift-watch table.
+
+**Vertical side-car (V-1)** — `sidecars/plex/`
+- First `gozippy/drk-plex` standalone side-car image. Bundles `restic +
+  rclone + docker-cli + tini` in ~30MB Alpine layer. No DRK backend
+  required — follows the `itzg/mc-backup` pattern (10M+ pulls from one
+  vertical play). Supports local tarball, restic (s3/sftp/b2/azure), and
+  rclone backends. Safe Plex quiesce: clears transcoder cache, optional
+  `docker stop` with guaranteed restart via shell trap. Structured JSON
+  logs ready for future DRK audit-log scraping.
+- New top-level `sidecars/` directory classified Open in COMPONENTS.md so
+  community contributions are unambiguously allowed.
+
+**Design + planning docs**
+- `docs/design/R-1_RESTORE_REHEARSAL.md` — full architecture spec authored
+  before implementation; matches the code that landed in this RC.
+- `.autoclaw/orchestrator/sprints/v1.2-launch.yaml` — 15-task sprint plan
+  with owner assignments, acceptance criteria, and a quarterly watchlist.
+  *(gitignored; not part of distribution)*
+
+### Security hardening
+
+- `passwordEnv` in `sql_select_1` smoke checks now validated against
+  POSIX env-var name pattern (`/^[A-Za-z_][A-Za-z0-9_]*$/`) before being
+  expanded as `$NAME` inside the driver CLI command. Rejects values like
+  `PASS"; echo HACK; #` and `PASS$(curl evil.com)` that would break out
+  of shell quoting. 6 new tests cover this. Surfaced by a static-analyser
+  hit on an unrelated false-positive in a status-message string; the
+  flagged string was reworded ("SELECT 1 returned" → "query returned")
+  and the actual adjacent injection risk was fixed.
+- Sandbox network created with `Internal: true` (no external routing).
+- Stand-in containers receive no published ports, no shared networks, no
+  Docker socket mount — security guarantees enforced regardless of what
+  the source container had.
+
+### Changed
+
+- `packages/backend/src/index.ts` — wires the new `RehearsalService` into
+  the `BackupService` constructor and mounts the routes module. One-line
+  best-effort orphan reaper call on startup so a crashed run cleans up
+  after itself on next boot.
+- `packages/backend/src/db/Database.ts` — adds the `rehearsals` table to
+  schema init + four CRUD helpers.
+
+### Quality gates
+
+- TypeScript clean across backend + shared + extension
+- Jest: 210 passing, 5 skipped (3 pre-existing CI-gated integration tests
+  + 2 new R-1 ones), 0 failing
+- 43 net new tests in v1.2.0-rc.2 vs rc.1
+
+### Known gaps still deferred to v1.2.1
+
+- **R-2 restore-rehearsal UI wizard** (Kilo Code's scope) — backend
+  endpoints are live; UI can mock against the shared types
+- **N-1 notification delivery** (Slack / ntfy / email) — rehearsal audit
+  events fire today; delivery wires in when N-1 lands
+- **B-1 license-key + Free-tier gating** — license-server scaffolding
+  exists; not yet enforcing the 5-policy or 1-concurrent-rehearsal caps
+- **D-3-followup PolicyWizard step** for all 7 DB exporter kinds
+- **Marketplace screenshots** `04-restore-browser.png`,
+  `05-storage-vault.png` for the Verified Publisher packet — need a
+  running app to capture
+
+---
+
 ## [1.2.0-rc.1] - 2026-05-24
 
 Competitive-response release driven by [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md).

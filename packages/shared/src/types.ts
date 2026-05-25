@@ -134,6 +134,155 @@ export interface NotificationConfig {
   readonly config: Record<string, any> // type-specific config
 }
 
+// ===========================================================================
+// Restore-Rehearsal workflow (R-1) — see docs/design/R-1_RESTORE_REHEARSAL.md
+// ===========================================================================
+
+export type SmokeCheckKind =
+  | 'http'
+  | 'exec'
+  | 'tcp'
+  | 'file_exists'
+  | 'sql_select_1'
+
+export type SmokeCheck =
+  | {
+      kind: 'http'
+      /** Logical container name from the policy (used to look up the
+       *  stand-in container in the sandbox network). */
+      container: string
+      port: number
+      path?: string
+      method?: 'GET' | 'HEAD' | 'POST'
+      /** Default 200. Special values 'any_2xx' / 'any_3xx' accept any
+       *  status in that band. */
+      expectStatus?: number | 'any_2xx' | 'any_3xx'
+      bodyContains?: string
+      timeoutMs?: number
+    }
+  | {
+      kind: 'exec'
+      container: string
+      command: string[]
+      expectExitCode?: number
+      stdoutContains?: string
+      timeoutMs?: number
+    }
+  | {
+      kind: 'tcp'
+      container: string
+      port: number
+      timeoutMs?: number
+    }
+  | {
+      kind: 'file_exists'
+      container: string
+      path: string
+      minBytes?: number
+    }
+  | {
+      kind: 'sql_select_1'
+      container: string
+      driver: 'postgres' | 'mysql' | 'mssql'
+      user?: string
+      /** Name of an env var on the stand-in container that holds the
+       *  password. Read via `docker exec` so we never log the value. */
+      passwordEnv?: string
+      db?: string
+      timeoutMs?: number
+    }
+
+export interface RehearsalRequest {
+  /** Resolves to "latest successful backup per target in this policy". */
+  policyId?: string
+  /** Explicit set of backup IDs. Mutually exclusive with `policyId`. */
+  backupIds?: string[]
+  smokeChecks: SmokeCheck[]
+  options?: {
+    /** Stop running further smoke checks after the first failure. Default: true. */
+    stopOnFirstCheckFailure?: boolean
+    /** Subnet to allocate for the sandbox bridge network.
+     *  Default: 172.31.255.0/24. Override to avoid host-network collisions. */
+    networkSubnet?: string
+    /** Wall-clock cap for the whole rehearsal. Default: 30 minutes. */
+    timeoutMs?: number
+    /** Env-var names (case-insensitive) to keep on stand-in containers.
+     *  Names matching `SCRUB_ENV_DEFAULT_PATTERNS` are stripped unless
+     *  listed here. Use to opt back in to e.g. DATABASE_URL when a smoke
+     *  check legitimately requires it. */
+    allowEnvVars?: string[]
+  }
+}
+
+export type RehearsalStatus =
+  | 'pending'
+  | 'preparing'
+  | 'restoring'
+  | 'launching'
+  | 'probing'
+  | 'tearing_down'
+  | 'success'
+  | 'failed'
+  | 'aborted'
+
+export interface RehearsalStep {
+  readonly label: string
+  readonly ok: boolean
+  readonly detail?: string
+  readonly startedAt: string  // ISO 8601
+  readonly finishedAt: string // ISO 8601
+  readonly durationMs: number
+}
+
+export interface SmokeCheckResult {
+  readonly check: SmokeCheck
+  readonly ok: boolean
+  readonly detail?: string
+  readonly attempt: number
+  readonly startedAt: string
+  readonly finishedAt: string
+  readonly durationMs: number
+}
+
+export interface RehearsalReport {
+  readonly id: string
+  readonly policyId?: string
+  readonly requestedBackupIds: string[]
+  readonly status: RehearsalStatus
+  /** Shorthand for `status === 'success'`. */
+  readonly ok: boolean
+  readonly steps: RehearsalStep[]
+  readonly smokeCheckResults: SmokeCheckResult[]
+  readonly startedAt: string
+  readonly finishedAt: string
+  readonly durationMs: number
+  readonly resources: {
+    network?: string
+    containers: string[]
+    volumes: string[]
+  }
+}
+
+/** Default regex patterns matched against env-var names on the source
+ *  container; any matching var is stripped from the stand-in unless the
+ *  request lists it in `options.allowEnvVars`. Case-insensitive. */
+export const SCRUB_ENV_DEFAULT_PATTERNS: readonly RegExp[] = [
+  /_TOKEN$/i,
+  /_SECRET$/i,
+  /_KEY$/i,
+  /_PASSWORD$/i,
+  /^AWS_/i,
+  /^STRIPE_/i,
+  /^LICENSE_/i,
+  /^OAUTH_/i,
+  /^DATABASE_URL$/i, // contains creds; rehearsals must declare allowEnvVars to keep it
+]
+
+// Smoke-check templates live in a sibling module so the table doesn't
+// bulk up this file. Re-exported here so consumers can keep using the
+// single `@docker-rescue-kit/shared` import path.
+export { SMOKE_CHECK_TEMPLATES } from './smokeCheckTemplates'
+
 export interface Backup {
   readonly id: string
   readonly policyId: string

@@ -37,6 +37,13 @@ the LICENSE.
 - `drk-icon.svg` and `packaging/icon.svg` — product icon (use governed
   by Section 14 trademarks)
 - `metadata.json` — Docker Desktop Extension metadata
+- `sidecars/` — community-grade side-car templates (Dockerfiles, policy
+  YAML/JSON, README) bundling the `drk` CLI with stack-specific
+  defaults. Intended to be forked and adapted by users. Each side-car's
+  README documents the underlying app and any operator caveats; the
+  Restricted `drk` CLI binary it depends on is consumed unmodified
+  through the published image and is not redistributed by these
+  templates.
 
 ## Restricted Materials
 
@@ -48,6 +55,9 @@ limited to:
 - `packages/extension/` (React UI for the Docker Desktop Extension)
 - `packages/cli/` (the `drk` command-line interface)
 - `packages/shared/` (shared TypeScript types and utilities)
+- `license-server/` (RS256 license-token issuance service, Square webhook
+  handler, renewal scheduler — operates only on Licensor infrastructure;
+  not part of any product distribution; holds the JWT signing private key)
 - `tools/` (internal tooling)
 - `Dockerfile`, `Makefile`, build configuration, CI workflows
 - `package.json`, `package-lock.json`, all `node_modules/`
@@ -75,3 +85,18 @@ LICENSE.
   `THIRD_PARTY_LICENSES.md` and the relevant `node_modules/*/LICENSE` files;
   nothing in this classification affects third-party license terms.
 - Commercial licensing inquiries: **Support@GoZippy.com**
+
+## Classification audit log
+
+| Release | Date | New files added | Classification |
+|---|---|---|---|
+| v1.2-rc | 2026-05-24 | `docs/COMPETITIVE_ANALYSIS.md`, `docs/BACKUP_TOOLS_COMPARISON.md`, `docs/STACK_RECIPES.md`, `docs/MARKETPLACE_LISTING_DRAFT.md`, `docs/ROADMAP.md` | Open (covered by `docs/` pattern) |
+| v1.2-rc | 2026-05-24 | `packages/extension/src/components/VersionBadge.tsx` | Restricted (covered by `packages/extension/` pattern) |
+| v1.2-rc | 2026-05-24 | `packages/shared/src/types.ts` extensions (InfluxDB + MSSQL DatabaseExporter variants), `packages/backend/src/services/DatabaseExporters.ts` extensions, `packages/backend/src/__tests__/dbExporters.test.ts` extensions | Restricted (covered by `packages/` pattern) |
+| v1.2-rc | 2026-05-25 | `sidecars/plex/` (V-1 prototype) | **Open** (community-grade side-car templates — see §Open Materials above) |
+| v1.2-rc | 2026-05-24 | `.autoclaw/orchestrator/sprints/v1.2-launch.yaml`, `.autoclaw/orchestrator/comms/inboxes/**`, `.autoclaw/internal/marketplace-submission.md`, `.autoclaw/kdream/memory/MEMORY.md` updates | Restricted (covered by `.autoclaw/` pattern; also `.gitignore`d so not redistributed) |
+| v1.2-rc | 2026-05-25 | `license-server/` — RS256 license-token issuance service, Square webhook handler, SKU→tier mapping, SQLite license ledger, renewal-invoice scheduler. Holds the JWT signing private key. Operates only on Licensor infrastructure. | **Restricted** (explicitly listed above; not part of any product distribution — never ship with DRK images) |
+| 2026-05-24 | 2026-05-24 | `LICENSE` switch from MIT to Zippy Technologies Source-Available Commercial License v1.3, `COMPONENTS.md` created | Open (as listed above) |
+
+This audit log is informational; the patterns in §Open Materials and
+§Restricted Materials remain the authoritative classification.

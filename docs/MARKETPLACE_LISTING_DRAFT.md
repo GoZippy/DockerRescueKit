@@ -1,8 +1,15 @@
-# Docker Hub / Docker Desktop Marketplace Listing — DRAFT
+# Docker Hub / Docker Desktop Marketplace Listing
 
-**Status:** DRAFT — do not publish to Docker Hub until competitive SWOT research (in progress in a parallel Claude Code session as of 2026-05-24) is incorporated. Pricing and feature-tier gates in [LICENSE](../LICENSE) and [ROADMAP](ROADMAP.md) may move based on those findings; re-validate this file against the LICENSE before publishing.
+**Status:** READY TO PUBLISH (SWOT merge complete, 2026-05-25).
+Tag to publish from: `v1.2.0` (built from branch `v1.2-rc`, commit `4ea9623`
+once tagged). Last reviewer pass before posting to Docker Hub: operator.
 
-**License compliance:** All copy below uses the §11.3-allowed phrasing. Do not edit to say "open source", "MIT", "Apache", "permissively licensed", or "free software" — those are forbidden by §11.2 of the [LICENSE](../LICENSE).
+**License compliance:** All copy below uses §11.3-allowed phrasing. Do
+not edit to say "open source", "MIT", "Apache", "permissively licensed",
+or "free software" — those are forbidden by §11.2 of the
+[LICENSE](../LICENSE). Whenever this file is updated, re-verify the
+Licensing section copy matches Schedule A of the LICENSE (§5.2). If
+they diverge, the LICENSE wins.
 
 ---
 
@@ -10,30 +17,44 @@
 
 ### Short description (the "Add a description" field, ~100 char cap)
 
-Primary recommendation:
+**Use this one:**
+
+```
+The active backup, scheduled-snapshot, and one-click restore extension for Docker volumes and stacks.
+```
+
+(101 chars. The "active" framing leans on the SWOT finding that Docker
+archived their own `volumes-backup-extension` on 2024-10-29 — the
+category is effectively empty.)
+
+Alternatives kept on file:
 
 ```
 Automated backup, scheduled snapshots, and one-click restore for Docker volumes, stacks, and databases.
 ```
 
-Alternatives:
-
 ```
 Back up Docker volumes and Compose stacks to S3, SMB, SFTP, PBS, or 40+ clouds — scheduled, encrypted, verified.
 ```
 
-```
-The active successor to Volumes Backup & Share: scheduled, encrypted, multi-backend backups for Docker.
-```
-
 ### Categories (Docker Hub allows up to 3)
 
-Pending final decision between two options:
+**Locked:** `Databases & storage` + `Developer tools` + `Monitoring & observability`.
 
-- **Recommended:** `Databases & storage` + `Developer tools` + `Monitoring & observability`
-- **Alternative:** `Databases & storage` + `Developer tools` + `Security`
+Rationale (per SWOT, see [docs/COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md)):
+- `Databases & storage` is the strongest fit and the most underserved
+  marketplace category in DRK's space (Docker's archived extension was
+  the only one there).
+- `Developer tools` broadens reach to the homelab/Docker-Desktop crowd
+  that searches by tool type.
+- `Monitoring & observability` because Prometheus metrics + audit log
+  are first-class — captures the SRE-adjacent audience who also need
+  backup hygiene visibility.
 
-`Databases & storage` is the strongest fit (underserved category, real audience overlap). `Developer tools` broadens reach. Third slot is a judgment call — see notes in conversation history.
+`Security` was the alternative third slot. Rejected because users
+searching `Security` expect scanners/vault tools, not backups; we'd
+underperform discovery in that category. Revisit if WORM /
+ransomware-canary features ship in v1.3+.
 
 ---
 
@@ -42,25 +63,51 @@ Pending final decision between two options:
 ```markdown
 # Docker Rescue Kit
 
-**Automated backup, scheduled snapshots, and one-click restore for Docker volumes, containers, images, networks, and databases.**
+**The active backup, scheduled-snapshot, and one-click restore extension for Docker volumes, containers, images, networks, and databases.**
 
 Docker Rescue Kit (DRK) protects your Docker data with policy-driven backups to the storage of your choice — local, SMB/CIFS, SFTP, S3, Proxmox Backup Server, Restic, or any of 40+ cloud providers via Rclone (Google Drive, OneDrive, Backblaze, Dropbox, and more). Snapshots are container-aware: a single policy captures volumes, container config, and Compose stack context together, so a restore brings the whole application back — not just a tarball.
 
-## Features
-
-- **7 storage backends** — Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, Rclone (40+ cloud providers)
-- **Scheduled policies** — cron-based with tiered retention (count, time, or daily/weekly/monthly tags)
-- **Verified backups** — every snapshot can be restore-tested in a scratch container before you trust it
-- **Partial restore** — browse a backup and extract individual files, or restore the full stack
-- **Database-aware** — built-in exporters for Postgres, MySQL, MongoDB, Redis, and SQLite
-- **Pre/post hooks** — quiesce apps via `docker exec` before and after each backup
-- **Encrypted credential vault** — AES-256-GCM at rest for every connector secret
-- **REST API + CLI (`drk`)** — automate everything the UI does
-- **Observability** — Prometheus `/metrics`, audit log, `/healthz` probes
-
 ## Why DRK
 
-Docker's own *Volumes Backup & Share* extension was deprecated in September 2024 and folded into the basic Volumes tab — which only does manual export/import. DRK is the active, multi-backend, scheduling-and-encryption successor.
+Docker's own *Volumes Backup & Share* extension was deprecated on September 30, 2024 and folded into the basic Volumes tab — which only does manual single-volume export/import. DRK is the active, multi-backend, scheduling-and-encryption alternative — and as of mid-2026, the only published Docker Desktop Extension in the backup/restore category.
+
+What you get that the bundled Volumes tab does not:
+
+- **Scheduled, policy-driven backups** — cron + tiered retention (count, time, daily/weekly/monthly)
+- **Multi-target snapshots** — back up a whole Compose stack as one unit, not one volume at a time
+- **7 storage backends** — including Proxmox Backup Server (unique among Docker-backup tools) and ~40 cloud providers via Rclone
+- **Backup verification** — every snapshot can be restore-tested in a scratch container before you trust it (not just an integrity hash)
+- **Partial restore browser** — browse archives and extract individual files, or restore the full stack
+- **7 typed database exporters** — Postgres, MySQL, MongoDB, Redis, SQLite, InfluxDB, and MSSQL — consistent dumps without pre-quiescing by hand
+- **Pre/post hooks** — quiesce apps via `docker exec` before and after each backup
+
+## Features
+
+- 7 storage backends: Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, Rclone (40+ cloud providers)
+- Cron-based scheduling with tiered retention
+- Backup verification in scratch container
+- Partial restore down to individual files
+- 7 typed database exporters
+- Pre/post hooks via `docker exec`
+- AES-256-GCM encrypted credential vault
+- REST API + CLI (`drk`) + embedded React UI
+- Prometheus `/metrics`, audit log, `/healthz` probes
+
+## Compared to alternatives
+
+| If you want… | Pick |
+|---|---|
+| Graphical Docker Desktop extension with policies, restore browser, and verification | **DockerRescueKit** |
+| The simplest CLI container that backs up one volume to S3 on a cron | `offen/docker-volume-backup` |
+| Best-in-class deduplicating engine you'll wrap with your own scripts | `restic` or `kopia` |
+| Polished general-purpose encrypted-cloud backup, not Docker-specific | Duplicati |
+| Database dumps and only database dumps | `tiredofit/docker-db-backup` |
+
+Full feature matrix and decision guide: see the [Backup Tools Buyer's Guide](https://github.com/gozippy/DockerRescueKit/blob/main/docs/BACKUP_TOOLS_COMPARISON.md) on GitHub.
+
+## Ready-made recipes for common stacks
+
+Copy-paste DRK policies for [Home Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden, and n8n](https://github.com/gozippy/DockerRescueKit/blob/main/docs/STACK_RECIPES.md) — each with the right pre/post hooks and restore notes.
 
 ## Licensing
 
@@ -84,16 +131,49 @@ Community help is provided on a best-effort basis through public GitHub Discussi
 
 - GitHub: https://github.com/gozippy/DockerRescueKit
 - Issues / feature requests: https://github.com/gozippy/DockerRescueKit/issues
+- Backup Tools Buyer's Guide: https://github.com/gozippy/DockerRescueKit/blob/main/docs/BACKUP_TOOLS_COMPARISON.md
+- Stack Recipes: https://github.com/gozippy/DockerRescueKit/blob/main/docs/STACK_RECIPES.md
 - Commercial licensing: Support@GoZippy.com
 ```
 
 ---
 
-## Notes for the SWOT session merging into this draft
+## SWOT findings already merged into the listing copy above
 
-- Pricing numbers above mirror Schedule A of the [LICENSE](../LICENSE) as committed 2026-05-24. If SWOT findings indicate a different price, update **both** this file and the LICENSE — they must stay in sync. The grandfather clause in §23 of the LICENSE protects pre-effective-date copies; subsequent pricing changes need a new LICENSE version bump.
-- Feature-tier gates above mirror [docs/ROADMAP.md](ROADMAP.md). Same sync rule applies.
-- If SWOT recommends adding a Team SKU (the previous research suggested $249/5 seats), insert a row between Personal Pro and Commercial Pro and update Schedule A in the LICENSE to match.
-- If SWOT recommends an unbundled "managed cloud only" tier (separate from Enterprise), add it.
-- The "Why DRK" deprecated-Volumes-Backup framing is high-conviction (Docker really did kill it Sept 2024) — keep that hook regardless of pricing shifts.
-- The §11.3 phrasing rule is absolute — do not "improve" the license sentence to read like open-source marketing.
+For full analysis, see [docs/COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md).
+
+- **Empty-marketplace framing in short description** ("The active backup… extension"). Captures DRK's uncontested position.
+- **Deprecated-Volumes-Backup hook** in the "Why DRK" section. SWOT confirmed this is high-conviction (Docker archived the repo on 2024-10-29; the bundled Volumes tab only does single-volume tarball export).
+- **Three unique-to-the-space wedges** lifted into the Why DRK bullets: Proxmox Backup Server (no other Docker-backup tool ships it), restore-test in scratch container (others do integrity checks only), partial restore browser.
+- **Compared-to-alternatives section** added — pulls the buyer's-guide table inline so comparison shoppers don't bounce. Links to the full doc for the long version.
+- **Stack recipes call-out** added so the long-tail SEO queries (`backup Plex with DRK`, `backup Home Assistant with DRK`) land on a useful page.
+- **DB exporter count bumped to 7** (was 5) to reflect the v1.2 InfluxDB + MSSQL additions that closed the `tiredofit/docker-db-backup` parity gap.
+- **Categories locked** at `Databases & storage` + `Developer tools` + `Monitoring & observability` per SWOT category-fit analysis.
+
+## Open items before publish
+
+1. Operator review of this final draft.
+2. Capture the two remaining Verified Publisher screenshots
+   (`04-restore-browser.png`, `05-storage-vault.png`) from a running app.
+3. Tag `v1.2.0` to trigger the Docker Hub multi-arch build.
+4. Paste the listing copy into the Docker Hub repository overview editor
+   and the Docker Desktop Marketplace submission form.
+5. Submit verified-publisher application using the packet documented in
+   `.autoclaw/internal/marketplace-submission.md`.
+
+## Pricing/feature drift watch
+
+These items must stay in sync across three places. If you edit one,
+update the others or you will mislead users / fail compliance:
+
+| Item | This file | LICENSE §5.2 / Schedule A | docs/ROADMAP.md |
+|---|---|---|---|
+| Free tier limits (5 policies, 14-day audit) | ✓ | ✓ | ✓ |
+| Personal Pro price ($29 one-time) | ✓ | ✓ | ✓ |
+| Commercial Pro list ($149/Seat/yr) | ✓ | ✓ | ✓ |
+| Launch lock-in ($99, 1k Seats or 2026-12-31) | ✓ | ✓ | ✓ |
+| Priority Queue Add-on ($750/yr, capped, not an SLA) | ✓ | ✓ | ✓ |
+| Storage backend count (7) | ✓ | n/a | ✓ |
+| DB exporter count (7 after v1.2: PG/MySQL/Mongo/Redis/SQLite/InfluxDB/MSSQL) | ✓ | n/a | n/a |
+
+Re-run this checklist before every tag.

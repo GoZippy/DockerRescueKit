@@ -94,6 +94,21 @@ export class Database {
         durationMs INTEGER NOT NULL,
         steps TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS rehearsals (
+        id            TEXT PRIMARY KEY,
+        policyId      TEXT,
+        requestedBackupIds TEXT NOT NULL, -- JSON array
+        status        TEXT NOT NULL,
+        ok            INTEGER NOT NULL,
+        report        TEXT NOT NULL,      -- full RehearsalReport JSON
+        startedAt     TEXT NOT NULL,
+        finishedAt    TEXT,
+        durationMs    INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rehearsals_policy ON rehearsals(policyId);
+      CREATE INDEX IF NOT EXISTS idx_rehearsals_started ON rehearsals(startedAt DESC);
     `)
 
     // Lightweight migration: older databases won't have verifySchedule on
@@ -328,6 +343,83 @@ export class Database {
       finishedAt: new Date(r.finishedAt),
       steps: JSON.parse(r.steps)
     }))
+  }
+
+  // Rehearsal Operations (R-1)
+  public async saveRehearsalReport(record: {
+    id: string
+    policyId?: string
+    requestedBackupIds: string[]
+    status: string
+    ok: boolean
+    report: unknown        // full RehearsalReport — serialised to JSON
+    startedAt: string
+    finishedAt?: string
+    durationMs?: number
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO rehearsals (
+        id, policyId, requestedBackupIds, status, ok, report,
+        startedAt, finishedAt, durationMs
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status     = excluded.status,
+        ok         = excluded.ok,
+        report     = excluded.report,
+        finishedAt = excluded.finishedAt,
+        durationMs = excluded.durationMs
+    `)
+    stmt.run(
+      record.id,
+      record.policyId || null,
+      JSON.stringify(record.requestedBackupIds),
+      record.status,
+      record.ok ? 1 : 0,
+      JSON.stringify(record.report),
+      record.startedAt,
+      record.finishedAt || null,
+      record.durationMs ?? null,
+    )
+  }
+
+  public async getRehearsal(id: string): Promise<any | null> {
+    const row = this.db.prepare('SELECT * FROM rehearsals WHERE id = ?').get(id) as any
+    if (!row) return null
+    return {
+      id: row.id,
+      policyId: row.policyId || undefined,
+      requestedBackupIds: JSON.parse(row.requestedBackupIds),
+      status: row.status,
+      ok: row.ok === 1,
+      report: JSON.parse(row.report),
+      startedAt: row.startedAt,
+      finishedAt: row.finishedAt || undefined,
+      durationMs: row.durationMs ?? undefined,
+    }
+  }
+
+  public async listRehearsals(opts?: { policyId?: string; limit?: number }): Promise<any[]> {
+    const limit = Math.max(1, Math.min(500, opts?.limit ?? 50))
+    const rows = opts?.policyId
+      ? this.db.prepare(
+          'SELECT id, policyId, status, ok, startedAt, finishedAt, durationMs FROM rehearsals WHERE policyId = ? ORDER BY startedAt DESC LIMIT ?'
+        ).all(opts.policyId, limit) as any[]
+      : this.db.prepare(
+          'SELECT id, policyId, status, ok, startedAt, finishedAt, durationMs FROM rehearsals ORDER BY startedAt DESC LIMIT ?'
+        ).all(limit) as any[]
+    return rows.map(r => ({
+      id: r.id,
+      policyId: r.policyId || undefined,
+      status: r.status,
+      ok: r.ok === 1,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt || undefined,
+      durationMs: r.durationMs ?? undefined,
+    }))
+  }
+
+  public async deleteRehearsal(id: string): Promise<void> {
+    this.db.prepare('DELETE FROM rehearsals WHERE id = ?').run(id)
   }
 
   private parseBackup(r: any): Backup {
