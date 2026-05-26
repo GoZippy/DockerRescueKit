@@ -41,6 +41,36 @@ RUN npm run build:extension --workspace=@docker-rescue-kit/extension
 # Prune devDependencies; keeps node_modules slim for the final stage copy
 RUN npm prune --omit=dev
 
+# ─── Stage 1b: rclone from source ───────────────────────────────────────────
+# rclone publishes prebuilt binaries that lag the source on dep bumps.
+# v1.74.2 source go.mod already pins golang.org/x/crypto v0.52.0 and
+# google.golang.org/grpc v1.80.0 (both ABOVE the CVE-2026-46595 / -42508 /
+# -39832..39834 fix versions), but the binary at downloads.rclone.org was
+# compiled before that bump and still bundles the vulnerable libs. Building
+# from the git tag picks up the fixed deps.
+FROM golang:1.25-alpine AS rclone-build
+RUN apk add --no-cache git
+ARG RCLONE_VERSION=1.74.2
+WORKDIR /src
+RUN git clone --depth 1 --branch v${RCLONE_VERSION} https://github.com/rclone/rclone.git .
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w" -tags noselfupdate -o /rclone .
+
+# ─── Stage 1c: restic from source ───────────────────────────────────────────
+# restic v0.18.1 source still pins x/crypto v0.41.0 and x/net v0.43.0 (both
+# BELOW CVE fix versions). We `go get` newer versions before build to cut
+# the bundled-Go CVEs. The crypto APIs restic uses (SCrypt, Poly1305,
+# Salsa20) are stable across these versions.
+FROM golang:1.25-alpine AS restic-build
+RUN apk add --no-cache git
+ARG RESTIC_VERSION=0.18.1
+WORKDIR /src
+RUN git clone --depth 1 --branch v${RESTIC_VERSION} https://github.com/restic/restic.git .
+RUN go get golang.org/x/crypto@v0.52.0 golang.org/x/net@v0.55.0 google.golang.org/grpc@v1.81.1 \
+ && go mod tidy
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w" -o /restic ./cmd/restic
+
 # ─── Stage 2: final ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS final
 
@@ -57,11 +87,17 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit" \
       com.docker.extension.categories="backup,utility-tools" \
       com.docker.extension.changelog="https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md"
 
-# restic + rclone are required by all remote storage adapters.
-RUN apk add --no-cache tini restic rclone ca-certificates fuse3 \
+# tini + ca-certificates + fuse3 are the only runtime deps we still take
+# from alpine apk. rclone and restic come from the from-source build stages
+# (rclone-build, restic-build) above — see those stages for the CVE rationale.
+RUN apk add --no-cache tini ca-certificates fuse3 \
  && mkdir -p /data /run/guest-services
 
 WORKDIR /app
+
+# Copy from-source-built CVE-clean binaries
+COPY --from=rclone-build /rclone /usr/local/bin/rclone
+COPY --from=restic-build /restic /usr/local/bin/restic
 
 # Copy runtime artifacts from the builder stage
 COPY --from=builder /workspace/node_modules                     ./node_modules
