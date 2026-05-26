@@ -24,6 +24,17 @@ describe('CLI command registry', () => {
     ]))
   })
 
+  it('includes the rehearsal commands (R-1)', () => {
+    const names = commands.map(c => c.name)
+    expect(names).toEqual(expect.arrayContaining([
+      'rehearsal:start',
+      'rehearsal:list',
+      'rehearsal:show',
+      'rehearsal:abort',
+      'rehearsal:delete',
+    ]))
+  })
+
   it('findCommand resolves by name', () => {
     expect(findCommand('status')?.name).toBe('status')
     expect(findCommand('does-not-exist')).toBeUndefined()

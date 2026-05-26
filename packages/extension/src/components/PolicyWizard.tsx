@@ -246,6 +246,10 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   // Allow proceeding without targets if Docker is offline (can add targets later or manually)
   const canNext = step === 1 ? (form.targets.length > 0 || dockerOffline) : true
 
+  // Step labels for the wizard pill row. Order matches the step === N
+  // conditionals in the body and the canNext / footer logic.
+  const STEP_LABELS = ['Targets', 'Schedule', 'Database Backups', 'Storage & Review']
+
   // ENTER-to-submit on the final step
   const onPanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Enter') return
@@ -255,7 +259,6 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
       e.preventDefault()
       handleSubmit()
     }
-  }
   }
 
   return (

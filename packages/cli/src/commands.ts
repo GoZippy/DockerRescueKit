@@ -375,8 +375,144 @@ export const commands: CommandDef[] = [
       printJson(res.data)
       return 0
     }
+  },
+
+  // ── Rehearsals (R-1) ───────────────────────────────────────────────────────
+  // Restore-rehearsal workflow: spin up a sandboxed network, restore selected
+  // backups, run smoke checks, tear down. The CLI surface mirrors the REST
+  // endpoints in packages/backend/src/routes/rehearsals.ts so anything you
+  // can do from the UI you can also script.
+  {
+    name: 'rehearsal:start',
+    args: '<--policy <id> | --backup <id> [--backup <id>...]> --check <kind:container[:opt=val,...]>... [--no-stop-on-fail] [--subnet <cidr>] [--timeout-ms <n>] [--allow-env <NAME>...]',
+    summary: 'Enqueue a new restore rehearsal. Returns the new rehearsal id; track with rehearsal:show.',
+    run: async (_pos, flags) => {
+      const body: any = {
+        smokeChecks: parseSmokeChecks(flags.check),
+        options: {},
+      }
+      if (flags.policy) body.policyId = flags.policy
+      if (flags.backup) {
+        body.backupIds = Array.isArray(flags.backup) ? flags.backup : [flags.backup]
+      }
+      if (!body.policyId && !body.backupIds) {
+        process.stderr.write('rehearsal:start needs --policy <id> or --backup <id>\n')
+        return 2
+      }
+      if (body.smokeChecks.length === 0) {
+        process.stderr.write('rehearsal:start needs at least one --check\n')
+        return 2
+      }
+      if ('no-stop-on-fail' in flags) body.options.stopOnFirstCheckFailure = false
+      if (flags.subnet) body.options.networkSubnet = flags.subnet
+      if (flags['timeout-ms']) body.options.timeoutMs = parseInt(flags['timeout-ms'], 10)
+      if (flags['allow-env']) {
+        body.options.allowEnvVars = Array.isArray(flags['allow-env'])
+          ? flags['allow-env']
+          : [flags['allow-env']]
+      }
+      const res = await createClient().post('/rehearsals', body)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'rehearsal:list',
+    args: '[--policy <id>] [--limit <n>]',
+    summary: 'List recent rehearsal runs.',
+    run: async (_pos, flags) => {
+      const qs: string[] = []
+      if (flags.policy) qs.push(`policyId=${encodeURIComponent(flags.policy)}`)
+      if (flags.limit) qs.push(`limit=${encodeURIComponent(flags.limit)}`)
+      const path = `/rehearsals${qs.length ? '?' + qs.join('&') : ''}`
+      const res = await createClient().get(path)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'rehearsal:show',
+    args: '<rehearsalId>',
+    summary: 'Fetch the full RehearsalReport (steps, smoke-check results, resources).',
+    run: async (pos) => {
+      const id = must(pos[0], 'rehearsalId')
+      const res = await createClient().get(`/rehearsals/${id}`)
+      printJson(res.data)
+      return res.data?.ok ? 0 : 1
+    }
+  },
+  {
+    name: 'rehearsal:abort',
+    args: '<rehearsalId>',
+    summary: 'Signal cancel for an active rehearsal. Teardown still runs.',
+    run: async (pos) => {
+      const id = must(pos[0], 'rehearsalId')
+      const res = await createClient().post(`/rehearsals/${id}/abort`)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'rehearsal:delete',
+    args: '<rehearsalId>',
+    summary: 'Drop the persisted record. Does NOT teardown resources (lifecycle owns that).',
+    run: async (pos) => {
+      const id = must(pos[0], 'rehearsalId')
+      await createClient().delete(`/rehearsals/${id}`)
+      return 0
+    }
   }
 ]
+
+/**
+ * Parse `--check kind:container[:k=v,k=v,...]` flag values into the
+ * SmokeCheck JSON shape expected by POST /api/rehearsals.
+ *
+ * Examples:
+ *   --check tcp:app:port=80
+ *   --check http:nginx:port=80,path=/health,expectStatus=200
+ *   --check sql_select_1:db:driver=postgres,user=postgres,passwordEnv=POSTGRES_PASSWORD
+ *   --check file_exists:vault:path=/data/db.sqlite3,minBytes=1024
+ *   --check exec:app:command=ls /data
+ *
+ * Repeat the flag to add multiple checks. The runtime validator on the
+ * server side enforces per-kind required fields; this parser only does
+ * shape coercion (numeric / boolean / array).
+ */
+function parseSmokeChecks(raw: string | string[] | undefined): any[] {
+  if (!raw) return []
+  const arr = Array.isArray(raw) ? raw : [raw]
+  return arr.map(token => {
+    const parts = token.split(':')
+    if (parts.length < 2) {
+      process.stderr.write(`bad --check value: ${token} (expected kind:container[:k=v,...])\n`)
+      process.exit(2)
+    }
+    const [kind, container, ...rest] = parts
+    const opts = rest.join(':') // permits colons inside values (e.g. URLs)
+    const check: any = { kind, container }
+    if (opts) {
+      for (const pair of opts.split(',')) {
+        const eq = pair.indexOf('=')
+        if (eq <= 0) continue
+        const k = pair.slice(0, eq).trim()
+        let v: any = pair.slice(eq + 1).trim()
+        // shape coercion: numeric, boolean, JSON-array for `command`
+        if (k === 'command') {
+          // `command=ls /data` splits on whitespace; quote-handling
+          // is out of scope — for complex argvs, build via REST directly.
+          v = String(v).split(/\s+/)
+        } else if (/^\d+$/.test(v)) {
+          v = parseInt(v, 10)
+        } else if (v === 'true' || v === 'false') {
+          v = v === 'true'
+        }
+        check[k] = v
+      }
+    }
+    return check
+  })
+}
 
 export function findCommand(name: string): CommandDef | undefined {
   return commands.find(c => c.name === name)

@@ -1,363 +1,285 @@
 # Stack Recipes — Copy-Paste DRK Policies for Popular Homelab Apps
 
-This page is a growing catalog of **ready-to-import DockerRescueKit
-policies** for the apps homelabbers actually run. Each recipe is:
+Each recipe below is a complete, copy-pasteable backup policy for DockerRescueKit.
+They capture the right volumes, use the right database exporters, and include
+pre/post hooks where the app needs quiescing.
 
-- A short rationale (what's worth protecting and what's safe to skip)
-- A JSON policy block you can POST to `/api/policies` or import via the
-  Docker Desktop extension
-- Any `pre:` / `post:` hooks needed to make the backup consistent
-  (quiescing the app, flushing the cache, etc.)
-- A one-paragraph "how to restore" so you know what you're getting
-  before you need it at 2 AM
-
-> **Quickstart**
-> 1. Install the DockerRescueKit Docker Desktop extension, or
->    `docker run -d gozippy/dockerrescuekit:1.2.0`
-> 2. Set up a storage connector (S3, SMB, SFTP, PBS, Rclone) on the
->    **Integrations** page
-> 3. Open the recipe you need below, copy the JSON, replace the
->    `connectorId` / `container name` placeholders, and save the policy
-> 4. Run it once manually to verify, then let the schedule take over
-
-Recipes ship as **stable JSON** so they're easy to keep current as DRK
-evolves. Field reference: [docs/ARCHITECTURE.md](ARCHITECTURE.md#backuppolicy-shape).
-
----
-
-## Contents
-
-- [Home Assistant](#home-assistant)
-- [Plex / Jellyfin](#plex--jellyfin)
-- [Immich (photos)](#immich-photos)
-- [Nextcloud](#nextcloud)
-- [Vaultwarden](#vaultwarden)
-- [n8n (workflow automation)](#n8n-workflow-automation)
-- [Contributing a recipe](#contributing-a-recipe)
+**After pasting:** adjust container names to match your setup (DRK will auto-detect
+them in the Policy Wizard), pick your storage backend, and you're done.
 
 ---
 
 ## Home Assistant
 
-**What matters:** `/config` is the only directory you cannot rebuild from
-scratch. The recorder database (SQLite by default) is the largest churn,
-so the recipe quiesces it before snapshotting.
+**What it backs up:** HA configuration, automations, integrations, SQLite database, add-on data.
 
-**Container assumed:** `homeassistant` with a named volume `ha-config`
-mounted at `/config`.
+**Pre-backup hook:** HA needs a snapshot before the filesystem backup. The built-in
+snapshot API quiesces the database.
 
-```json
-{
-  "name": "homeassistant-nightly",
-  "enabled": true,
-  "schedule": "0 3 * * *",
-  "verifySchedule": "0 4 * * 0",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "homeassistant" },
-    { "type": "volume",    "selector": "ha-config" }
-  ],
-  "retention": {
-    "strategy": "tiered",
-    "tiers": [
-      { "tag": "daily",   "maxCount": 7 },
-      { "tag": "weekly",  "maxCount": 4 },
-      { "tag": "monthly", "maxCount": 12 }
-    ]
-  },
-  "storage": { "id": "ha-backup", "type": "s3", "connectorId": "REPLACE_ME" },
-  "hooks": {
-    "pre": [
-      "exec:homeassistant:wget -qO- -u admin -p $HA_TOKEN http://localhost:8123/api/services/recorder/purge"
-    ],
-    "databases": [
-      { "kind": "sqlite", "container": "homeassistant", "dbPath": "/config/home-assistant_v2.db" }
-    ]
-  }
-}
+```yaml
+name: homeassistant-daily
+description: Daily backup of Home Assistant
+enabled: true
+targets:
+  - type: volume
+    selector: homeassistant_config
+  - type: volume
+    selector: homeassistant_ssl
+schedule: "0 3 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 14
+storage:
+  id: ha-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: sqlite
+      container: homeassistant
+      dbPath: /config/home-assistant_v2.db
+      outPath: /var/backups/drk-ha.db
+  pre:
+    - "curl -s -X POST http://localhost:8123/api/services/snapshot/create"
+  post:
+    - "curl -s -X POST http://localhost:8123/api/services/snapshot/cleanup"
+verifySchedule: "0 5 * * 0"
 ```
 
-**Restore:** mount the restored volume back at `/config`. HA picks up
-`home-assistant_v2.db` automatically. Long-term-statistics survive the
-recorder purge so dashboards stay intact after restore.
+**Notes:**
+- Container name is typically `homeassistant` for the official image. Adjust if yours differs.
+- The snapshot API calls require an access token — set `SUPERVISOR_TOKEN` env var or use the HA long-lived token.
+- For MariaDB add-on users, add a `mysql` exporter instead of sqlite.
 
 ---
 
 ## Plex / Jellyfin
 
-**What matters:** the *metadata* and *transcoder cache* are huge but
-mostly rebuildable. The recipe excludes `Transcode/` because it grows
-to dozens of GB and re-creates itself on first use. **Media files are
-NOT backed up by this recipe** — those should be on a separate, much
-larger, file-level backup (this is what you point Restic/Rclone at
-directly).
+**What it backs up:** Media server config, metadata database, user preferences, playlists.
 
-**Containers assumed:** `plex` with volume `plex-config` mounted at
-`/config`. For Jellyfin, replace `plex` with `jellyfin` and the volume
-path the same way.
+**Pre-backup hook:** Stop the server briefly to ensure database consistency.
 
-```json
-{
-  "name": "plex-config-nightly",
-  "enabled": true,
-  "schedule": "0 4 * * *",
-  "verifySchedule": "0 5 * * 0",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "plex" },
-    { "type": "volume",    "selector": "plex-config" }
-  ],
-  "retention": { "strategy": "count", "count": 14 },
-  "storage": { "id": "plex-backup", "type": "smb", "connectorId": "REPLACE_ME" },
-  "hooks": {
-    "pre": [
-      "exec:plex:rm -rf '/config/Library/Application Support/Plex Media Server/Cache/Transcode' || true"
-    ]
-  }
-}
+```yaml
+name: plex-daily
+description: Daily backup of Plex Media Server
+enabled: true
+targets:
+  - type: volume
+    selector: plex_config
+schedule: "0 4 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 7
+storage:
+  id: plex-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: sqlite
+      container: plex
+      dbPath: /config/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db
+      outPath: /var/backups/drk-plex.db
+  pre:
+    - "plexmediaserver --stop || true"
+  post:
+    - "plexmediaserver --start || true"
+verifySchedule: "0 6 * * 0"
 ```
 
-**Restore:** mount the volume back at `/config`. Plex will rebuild the
-transcoder cache on demand. If you also want to capture watch state
-without the cache bulk, set `Plex Media Server/Plug-in Support/Databases`
-as a targeted partial restore (DRK's file browser supports that out of
-the box).
+**Notes:**
+- For Jellyfin, replace container name with `jellyfin` and adjust the config path to `/config/data/`.
+- Media files are NOT backed up — only config/metadata. Your media should be on a separate volume with its own backup strategy.
+- The stop/start hooks are best-effort; Plex tolerates abrupt stops but a clean shutdown is better.
 
 ---
 
-## Immich (photos)
+## Immich
 
-**What matters:** Immich has two distinct data sets — a **Postgres**
-database (with the `pgvector` extension that powers face/object search)
-and the **upload library** (the actual photo files). Both must be in
-the recipe, and the DB dump must happen before the volume snapshot or
-you'll restore an index out of sync with the files.
+**What it backs up:** Photo metadata database (PostgreSQL), user data, machine learning models.
 
-**Containers assumed:** `immich-server`, `immich-postgres` (the
-official `tensorchord/pgvecto-rs` image), `immich-redis`.
-Volumes: `immich-upload`, `immich-db`.
+**Pre-backup hook:** PostgreSQL dump via `pg_dump`.
 
-```json
-{
-  "name": "immich-nightly",
-  "enabled": true,
-  "schedule": "30 2 * * *",
-  "verifySchedule": "0 4 * * 0",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "immich-server" },
-    { "type": "container", "selector": "immich-postgres" },
-    { "type": "container", "selector": "immich-redis" },
-    { "type": "volume",    "selector": "immich-upload" },
-    { "type": "volume",    "selector": "immich-db" }
-  ],
-  "retention": {
-    "strategy": "tiered",
-    "tiers": [
-      { "tag": "daily",   "maxCount": 7 },
-      { "tag": "weekly",  "maxCount": 4 },
-      { "tag": "monthly", "maxCount": 6 }
-    ]
-  },
-  "storage": { "id": "immich-backup", "type": "rclone", "connectorId": "REPLACE_ME" },
-  "hooks": {
-    "databases": [
-      {
-        "kind": "postgres",
-        "container": "immich-postgres",
-        "user": "postgres",
-        "db": "immich",
-        "outPath": "/var/lib/postgresql/data/drk-immich.sql.gz"
-      },
-      { "kind": "redis", "container": "immich-redis" }
-    ]
-  }
-}
+```yaml
+name: immich-daily
+description: Daily backup of Immich photo server
+enabled: true
+targets:
+  - type: volume
+    selector: immich_upload
+  - type: volume
+    selector: immich_machine-learning
+schedule: "0 3 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 14
+storage:
+  id: immich-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: postgres
+      container: immich-postgres
+      user: postgres
+      db: immich
+      outPath: /var/backups/drk-immich.sql.gz
+verifySchedule: "0 5 * * 0"
 ```
 
-**Restore:** restore both volumes, restart the stack, then run
-`pg_restore` on the `drk-immich.sql.gz` dump inside `immich-postgres`.
-DRK's partial-restore browser will surface the SQL dump as a normal file
-under the volume's `_data/` tree.
+**Notes:**
+- Immich uses a separate PostgreSQL container. The `immich-postgres` container name is the default from the official compose file.
+- Upload volume contains thumbnails and encoded videos — the original files are in the `upload` volume.
+- For large libraries (>50K photos), consider weekly full + daily incremental.
 
 ---
 
 ## Nextcloud
 
-**What matters:** `/var/www/html` (the data + config), the database
-(usually MariaDB), and Redis (for session/locking state). The recipe
-puts the database in maintenance mode for the duration of the snapshot
-so the SQL dump and the data directory stay consistent.
+**What it backs up:** File metadata (MySQL/PostgreSQL), config, user data, app data.
 
-**Containers assumed:** `nextcloud`, `nextcloud-db` (MariaDB),
-`nextcloud-redis`. Volumes: `nextcloud-data`, `nextcloud-db`.
+**Pre-backup hook:** Set Nextcloud to maintenance mode before backup, disable after.
 
-```json
-{
-  "name": "nextcloud-nightly",
-  "enabled": true,
-  "schedule": "0 2 * * *",
-  "verifySchedule": "0 4 * * 0",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "nextcloud" },
-    { "type": "container", "selector": "nextcloud-db" },
-    { "type": "volume",    "selector": "nextcloud-data" },
-    { "type": "volume",    "selector": "nextcloud-db" }
-  ],
-  "retention": {
-    "strategy": "tiered",
-    "tiers": [
-      { "tag": "daily",   "maxCount": 7 },
-      { "tag": "weekly",  "maxCount": 4 },
-      { "tag": "monthly", "maxCount": 12 }
-    ]
-  },
-  "storage": { "id": "nextcloud-backup", "type": "sftp", "connectorId": "REPLACE_ME" },
-  "hooks": {
-    "pre": [
-      "exec:nextcloud:php occ maintenance:mode --on"
-    ],
-    "post": [
-      "exec:nextcloud:php occ maintenance:mode --off"
-    ],
-    "databases": [
-      {
-        "kind": "mysql",
-        "container": "nextcloud-db",
-        "user": "nextcloud",
-        "password": "REPLACE_ME",
-        "db": "nextcloud"
-      },
-      { "kind": "redis", "container": "nextcloud-redis" }
-    ]
-  }
-}
+```yaml
+name: nextcloud-daily
+description: Daily backup of Nextcloud
+enabled: true
+targets:
+  - type: volume
+    selector: nextcloud_data
+  - type: volume
+    selector: nextcloud_config
+  - type: volume
+    selector: nextcloud_db
+schedule: "0 2 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 14
+storage:
+  id: nextcloud-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: postgres
+      container: nextcloud-db
+      user: nextcloud
+      db: nextcloud
+      outPath: /var/backups/drk-nextcloud.sql.gz
+  pre:
+    - "docker exec nextcloud php occ maintenance:mode --on"
+  post:
+    - "docker exec nextcloud php occ maintenance:mode --off"
+verifySchedule: "0 4 * * 0"
 ```
 
-**Restore:** restore the volumes, bring the stack back up, then import
-the SQL dump into `nextcloud-db` via `mysql -u nextcloud -p nextcloud <
-drk-mysql.sql.gz` (you'll need to `gunzip` first). The post-hook safety
-net means even a failed mid-backup leaves the stack in maintenance mode
-— check the logs and toggle it back off manually if needed.
+**Notes:**
+- Replace `postgres` with `mysql` in the exporter if you use MariaDB/MySQL.
+- The `occ maintenance:mode` command prevents file operations during backup.
+- For large Nextcloud instances, exclude the `data/` user files directory from the volume backup and use `rsync` separately — DRK handles the DB and config.
 
 ---
 
 ## Vaultwarden
 
-**What matters:** **everything**. Vaultwarden's data directory contains
-the SQLite database, the master key, all attachments, and the sends
-table. There is no "nice-to-have" file in there — losing any of it
-costs you your password vault. The recipe is paranoid by design:
-hourly daily-retained tier, weekly off-site copy via a second policy.
+**What it backs up:** Encrypted password database (SQLite), attachments, config, icons cache.
 
-**Container assumed:** `vaultwarden` with volume `vw-data` mounted at
-`/data`.
+**Pre-backup hook:** None needed — SQLite `.backup` is atomic.
 
-```json
-{
-  "name": "vaultwarden-hourly",
-  "enabled": true,
-  "schedule": "0 * * * *",
-  "verifySchedule": "0 4 * * *",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "vaultwarden" },
-    { "type": "volume",    "selector": "vw-data" }
-  ],
-  "retention": {
-    "strategy": "tiered",
-    "tiers": [
-      { "tag": "hourly",  "maxCount": 24 },
-      { "tag": "daily",   "maxCount": 14 },
-      { "tag": "weekly",  "maxCount": 8 },
-      { "tag": "monthly", "maxCount": 12 }
-    ]
-  },
-  "storage": { "id": "vw-local", "type": "local", "path": "/data/backups/vaultwarden" },
-  "hooks": {
-    "databases": [
-      { "kind": "sqlite", "container": "vaultwarden", "dbPath": "/data/db.sqlite3" }
-    ]
-  }
-}
+```yaml
+name: vaultwarden-daily
+description: Daily backup of Vaultwarden
+enabled: true
+targets:
+  - type: volume
+    selector: vaultwarden_data
+schedule: "0 3 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 30
+storage:
+  id: vw-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: sqlite
+      container: vaultwarden
+      dbPath: /data/db.sqlite3
+      outPath: /var/backups/drk-vaultwarden.db
+verifySchedule: "0 5 * * 0"
 ```
 
-Add a **second policy** with the same targets but a different storage
-backend (S3 / Backblaze / off-site SMB) running once a day. Two
-storage destinations is the only acceptable backup posture for
-credentials-of-record.
-
-**Restore:** mount the volume back at `/data`, restart the container.
-Vaultwarden picks up `db.sqlite3` on boot. Test the restore by logging
-in as a non-admin account first — if the master key was corrupted
-mid-snapshot, this is the cheapest way to find out.
+**Notes:**
+- 30-day retention recommended — password databases are small but critical.
+- The SQLite `.backup` command is atomic and doesn't require stopping the server.
+- For PostgreSQL-backed Vaultwarden, use the `postgres` exporter instead.
+- Consider S3 or B2 as the storage backend for offsite redundancy — a password manager should survive a house fire.
 
 ---
 
-## n8n (workflow automation)
+## n8n
 
-**What matters:** the `n8n` database (default SQLite, or Postgres if
-you configured one) holds every workflow, every credential, and every
-execution history row. Credentials are encrypted with `N8N_ENCRYPTION_KEY`,
-so back up that env var separately and **store it where the backup ISN'T**.
+**What it backs up:** Workflow definitions, credentials (encrypted), execution history, SQLite/PostgreSQL database.
 
-**Container assumed:** `n8n` with volume `n8n-data` at
-`/home/node/.n8n`. If you're on Postgres, replace the SQLite exporter
-below with the Postgres one and add the `n8n-postgres` container as a
-target.
+**Pre-backup hook:** None needed for SQLite. For PostgreSQL, use `pg_dump`.
 
-```json
-{
-  "name": "n8n-nightly",
-  "enabled": true,
-  "schedule": "0 3 * * *",
-  "verifySchedule": "0 4 * * 0",
-  "backupType": "full",
-  "targets": [
-    { "type": "container", "selector": "n8n" },
-    { "type": "volume",    "selector": "n8n-data" }
-  ],
-  "retention": {
-    "strategy": "tiered",
-    "tiers": [
-      { "tag": "daily",   "maxCount": 7 },
-      { "tag": "weekly",  "maxCount": 4 },
-      { "tag": "monthly", "maxCount": 6 }
-    ]
-  },
-  "storage": { "id": "n8n-backup", "type": "s3", "connectorId": "REPLACE_ME" },
-  "hooks": {
-    "databases": [
-      { "kind": "sqlite", "container": "n8n", "dbPath": "/home/node/.n8n/database.sqlite" }
-    ]
-  }
-}
+```yaml
+name: n8n-daily
+description: Daily backup of n8n workflows
+enabled: true
+targets:
+  - type: volume
+    selector: n8n_data
+schedule: "0 2 * * *"
+backupType: full
+retention:
+  strategy: count
+  count: 14
+storage:
+  id: n8n-backup-storage
+  type: local
+  path: data/backups
+hooks:
+  databases:
+    - kind: sqlite
+      container: n8n
+      dbPath: /home/node/.n8n/database.sqlite
+      outPath: /var/backups/drk-n8n.db
+verifySchedule: "0 4 * * 0"
 ```
 
-**Restore:** mount the volume back, set `N8N_ENCRYPTION_KEY` to the
-*same* value you had at backup time (you did save that elsewhere,
-right?), restart n8n. Without the original encryption key, every saved
-credential becomes opaque garbage — the workflows themselves will
-restore fine, but every HTTP node, OAuth connection, and DB connection
-will need to be re-entered.
+**Notes:**
+- For PostgreSQL-backed n8n, replace the sqlite exporter with:
+  ```yaml
+  - kind: postgres
+    container: n8n-postgres
+    user: n8n
+    db: n8n
+    outPath: /var/backups/drk-n8n.sql.gz
+  ```
+- Credentials are encrypted in the database — the backup captures them safely.
+- n8n's `.n8n` directory contains all workflow definitions.
 
 ---
 
-## Contributing a recipe
+## How to Use These Recipes
 
-Have a stack you back up with DRK that isn't on this page? Open a
-GitHub Discussion at
-`github.com/gozippy/dockerrescuekit/discussions` with:
+1. **Via the UI:** Open the Policy Wizard → paste the YAML values into the form fields.
+2. **Via the CLI:** Save the YAML to a file and run:
+   ```
+   drk policy create --file ha-recipe.yaml
+   ```
+3. **Via the API:** POST the policy JSON to `/api/policies`.
 
-1. The stack (Compose file or image list)
-2. The JSON policy you actually use
-3. Any pre/post hooks you found you needed
-4. The restore procedure that worked for you
+## Contributing
 
-We'll review and add it to this page so the next person doesn't have
-to reverse-engineer it. The whole point of this catalog is to capture
-the "huh, that's the tricky part" knowledge that lives in your head
-right now.
+Have a recipe for another stack? Open a GitHub Discussion with the `stack-recipe` tag.
+We'll add it here with credit.
 
-*Last updated: 2026-05-24. Tested against DRK v1.2.*
+See also: [Backup Tools Comparison](BACKUP_TOOLS_COMPARISON.md) | [Architecture](ARCHITECTURE.md) | [Roadmap](ROADMAP.md)

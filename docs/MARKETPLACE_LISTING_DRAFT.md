@@ -61,6 +61,10 @@ ransomware-canary features ship in v1.3+.
 ## Public-facing extension page overview (`hub.docker.com/r/gozippy/dockerrescuekit` — the "No overview available" editor)
 
 ```markdown
+<p align="center">
+  <img src="https://license.gozippy.com/assets/logo.png" alt="Zippy Technologies LLC" width="280">
+</p>
+
 # Docker Rescue Kit
 
 **The active backup, scheduled-snapshot, and one-click restore extension for Docker volumes, containers, images, networks, and databases.**

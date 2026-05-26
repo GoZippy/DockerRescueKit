@@ -1,44 +1,41 @@
+<p align="center">
+  <a href="https://license.gozippy.com">
+    <img src="https://license.gozippy.com/assets/logo.png" alt="Zippy Technologies LLC" width="280">
+  </a>
+</p>
+
 # DockerRescueKit
 
-**Automated backup and restore for Docker containers, volumes, images, and networks.**
+**The active backup, scheduled-snapshot, and one-click restore extension for Docker.**
 
 [![CI](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/gozippy/DockerRescueKit/actions/workflows/ci-cd.yml)
 [![License: Source-Available](https://img.shields.io/badge/License-Source--Available-orange.svg)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/gozippy/dockerrescuekit.svg)](https://hub.docker.com/r/gozippy/dockerrescuekit)
 
-DockerRescueKit is a self-hosted backup service for Docker. It runs as a
-single container next to your Docker daemon, discovers your containers
-and volumes through the Docker API, and snapshots them on a schedule to
-the storage backend of your choice. Recoveries — full or partial — are
-driven by the same service through a REST API, a web UI, and a CLI.
+Docker Rescue Kit (DRK) is the **only Docker Desktop Extension** for scheduled, policy-driven backup and restore of Docker containers, volumes, images, and networks. It runs as a single container, discovers your stacks through the Docker API, and snapshots them to 7 storage backends — local, SMB, SFTP, S3, Proxmox PBS, Restic, or 40+ clouds via Rclone.
+
+As of mid-2026, DRK is the **only published Docker Desktop Extension** in the backup/restore category — Docker deprecated their own *Volumes Backup & Share* extension in September 2024.
 
 ![DockerRescueKit Dashboard](docs/screenshots/01-dashboard.png)
 
 ---
 
-## Why
+## Why DRK
 
-- **Container-aware backups.** Snapshots containers, volumes, images, and
-  networks together as a coherent unit, not just arbitrary filesystem
-  paths. Restore brings the whole stack back, not a tarball you have to
-  unpack yourself.
-- **Seven pluggable storage backends.** Local filesystem, SMB/CIFS,
-  SFTP, S3-compatible object storage, Proxmox Backup Server, restic
-  repos, and rclone (~40 cloud providers). Credentials are encrypted at
-  rest with AES-256-GCM.
-- **Policy-driven scheduler with retention and verify.** Cron-based
-  policies, tiered retention (count, time, or daily/weekly/monthly tags),
-  background verify in a scratch container, and partial restore down to
-  individual files inside a volume.
+| Feature | DRK | Docker Volumes tab | offen | Duplicati |
+|---|---|---|---|---|
+| Docker Desktop Extension | ✅ | Built-in (export only) | — | — |
+| Scheduled policies | ✅ | — | — | ✅ |
+| Multi-backend (7 targets) | ✅ | Local only | ~6 | 40+ |
+| Restore verification (sandbox) | ✅ | — | — | — |
+| Partial restore (file browser) | ✅ | — | — | — |
+| Database exporters (7 types) | ✅ | — | — | — |
+| Proxmox PBS backend | ✅ | — | — | — |
+| Web UI + CLI + REST API | ✅ | Basic | — | ✅ |
 
 > **New here? Two pages to read first:**
-> - **[Backup Tools Buyer's Guide](docs/BACKUP_TOOLS_COMPARISON.md)** —
->   honest comparison to `offen/docker-volume-backup`, `kopia`, `restic`,
->   `Duplicati`, and `tiredofit/docker-db-backup`. Helps you decide if
->   DRK is actually the right tool for your problem.
-> - **[Stack Recipes](docs/STACK_RECIPES.md)** — copy-paste DRK policies
->   for Home Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden,
->   and n8n.
+> - **[Backup Tools Buyer's Guide](docs/BACKUP_TOOLS_COMPARISON.md)** — honest comparison to `offen/docker-volume-backup`, `kopia`, `restic`, `Duplicati`, and `tiredofit/docker-db-backup`.
+> - **[Stack Recipes](docs/STACK_RECIPES.md)** — copy-paste DRK policies for Home Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden, and n8n.
 
 ---
 
@@ -359,3 +356,20 @@ image maintenance still ships in `tools/` and at the repo root
 (`backup-docker-snapshot.ps1`). It predates the backup service and is
 unrelated to the container running on port 42880. See
 [`docs/WSL_TOOLS.md`](docs/WSL_TOOLS.md) for usage and parameter reference.
+
+---
+
+## Documentation
+
+| Document | What |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | Component diagram, data flows, security model |
+| [Deployment by Tier](docs/DEPLOYMENT_BY_TIER.md) | Docker Compose, K8s, Terraform examples |
+| [Homelab Quickstart](docs/QUICKSTART_HOMELAB.md) | Proxmox, TrueNAS, Unraid setup guides |
+| [Backup Tools Comparison](docs/BACKUP_TOOLS_COMPARISON.md) | Honest comparison to offen, restic, Duplicati, kopia |
+| [Stack Recipes](docs/STACK_RECIPES.md) | Copy-paste policies for 6 homelab stacks |
+| [Competitive Analysis](docs/COMPETITIVE_ANALYSIS.md) | SWOT, gap analysis, strategic recommendations |
+| [Roadmap](docs/ROADMAP.md) | Implementation status and planned features |
+| [Observability](docs/OBSERVABILITY.md) | Prometheus metrics, Grafana, alerting |
+| [FAQ](docs/FAQ.md) | Frequently asked questions |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and fixes |
