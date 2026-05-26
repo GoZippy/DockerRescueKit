@@ -11,7 +11,8 @@ import { safeJoin, safeFilenameFragment } from '../utils/PathSafety'
 import path from 'path'
 import fs from 'fs-extra'
 import { v4 as uuidv4 } from 'uuid'
-import { NotFoundError } from '../errors'
+import { NotFoundError, LicenseRequiredError } from '../errors'
+import { LicenseService, FREE_TIER_POLICY_LIMIT } from './LicenseService'
 import { logger } from '../utils/logger'
 
 export interface RestoreRequest {
@@ -32,11 +33,18 @@ export class PolicyManager {
 
   constructor(
     private db: Database,
-    private stagingDir: string = path.resolve('data/staging')
+    private stagingDir: string = path.resolve('data/staging'),
+    /** Optional. When omitted, no license gating is applied — existing
+     *  installs without the license server wired in continue to behave
+     *  as before. Inject from index.ts to enforce Free-tier quotas. */
+    private license?: LicenseService,
   ) {
     this.dockerService = new DockerService()
     this.hookRunner = new HookRunner(this.dockerService)
-    this.notifier = new NotificationService()
+    // Pass the LicenseService through so notifications get gated to Pro
+    // when a license is wired in. Without it, the notifier falls back to
+    // its no-license-supplied path (always fires) for backward compat.
+    this.notifier = new NotificationService(this.license)
     this.dbExporters = new DatabaseExporterService(this.dockerService)
     this.connectorManager = new ConnectorManager(db)
     fs.ensureDirSync(this.stagingDir)
@@ -61,11 +69,30 @@ export class PolicyManager {
     return await this.db.getPolicies()
   }
 
+  /**
+   * Enforce the Free-tier active-policy cap. Skips silently when no license
+   * service was injected (test rigs, pre-license-server installs).
+   */
+  private async assertPolicyQuotaAvailable(): Promise<void> {
+    if (!this.license) return
+    const status = await this.license.getStatus()
+    if (status.features.includes('unlimited_policies')) return
+    const existing = await this.db.getPolicies()
+    if (existing.length >= FREE_TIER_POLICY_LIMIT) {
+      throw new LicenseRequiredError(
+        `Free tier is limited to ${FREE_TIER_POLICY_LIMIT} concurrent policies. Upgrade to Personal Pro ($29 one-time) or Commercial Pro for unlimited policies.`,
+        status.tier,
+        'unlimited_policies',
+      )
+    }
+  }
+
   public async getPolicy(id: string): Promise<BackupPolicy | null> {
     return await this.db.getPolicy(id)
   }
 
   public async createPolicy(policy: Partial<BackupPolicy>): Promise<BackupPolicy> {
+    await this.assertPolicyQuotaAvailable()
     const newPolicy: BackupPolicy = {
       id: uuidv4(),
       name: policy.name || 'New Policy',
@@ -309,8 +336,17 @@ export class PolicyManager {
   /**
    * One-click protect for a compose stack: create a daily policy that
    * targets every container + volume attached to the project.
+   * Idempotent: returns the existing policy if one already exists for this stack.
    */
-  public async protectStack(project: string, stack: { containers: any[]; volumes: string[] }): Promise<BackupPolicy> {
+  public async protectStack(
+    project: string,
+    stack: { containers: any[]; volumes: string[] }
+  ): Promise<BackupPolicy & { existing?: boolean }> {
+    const policyName = `stack-${project}`
+    const policies = await this.listPolicies()
+    const existing = policies.find(p => p.name === policyName)
+    if (existing) return { ...existing, existing: true }
+
     const targets: any[] = []
     for (const c of stack.containers || []) {
       const name = (c.Names && c.Names[0] ? c.Names[0].replace(/^\//, '') : c.Id) as string
@@ -321,7 +357,7 @@ export class PolicyManager {
     }
 
     return this.createPolicy({
-      name: `stack-${project}`,
+      name: policyName,
       description: `Auto-protect for compose stack ${project}`,
       enabled: true,
       targets,
@@ -329,7 +365,7 @@ export class PolicyManager {
       backupType: 'full',
       retention: { strategy: 'count', count: 7 },
       storage: { id: `storage-stack-${project}`, type: 'local', path: 'data/backups' },
-      verifySchedule: '0 4 * * 0' // weekly verify on Sunday 04:00
+      verifySchedule: '0 4 * * 0',
     })
   }
 

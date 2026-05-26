@@ -39,13 +39,120 @@ import { SettingsService } from './services/SettingsService'
 import { SecretsService } from './services/SecretsService'
 import { MetricsService } from './services/MetricsService'
 import { VerifyService } from './services/VerifyService'
+import { RehearsalService } from './services/RehearsalService'
+import { HealthCheckService } from './services/HealthCheckService'
+import { LogTriageService } from './services/LogTriageService'
+import { mountRehearsalRoutes } from './routes/rehearsals'
+import { mountLogsRoutes } from './routes/logs'
+import { mountVolumesRoutes } from './routes/volumes'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
+import { LicenseService } from './services/LicenseService'
 import { EncryptionUtility } from './utils/Encryption'
 import { Server } from 'http'
 
 dotenv.config()
+
+export interface StorageCostConfig {
+  storageType: string
+  label: string
+  icon: string
+  costPerGBMonth: number
+  costPerGBDownload: number
+  restoreSpeedMBps: number
+  durability: string
+  notes: string
+}
+
+export function getDefaultCostConfig(): StorageCostConfig[] {
+  const raw = process.env.DRK_COST_CONFIG
+  if (raw) {
+    try { return JSON.parse(raw) } catch { /* fall through to defaults */ }
+  }
+  return [
+    {
+      storageType: 'local',
+      label: 'Local Disk',
+      icon: 'hard-drive',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 500,
+      durability: 'Single disk — no redundancy',
+      notes: 'Fastest restore. No cloud egress. Risk: disk failure = total loss.',
+    },
+    {
+      storageType: 'smb',
+      label: 'SMB / CIFS (NAS)',
+      icon: 'server',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 100,
+      durability: 'Depends on NAS RAID config',
+      notes: 'Good for homelab. Speed limited by network. No egress fees.',
+    },
+    {
+      storageType: 'sftp',
+      label: 'SFTP / SSH',
+      icon: 'lock',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 50,
+      durability: 'Depends on server',
+      notes: 'Any SSH server works. Slower than SMB over WAN.',
+    },
+    {
+      storageType: 's3',
+      label: 'S3 / Object Storage',
+      icon: 'cloud',
+      costPerGBMonth: 0.023,
+      costPerGBDownload: 0.09,
+      restoreSpeedMBps: 200,
+      durability: '99.999999999% (11 nines)',
+      notes: 'AWS S3 Standard pricing shown. MinIO/Wasabi/B2 may differ. Egress is the main cost.',
+    },
+    {
+      storageType: 'proxmox',
+      label: 'Proxmox Backup Server',
+      icon: 'database',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 200,
+      durability: 'Depends on PBS storage',
+      notes: 'Deduplication + compression. No egress. Requires Proxmox infrastructure.',
+    },
+    {
+      storageType: 'rclone',
+      label: 'Rclone (40+ providers)',
+      icon: 'globe',
+      costPerGBMonth: 0.02,
+      costPerGBDownload: 0.08,
+      restoreSpeedMBps: 100,
+      durability: 'Varies by provider',
+      notes: 'Google Drive, OneDrive, Dropbox, B2, etc. Pricing varies — shown as S3 equivalent estimate.',
+    },
+  ]
+}
+
+// Read backend version from package.json once at startup. Walks up from
+// __dirname until it finds the backend's own manifest — works in both dev
+// (src/index.ts) and prod (dist/backend/src/index.js).
+const APP_VERSION: string = (() => {
+  let dir = __dirname
+  for (let i = 0; i < 6; i++) {
+    const p = path.join(dir, 'package.json')
+    try {
+      const pkg = JSON.parse(fs.readFileSync(p, 'utf8'))
+      if (pkg?.name === '@docker-rescue-kit/backend' && typeof pkg.version === 'string') {
+        return pkg.version
+      }
+    } catch { /* keep walking */ }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return 'unknown'
+})()
 
 // ---- Transport selection ---------------------------------------------------
 // Phase 8 — Docker Desktop extension integration.
@@ -76,9 +183,13 @@ export class BackupService {
   private secrets: SecretsService
   private metrics: MetricsService
   private verify: VerifyService
+  private rehearsal: RehearsalService
+  private health: HealthCheckService
+  private logTriage: LogTriageService
   private partial: PartialRestoreService
   private audit: AuditService
   private rclone: RcloneService
+  private license: LicenseService
   private httpServer: Server | null = null
 
   constructor() {
@@ -95,22 +206,82 @@ export class BackupService {
     EncryptionUtility.init(loaded.encryptionKey, dataDir)
 
     this.db = new Database(process.env.DB_PATH || path.join(dataDir, 'docker_rescue.db'))
-    this.policyManager = new PolicyManager(this.db, path.join(dataDir, 'staging'))
+    // SettingsService and LicenseService must be constructed before
+    // PolicyManager so the latter can enforce the Free-tier policy cap.
+    // Without this wiring, gating in PolicyManager.createPolicy is a no-op.
+    this.settings = new SettingsService(this.db)
+    this.license = new LicenseService(this.settings)
+    this.policyManager = new PolicyManager(this.db, path.join(dataDir, 'staging'), this.license)
     this.dockerService = new DockerService()
     this.connectorManager = new ConnectorManager(this.db)
     this.telemetry = new TelemetryService()
-    this.settings = new SettingsService(this.db)
     this.metrics = new MetricsService(this.policyManager, this.db)
     this.verify = new VerifyService(this.policyManager, this.dockerService, path.join(dataDir, 'staging'), this.db)
     this.partial = new PartialRestoreService(this.policyManager, path.join(dataDir, 'staging'))
     this.audit = new AuditService(this.db)
     this.rclone = new RcloneService(dataDir)
     this.scheduler = new SchedulerEngine(this.policyManager, this.verify)
+    this.rehearsal = new RehearsalService({
+      docker: this.dockerService,
+      policyManager: this.policyManager,
+      audit: this.audit,
+      stagingDir: path.join(dataDir, 'staging'),
+      db: this.db,
+    })
+    this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db)
+    this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
+
+    // Schedule daily cleanup of old log events (TTL enforcement)
+    // Runs at 02:00 UTC daily to delete events older than 7 days
+    const logCleanupInterval = setInterval(async () => {
+      try {
+        const deletedCount = await this.db.deleteOldLogEvents(7)
+        if (deletedCount > 0) {
+          logger.info(`Log event TTL cleanup: deleted ${deletedCount} events older than 7 days`)
+        }
+      } catch (err) {
+        logger.error({ err }, 'Log event TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    logCleanupInterval.unref() // Don't keep process alive just for this timer
+
+    // Schedule daily cleanup of old volume manifest entries (TTL enforcement)
+    // Delete entries older than 7 days
+    const volumeManifestCleanupInterval = setInterval(async () => {
+      try {
+        const deletedCount = await this.db.deleteOldVolumeManifests(7)
+        if (deletedCount > 0) {
+          logger.info(`Volume manifest TTL cleanup: deleted ${deletedCount} entries older than 7 days`)
+        }
+      } catch (err) {
+        logger.error({ err }, 'Volume manifest TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    volumeManifestCleanupInterval.unref() // Don't keep process alive just for this timer
 
     this.setupMiddleware()
     this.setupRoutes()
+    mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
+    try {
+      mountLogsRoutes(this.app, { triageService: this.logTriage, db: this.db })
+    } catch (err) {
+      logger.error({ err }, 'Failed to mount logs routes')
+      throw err
+    }
+    mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
+
+    // Cost analysis config — static per-backend pricing/performance reference data.
+    // Users can override via DRK_COST_CONFIG env var (JSON) for their region.
+    this.app.get('/api/settings/cost-config', (_req, res) => {
+      res.json(getDefaultCostConfig())
+    })
+
     this.setupStaticUI()
     this.setupErrorHandler()
+
+    // Best-effort cleanup of any resources left by a previously-crashed run.
+    // Doesn't block startup; logs whatever it reaps.
+    this.rehearsal.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
   }
 
   private setupMiddleware() {
@@ -400,7 +571,7 @@ export class BackupService {
       res.json({
         dataDir: process.env.DRK_DATA_DIR || 'data',
         hasEncryptionKey: true,
-        version: '1.0.0',
+        version: APP_VERSION,
         staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging')
       })
     })
@@ -413,6 +584,49 @@ export class BackupService {
     this.app.post('/api/settings/:key', validateParams(settingKeyParamSchema), validate(SaveSettingSchema), async (req, res) => {
       await this.settings.saveSetting(req.params.key, req.body.value)
       res.json({ success: true })
+    })
+
+    // ---- License (paid-tier activation) ---------------------------------
+    // GET surfaces the current tier + features + expiry for the Settings
+    // UI to render. POST activates a token pasted by the user. DELETE
+    // returns the install to Free.
+    //
+    // Online revocation check via the license server lives in
+    // LicenseService.refreshFromServer() and is called periodically by
+    // the periodic-tasks loop below; the routes here are synchronous
+    // local operations only so the UI feels instant.
+    this.app.get('/api/license', async (_req, res) => {
+      const status = await this.license.getStatus()
+      res.json(status)
+    })
+
+    this.app.post('/api/license/activate', async (req, res) => {
+      const token = String(req.body?.token || '').trim()
+      if (!token) {
+        res.status(400).json({ error: 'token_required' })
+        return
+      }
+      try {
+        const status = await this.license.setToken(token)
+        if (status.tier === 'free') {
+          // Token was persisted but failed verification — return 400 so the
+          // UI can show "this token isn't valid" instead of pretending it
+          // worked.
+          await this.license.clearToken()
+          res.status(400).json({ error: 'token_invalid' })
+          return
+        }
+        await this.audit.record('license.activate', { tier: status.tier, seats: status.seats })
+        res.json(status)
+      } catch (err: any) {
+        res.status(400).json({ error: 'activation_failed', detail: err?.message })
+      }
+    })
+
+    this.app.delete('/api/license', async (_req, res) => {
+      await this.license.clearToken()
+      await this.audit.record('license.clear')
+      res.json({ ok: true })
     })
 
     // ---- Docker inspection ----------------------------------------------
@@ -444,6 +658,9 @@ export class BackupService {
     this.app.get('/api/docker/images',     dockerRoute(() => this.dockerService.listImages()))
     this.app.get('/api/docker/networks',   dockerRoute(() => this.dockerService.listNetworks()))
 
+    this.app.get('/api/health/dashboard', dockerRoute(() => this.health.getDashboardScore()))
+    this.app.get('/api/health/containers', dockerRoute(() => this.health.getBrokenContainers()))
+
     this.app.post('/api/docker/stacks/:project/protect', validateParams(projectParamSchema), async (req, res) => {
       try {
         const project = req.params.project
@@ -457,9 +674,12 @@ export class BackupService {
         const match = stacks.find((s: any) => s.project === project)
         if (!match) return res.status(404).json({ error: `Stack ${project} not found` })
         const policy = await this.policyManager.protectStack(project, match)
-        this.scheduler.schedulePolicy(policy)
-        await this.audit.record('stack.protect', { project, policyId: policy.id })
-        res.status(201).json(policy)
+        if (!policy.existing) {
+          this.scheduler.schedulePolicy(policy)
+          await this.audit.record('stack.protect', { project, policyId: policy.id })
+        }
+        const { existing: _existing, ...policyOut } = policy as any
+        res.status(policy.existing ? 200 : 201).json(policyOut)
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }
@@ -571,6 +791,24 @@ export class BackupService {
 
   public async start() {
     await this.scheduler.start()
+
+    // Online license revocation check. Fires once on start, then every 24h.
+    // No-op if DRK_LICENSE_SERVER_URL isn't set — the install runs in
+    // offline-only mode and stays Free until a token is pasted in
+    // Settings, at which point the verifier does its work locally.
+    // The 24h cadence matches the maximum staleness window we accept
+    // between a Square webhook revoking a license and DRK noticing.
+    this.license.refreshFromServer().catch(err => {
+      console.warn(`[DRK] license refresh on start failed: ${err?.message || err}`)
+    })
+    const LICENSE_REFRESH_MS = 24 * 60 * 60 * 1000
+    const licenseTimer = setInterval(() => {
+      this.license.refreshFromServer().catch(err => {
+        console.warn(`[DRK] periodic license refresh failed: ${err?.message || err}`)
+      })
+    }, LICENSE_REFRESH_MS)
+    // Don't hold the event loop open on shutdown.
+    if (typeof licenseTimer.unref === 'function') licenseTimer.unref()
 
     // Single dispatch point — keep transport branching here so the rest of the
     // class stays transport-agnostic. The auth middleware checks TRANSPORT at

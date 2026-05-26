@@ -1,0 +1,82 @@
+# Example: Plex Media Server with the drk-plex backup side-car.
+#
+# Pulls everything from upstream so this file is a working start.
+# Adjust media path, timezone, and PLEX_CLAIM token for your install.
+#
+# Daily 4 AM tarballs to a local volume:
+#   docker compose up -d
+#
+# To switch to encrypted off-site backups, change BACKUP_TYPE and
+# add the restic env block — see the "Backblaze B2 example" below.
+
+services:
+  plex:
+    image: linuxserver/plex:latest
+    container_name: plex
+    network_mode: host        # Plex prefers host networking
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "America/Chicago"
+      VERSION: docker
+      # PLEX_CLAIM: claim-xxxxxxxxxxxxxxxxx   # first boot only
+    volumes:
+      - plex-config:/config
+      - ./media:/data/media:ro
+    restart: unless-stopped
+
+  drk-plex:
+    image: gozippy/drk-plex:0.1.0
+    container_name: drk-plex
+    depends_on: [plex]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - plex-config:/source/config:ro
+      - drk-plex-backups:/backups
+      - drk-plex-restic-cache:/restic-cache
+    environment:
+      PLEX_CONTAINER: plex
+      TZ: "America/Chicago"
+      BACKUP_SCHEDULE: "0 4 * * *"
+      BACKUP_TYPE: local
+      BACKUP_ON_START: "false"
+      STOP_PLEX_BEFORE_BACKUP: "true"
+      CLEAR_TRANSCODE_CACHE: "true"
+      RETENTION_KEEP_COUNT: "14"
+    restart: unless-stopped
+
+  # ─── Optional: a second drk-plex pointing at Backblaze B2 ──────────────
+  # Comment out the `drk-plex` block above and uncomment this one if
+  # you'd rather push encrypted, deduplicated backups to B2.
+  #
+  # drk-plex:
+  #   image: gozippy/drk-plex:0.1.0
+  #   container_name: drk-plex
+  #   depends_on: [plex]
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - plex-config:/source/config:ro
+  #     - drk-plex-restic-cache:/restic-cache
+  #   environment:
+  #     PLEX_CONTAINER: plex
+  #     TZ: "America/Chicago"
+  #     BACKUP_SCHEDULE: "0 4 * * *"
+  #     BACKUP_TYPE: b2
+  #     RESTIC_REPOSITORY: "b2:my-bucket-name/plex"
+  #     RESTIC_PASSWORD_FILE: "/run/secrets/restic_password"
+  #     B2_ACCOUNT_ID: "${B2_ACCOUNT_ID}"
+  #     B2_ACCOUNT_KEY: "${B2_ACCOUNT_KEY}"
+  #     RETENTION_KEEP_DAILY: "7"
+  #     RETENTION_KEEP_WEEKLY: "4"
+  #     RETENTION_KEEP_MONTHLY: "6"
+  #   secrets: [restic_password]
+  #   restart: unless-stopped
+  #
+  # secrets:
+  #   restic_password:
+  #     file: ./secrets/restic_password.txt
+
+volumes:
+  plex-config:
+  drk-plex-backups:
+  drk-plex-restic-cache:

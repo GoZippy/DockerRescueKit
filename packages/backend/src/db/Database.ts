@@ -1,12 +1,13 @@
 import DatabaseConstructor, { Database as SQLiteDatabase } from 'better-sqlite3'
 import path from 'path'
 import fs from 'fs-extra'
-import { 
-  BackupPolicy, 
-  StorageConfig, 
-  Backup, 
-  BackupStatus 
+import {
+  BackupPolicy,
+  StorageConfig,
+  Backup,
+  BackupStatus
 } from '@docker-rescue-kit/shared'
+import type { TriagedEvent } from '../services/LogTriageService'
 
 export class Database {
   private db: SQLiteDatabase
@@ -94,6 +95,58 @@ export class Database {
         durationMs INTEGER NOT NULL,
         steps TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS rehearsals (
+        id            TEXT PRIMARY KEY,
+        policyId      TEXT,
+        requestedBackupIds TEXT NOT NULL, -- JSON array
+        status        TEXT NOT NULL,
+        ok            INTEGER NOT NULL,
+        report        TEXT NOT NULL,      -- full RehearsalReport JSON
+        startedAt     TEXT NOT NULL,
+        finishedAt    TEXT,
+        durationMs    INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rehearsals_policy ON rehearsals(policyId);
+      CREATE INDEX IF NOT EXISTS idx_rehearsals_started ON rehearsals(startedAt DESC);
+
+      CREATE TABLE IF NOT EXISTS log_events (
+        id TEXT PRIMARY KEY,
+        containerId TEXT NOT NULL,
+        containerName TEXT,
+        image TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        category TEXT NOT NULL,
+        severity TEXT DEFAULT 'error',
+        logSnippet TEXT,
+        fullMessage TEXT,
+        fixSuggestion TEXT,
+        exitCode INTEGER,
+        detectedAt TEXT NOT NULL,
+        ttl INTEGER DEFAULT 604800
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_log_events_container ON log_events(containerId);
+      CREATE INDEX IF NOT EXISTS idx_log_events_category ON log_events(category);
+      CREATE INDEX IF NOT EXISTS idx_log_events_timestamp ON log_events(timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS volumes_manifest (
+        id TEXT PRIMARY KEY,
+        volumeName TEXT NOT NULL UNIQUE,
+        backupId TEXT NOT NULL,
+        containerNames TEXT,
+        policyId TEXT,
+        restoreSuccess INTEGER DEFAULT 1,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        rehearsalId TEXT,
+        ttl INTEGER DEFAULT 604800,
+        FOREIGN KEY(backupId) REFERENCES backup_history(id),
+        FOREIGN KEY(policyId) REFERENCES policies(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_volumes_manifest_policy ON volumes_manifest(policyId);
+      CREATE INDEX IF NOT EXISTS idx_volumes_manifest_timestamp ON volumes_manifest(timestamp DESC);
     `)
 
     // Lightweight migration: older databases won't have verifySchedule on
@@ -330,6 +383,83 @@ export class Database {
     }))
   }
 
+  // Rehearsal Operations (R-1)
+  public async saveRehearsalReport(record: {
+    id: string
+    policyId?: string
+    requestedBackupIds: string[]
+    status: string
+    ok: boolean
+    report: unknown        // full RehearsalReport — serialised to JSON
+    startedAt: string
+    finishedAt?: string
+    durationMs?: number
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO rehearsals (
+        id, policyId, requestedBackupIds, status, ok, report,
+        startedAt, finishedAt, durationMs
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status     = excluded.status,
+        ok         = excluded.ok,
+        report     = excluded.report,
+        finishedAt = excluded.finishedAt,
+        durationMs = excluded.durationMs
+    `)
+    stmt.run(
+      record.id,
+      record.policyId || null,
+      JSON.stringify(record.requestedBackupIds),
+      record.status,
+      record.ok ? 1 : 0,
+      JSON.stringify(record.report),
+      record.startedAt,
+      record.finishedAt || null,
+      record.durationMs ?? null,
+    )
+  }
+
+  public async getRehearsal(id: string): Promise<any | null> {
+    const row = this.db.prepare('SELECT * FROM rehearsals WHERE id = ?').get(id) as any
+    if (!row) return null
+    return {
+      id: row.id,
+      policyId: row.policyId || undefined,
+      requestedBackupIds: JSON.parse(row.requestedBackupIds),
+      status: row.status,
+      ok: row.ok === 1,
+      report: JSON.parse(row.report),
+      startedAt: row.startedAt,
+      finishedAt: row.finishedAt || undefined,
+      durationMs: row.durationMs ?? undefined,
+    }
+  }
+
+  public async listRehearsals(opts?: { policyId?: string; limit?: number }): Promise<any[]> {
+    const limit = Math.max(1, Math.min(500, opts?.limit ?? 50))
+    const rows = opts?.policyId
+      ? this.db.prepare(
+          'SELECT id, policyId, status, ok, startedAt, finishedAt, durationMs FROM rehearsals WHERE policyId = ? ORDER BY startedAt DESC LIMIT ?'
+        ).all(opts.policyId, limit) as any[]
+      : this.db.prepare(
+          'SELECT id, policyId, status, ok, startedAt, finishedAt, durationMs FROM rehearsals ORDER BY startedAt DESC LIMIT ?'
+        ).all(limit) as any[]
+    return rows.map(r => ({
+      id: r.id,
+      policyId: r.policyId || undefined,
+      status: r.status,
+      ok: r.ok === 1,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt || undefined,
+      durationMs: r.durationMs ?? undefined,
+    }))
+  }
+
+  public async deleteRehearsal(id: string): Promise<void> {
+    this.db.prepare('DELETE FROM rehearsals WHERE id = ?').run(id)
+  }
+
   private parseBackup(r: any): Backup {
     return {
       ...r,
@@ -351,5 +481,182 @@ export class Database {
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
     }
+  }
+
+  // Log Events (Triage Service)
+  public async insertLogEvent(event: TriagedEvent): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO log_events (
+        id, containerId, containerName, image, category, severity,
+        logSnippet, fullMessage, fixSuggestion, exitCode, detectedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      event.id,
+      event.containerId,
+      event.containerName,
+      event.image,
+      event.category,
+      event.severity,
+      event.logSnippet,
+      event.fullMessage,
+      event.fixSuggestion,
+      event.exitCode || null,
+      event.detectedAt
+    )
+  }
+
+  public async getLogEvents(options?: {
+    containerId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    since?: string
+  }): Promise<{ events: TriagedEvent[]; total: number }> {
+    const limit = Math.max(1, Math.min(10000, options?.limit ?? 50))
+    const offset = Math.max(0, options?.offset ?? 0)
+    let query = 'SELECT * FROM log_events WHERE 1=1'
+    const params: any[] = []
+
+    if (options?.containerId) {
+      query += ' AND containerId = ?'
+      params.push(options.containerId)
+    }
+
+    if (options?.category) {
+      query += ' AND category = ?'
+      params.push(options.category)
+    }
+
+    if (options?.since) {
+      query += ' AND detectedAt >= ?'
+      params.push(options.since)
+    }
+
+    // Get total count
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as count')
+    const countResult = this.db.prepare(countQuery).get(...params) as any
+    const total = countResult?.count ?? 0
+
+    // Get paginated results
+    query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+    const rows = this.db.prepare(query).all(...params, limit, offset) as any[]
+
+    const events: TriagedEvent[] = rows.map(r => ({
+      id: r.id,
+      containerId: r.containerId,
+      containerName: r.containerName,
+      image: r.image,
+      category: r.category,
+      severity: r.severity,
+      fullMessage: r.fullMessage,
+      logSnippet: r.logSnippet,
+      fixSuggestion: r.fixSuggestion,
+      detectedAt: r.detectedAt,
+      exitCode: r.exitCode ?? undefined
+    }))
+
+    return { events, total }
+  }
+
+  public async deleteOldLogEvents(olderThanDays: number = 7): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM log_events WHERE detectedAt < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
+  }
+
+  // Volume Manifest Operations
+  public async insertVolumeManifest(entry: {
+    id: string
+    volumeName: string
+    backupId: string
+    containerNames?: string[]
+    policyId?: string
+    restoreSuccess: boolean
+    timestamp: string
+    rehearsalId?: string
+    ttl?: number
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO volumes_manifest (
+        id, volumeName, backupId, containerNames, policyId, restoreSuccess,
+        timestamp, rehearsalId, ttl
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      entry.id,
+      entry.volumeName,
+      entry.backupId,
+      entry.containerNames ? JSON.stringify(entry.containerNames) : null,
+      entry.policyId || null,
+      entry.restoreSuccess ? 1 : 0,
+      entry.timestamp,
+      entry.rehearsalId || null,
+      entry.ttl ?? 604800
+    )
+  }
+
+  public async getVolumesManifest(opts?: {
+    policyId?: string
+    since?: string
+    limit?: number
+  }): Promise<Array<{
+    id: string
+    volumeName: string
+    backupId: string
+    containerNames: string[]
+    policyId?: string
+    restoreSuccess: boolean
+    timestamp: string
+    rehearsalId?: string
+  }>> {
+    let query = 'SELECT * FROM volumes_manifest WHERE 1=1'
+    const params: any[] = []
+
+    if (opts?.policyId) {
+      query += ' AND policyId = ?'
+      params.push(opts.policyId)
+    }
+
+    if (opts?.since) {
+      query += ' AND timestamp > ?'
+      params.push(opts.since)
+    }
+
+    query += ' ORDER BY timestamp DESC'
+
+    if (opts?.limit) {
+      query += ' LIMIT ?'
+      params.push(opts.limit)
+    }
+
+    const rows = this.db.prepare(query).all(...params) as any[]
+    return rows.map(r => ({
+      id: r.id,
+      volumeName: r.volumeName,
+      backupId: r.backupId,
+      containerNames: r.containerNames ? JSON.parse(r.containerNames) : [],
+      policyId: r.policyId || undefined,
+      restoreSuccess: r.restoreSuccess === 1,
+      timestamp: r.timestamp,
+      rehearsalId: r.rehearsalId || undefined
+    }))
+  }
+
+  public async getManagedVolumes(): Promise<string[]> {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT volumeName FROM volumes_manifest
+      WHERE timestamp > datetime('now', '-7 days')
+      ORDER BY volumeName
+    `).all() as any[]
+    return rows.map(r => r.volumeName)
+  }
+
+  public async deleteOldVolumeManifests(olderThanDays: number = 7): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM volumes_manifest WHERE timestamp < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
   }
 }

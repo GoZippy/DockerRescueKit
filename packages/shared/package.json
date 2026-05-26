@@ -1,8 +1,8 @@
 {
   "name": "@docker-rescue-kit/shared",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/types.ts",
   "types": "./src/types.ts",

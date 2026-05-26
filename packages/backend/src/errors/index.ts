@@ -4,5 +4,6 @@ export {
   ConflictError,
   BadRequestError,
   ServiceUnavailableError,
-  InternalError
+  InternalError,
+  LicenseRequiredError
 } from './HttpError'

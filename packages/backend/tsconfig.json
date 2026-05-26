@@ -4,10 +4,12 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "dist",
+    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@docker-rescue-kit/shared": ["../shared/src/types.ts"]

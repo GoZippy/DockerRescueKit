@@ -2,21 +2,37 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X, Save, ArrowRight, ArrowLeft, Layers, HardDrive,
   Box, Search, CheckSquare, Square, Server, Cloud, Network as NetIcon,
-  HardDrive as DriveIcon, Wifi,
+  HardDrive as DriveIcon, Wifi, Info, Database, Plus, Trash2,
 } from 'lucide-react'
 import {
   getVolumes, getContainers, listImages, listNetworks,
-  listStacks, getConnectorInstances, createPolicy
+  listStacks, getConnectorInstances, createPolicy, updatePolicy,
 } from '../api'
+import { BackupPolicy, DatabaseExporter } from '@docker-rescue-kit/shared'
+import { CronPicker } from './CronPicker'
 
 interface WizardProps {
   onClose: () => void
   onSuccess: () => void
+  /** When provided, the wizard runs in edit mode: state is pre-filled from
+   *  the policy and submit calls updatePolicy(id, ...) instead of createPolicy. */
+  initialPolicy?: BackupPolicy
 }
 
 type TargetType = 'volume' | 'container' | 'image' | 'network'
 interface TargetDraft { type: TargetType; selector: string }
 interface Stack { project: string; containers: any[]; volumes: string[]; networks: string[] }
+type DbKind = DatabaseExporter['kind']
+
+const DB_EXPORTER_META: Record<DbKind, { label: string; desc: string; icon: React.ReactNode }> = {
+  postgres:  { label: 'PostgreSQL',  desc: 'pg_dumpall + gzip',                       icon: <Database size={13} /> },
+  mysql:     { label: 'MySQL / MariaDB', desc: 'mysqldump + gzip',                    icon: <Database size={13} /> },
+  redis:     { label: 'Redis',       desc: 'BGSAVE trigger',                           icon: <Database size={13} /> },
+  mongodb:   { label: 'MongoDB',     desc: 'mongodump to directory',                   icon: <Database size={13} /> },
+  sqlite:    { label: 'SQLite',      desc: '.backup command',                          icon: <Database size={13} /> },
+  influxdb:  { label: 'InfluxDB',    desc: 'influx backup (v2) or influxd (v1)',      icon: <Database size={13} /> },
+  mssql:     { label: 'MS SQL Server', desc: 'sqlcmd BACKUP DATABASE',                 icon: <Database size={13} /> },
+}
 
 const SCHEDULE_PRESETS = [
   { label: 'Every hour',       desc: 'For critical, high-churn data',   cron: '0 * * * *' },
@@ -42,7 +58,8 @@ const STORAGE_TYPES = [
   { id: 'smb',    label: 'SMB / CIFS',     desc: 'Windows shares / NAS',           Icon: NetIcon },
 ]
 
-export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
+export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initialPolicy }) => {
+  const isEdit = !!initialPolicy
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -55,8 +72,20 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   const [stacks, setStacks] = useState<Stack[]>([])
   const [connectors, setConnectors] = useState<any[]>([])
   const [targetSearch, setTargetSearch] = useState('')
+  const [dbForm, setDbForm] = useState<DatabaseExporter | null>(null)
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => initialPolicy ? {
+    name: initialPolicy.name,
+    schedule: initialPolicy.schedule,
+    verifySchedule: initialPolicy.verifySchedule || '',
+    backupType: initialPolicy.backupType,
+    retentionCount: initialPolicy.retention.count ?? 7,
+    storageType: initialPolicy.storage.type,
+    storageConnectorId: initialPolicy.storage.connectorId || '',
+    targets: initialPolicy.targets.map(t => ({ type: t.type as TargetType, selector: t.selector })),
+    databases: (initialPolicy.hooks?.databases || []) as DatabaseExporter[],
+    enabled: initialPolicy.enabled,
+  } : {
     name: '',
     schedule: '0 2 * * *',
     verifySchedule: '',
@@ -65,6 +94,8 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
     storageType: 'local',
     storageConnectorId: '',
     targets: [] as TargetDraft[],
+    databases: [] as DatabaseExporter[],
+    enabled: true,
   })
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -178,24 +209,35 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
-      await createPolicy({
+      const payload = {
         name: form.name || `policy-${Date.now()}`,
-        enabled: true,
+        enabled: form.enabled,
         targets: form.targets,
         schedule: form.schedule,
         verifySchedule: form.verifySchedule || undefined,
         backupType: form.backupType,
         retention: { strategy: 'count', count: form.retentionCount },
-        storage: {
+        hooks: form.databases.length > 0 ? { databases: form.databases } : undefined,
+        storage: isEdit && initialPolicy ? {
+          ...initialPolicy.storage,
+          type: form.storageType,
+          connectorId: form.storageConnectorId || undefined,
+        } : {
           id: form.storageConnectorId || `storage-${Date.now()}`,
           type: form.storageType,
           path: 'data/backups',
+          connectorId: form.storageConnectorId || undefined,
         },
-      })
+      }
+      if (isEdit && initialPolicy) {
+        await updatePolicy(initialPolicy.id, payload)
+      } else {
+        await createPolicy(payload)
+      }
       onSuccess()
     } catch (err) {
       console.error(err)
-      alert('Failed to create policy')
+      alert(isEdit ? 'Failed to save policy' : 'Failed to create policy')
     } finally {
       setSubmitting(false)
     }
@@ -204,14 +246,16 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
   // Allow proceeding without targets if Docker is offline (can add targets later or manually)
   const canNext = step === 1 ? (form.targets.length > 0 || dockerOffline) : true
 
-  const STEP_LABELS = ['Targets', 'Schedule', 'Storage & Review']
+  // Step labels for the wizard pill row. Order matches the step === N
+  // conditionals in the body and the canNext / footer logic.
+  const STEP_LABELS = ['Targets', 'Schedule', 'Database Backups', 'Storage & Review']
 
   // ENTER-to-submit on the final step
   const onPanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Enter') return
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A') return
-    if (step === 3 && !submitting && form.targets.length > 0) {
+    if (step === 4 && !submitting && form.targets.length > 0) {
       e.preventDefault()
       handleSubmit()
     }
@@ -232,7 +276,9 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
         {/* Header */}
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span id="policy-wizard-title" style={{ fontWeight: 700, fontSize: 15 }}>Create Protection Policy</span>
+            <span id="policy-wizard-title" style={{ fontWeight: 700, fontSize: 15 }}>
+              {isEdit ? `Edit Policy — ${initialPolicy?.name}` : 'Create Protection Policy'}
+            </span>
             {form.targets.length > 0 && (
               <span className="badge badge-info">{form.targets.length} targets</span>
             )}
@@ -281,6 +327,10 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                       value={form.name}
                       onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                     />
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Info size={11} />
+                      Choose a short, descriptive name. You can have multiple policies per stack — e.g. nightly-db + weekly-full.
+                    </div>
                   </div>
 
                   {/* Docker offline banner */}
@@ -448,48 +498,36 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
               {/* ─── Step 2: SCHEDULE ────────────────────────── */}
               {step === 2 && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                  {/* Left: schedule presets */}
-                  <div>
-                    <label className="form-label">Backup schedule</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {SCHEDULE_PRESETS.map(p => (
-                        <button
-                          key={p.cron}
-                          onClick={() => setForm(f => ({ ...f, schedule: p.cron }))}
-                          className={`radio-card ${form.schedule === p.cron ? 'selected' : ''}`}
-                        >
-                          <div className="radio-dot"><div className="radio-dot-inner" /></div>
-                          <div style={{ textAlign: 'left' }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{p.desc}</div>
-                            <div className="font-mono" style={{ fontSize: 11, color: '#60a5fa', marginTop: 2 }}>{p.cron}</div>
-                          </div>
-                        </button>
-                      ))}
-                      <div>
-                        <label className="form-label" style={{ marginTop: 8 }}>Custom cron expression</label>
-                        <input
-                          className="form-input font-mono"
-                          placeholder="0 2 * * *"
-                          value={form.schedule}
-                          onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
-                        />
-                      </div>
+                  {/* Left: backup schedule via CronPicker */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <CronPicker
+                      label="Backup schedule"
+                      value={form.schedule}
+                      onChange={v => setForm(f => ({ ...f, schedule: v }))}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: 'var(--surface-1)', borderRadius: 'var(--r-sm)', fontSize: 12 }}>
+                      <Info size={13} color="var(--blue-400, #60a5fa)" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Backups run inside the Docker Desktop VM. Pick a window when your data is quiet —
+                        typically overnight or between deployments.
+                      </span>
                     </div>
                   </div>
 
-                  {/* Right: retention + verify */}
+                  {/* Right: retention + type + verify */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div>
-                      <label className="form-label">Retention count</label>
+                      <label className="form-label">Retention — how many backups to keep</label>
                       <input
                         type="number" min={1} max={365}
                         className="form-input"
                         value={form.retentionCount}
                         onChange={e => setForm(f => ({ ...f, retentionCount: parseInt(e.target.value) || 7 }))}
                       />
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                        Keep the last {form.retentionCount} successful backup(s)
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 11, color: 'var(--text-muted)' }}>
+                        <Info size={11} />
+                        Older backups are pruned automatically once the limit is reached.
+                        7 is a good default for daily schedules.
                       </div>
                     </div>
 
@@ -500,17 +538,22 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                         value={form.backupType}
                         onChange={e => setForm(f => ({ ...f, backupType: e.target.value }))}
                       >
-                        <option value="full">Full</option>
-                        <option value="incremental">Incremental</option>
-                        <option value="snapshot">Snapshot</option>
+                        <option value="full">Full — complete snapshot every run</option>
+                        <option value="incremental">Incremental — only changed files</option>
+                        <option value="snapshot">Snapshot — filesystem-level snapshot</option>
                       </select>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        <strong>Full</strong> is safest and simplest. Use incremental only if backup size is a concern.
+                      </div>
                     </div>
 
                     <div>
                       <label className="form-label">Verify schedule</label>
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Periodically scratch-restore the latest backup to prove it is recoverable.
-                      </p>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <Info size={11} color="var(--emerald)" style={{ flexShrink: 0, marginTop: 1 }} />
+                        Automatically scratch-restores your latest backup to confirm it is actually recoverable.
+                        Highly recommended for critical data.
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {VERIFY_PRESETS.map(p => (
                           <button
@@ -532,8 +575,376 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                 </div>
               )}
 
-              {/* ─── Step 3: STORAGE & REVIEW ────────────────── */}
-              {step === 3 && (
+               {/* ─── Step 3: DATABASE BACKUP ──────────────────── */}
+               {(step === 3) && (
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: 'var(--surface-1)', borderRadius: 'var(--r-md)', fontSize: 12, lineHeight: 1.5 }}>
+                     <Database size={15} color="var(--blue-400, #60a5fa)" style={{ flexShrink: 0, marginTop: 1 }} />
+                     <span style={{ color: 'var(--text-secondary)' }}>
+                       Database exporters run <strong>inside</strong> your database containers before the filesystem snapshot.
+                       The dump is written to a file that the volume backup then picks up — no separate storage needed.
+                     </span>
+                   </div>
+
+                   {/* Existing exporters list */}
+                   {form.databases.length > 0 && (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                       <label className="form-label" style={{ marginBottom: 0 }}>Configured exporters ({form.databases.length})</label>
+                       {form.databases.map((db, idx) => (
+                         <div key={idx} className="card" style={{
+                           background: 'var(--surface-1)', padding: '8px 12px',
+                           display: 'flex', alignItems: 'center', gap: 8,
+                         }}>
+                           <span style={{ color: 'var(--text-muted)' }}>
+                             {DB_EXPORTER_META[db.kind]?.icon}
+                           </span>
+                           <span style={{ fontSize: 13, fontWeight: 600 }}>{DB_EXPORTER_META[db.kind]?.label}</span>
+                           <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{db.container}</span>
+                           {db.kind === 'influxdb' && (
+                             <span className="badge badge-muted" style={{ fontSize: 10 }}>
+                               {(db as any).version === 'v2' ? 'v2' : 'v1'}
+                             </span>
+                           )}
+                           {db.kind === 'mssql' && (db as any).authMode === 'sql' && (
+                             <span className="badge badge-muted" style={{ fontSize: 10 }}>SQL auth</span>
+                           )}
+                           <button
+                             onClick={() => setForm(f => ({ ...f, databases: f.databases.filter((_, i) => i !== idx) }))}
+                             className="btn-icon" style={{ marginLeft: 'auto' }}
+                             title="Remove exporter"
+                           >
+                             <Trash2 size={13} color="var(--rose)" />
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+
+                   {/* Add exporter form */}
+                   {!dbForm ? (
+                     <div>
+                       <label className="form-label">Add a database exporter</label>
+                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 }}>
+                         {(Object.keys(DB_EXPORTER_META) as DbKind[]).map(kind => (
+                           <button key={kind} className="card card-hover" style={{
+                             padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6,
+                             cursor: 'pointer', background: 'var(--surface-1)', border: '1px solid var(--surface-4)',
+                           }} onClick={() => {
+                             const base: Record<string, any> = { kind, container: '' }
+                             if (kind === 'influxdb') base.version = 'v2'
+                             if (kind === 'mssql') { base.db = ''; base.server = '.'; base.authMode = 'windows' }
+                             if (kind === 'sqlite') base.dbPath = ''
+                             setDbForm(base as DatabaseExporter)
+                           }}>
+                             <span style={{ color: 'var(--text-muted)' }}>{DB_EXPORTER_META[kind].icon}</span>
+                             <div style={{ textAlign: 'left' }}>
+                               <div style={{ fontSize: 12, fontWeight: 600 }}>{DB_EXPORTER_META[kind].label}</div>
+                               <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{DB_EXPORTER_META[kind].desc}</div>
+                             </div>
+                           </button>
+                         ))}
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="card" style={{ background: 'var(--surface-1)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                         <span style={{ fontSize: 13, fontWeight: 700 }}>
+                           {DB_EXPORTER_META[dbForm.kind]?.label} exporter
+                         </span>
+                         <button
+                           onClick={() => setDbForm(null)}
+                           className="btn-icon" style={{ marginLeft: 'auto' }}
+                           title="Cancel"
+                         >
+                           <X size={14} />
+                         </button>
+                       </div>
+
+                       <div>
+                         <label className="form-label">Container name *</label>
+                         <input
+                           className="form-input"
+                           placeholder="e.g. my-postgres"
+                           value={(dbForm as any).container || ''}
+                           onChange={e => setDbForm({ ...dbForm!, container: e.target.value })}
+                         />
+                       </div>
+
+                       {dbForm.kind === 'postgres' && (
+                         <>
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                             <div>
+                               <label className="form-label">User</label>
+                               <input className="form-input" placeholder="postgres"
+                                 value={(dbForm as any).user || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), user: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                             <div>
+                               <label className="form-label">Database</label>
+                               <input className="form-input" placeholder="all"
+                                 value={(dbForm as any).db || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), db: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                           </div>
+                           <div>
+                             <label className="form-label">Output path</label>
+                             <input className="form-input font-mono" placeholder="/var/backups/drk-postgres.sql.gz"
+                               value={(dbForm as any).outPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                             />
+                           </div>
+                           <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                             <Info size={11} />
+                             Leave database blank to dump all databases.
+                           </div>
+                         </>
+                       )}
+
+                       {dbForm.kind === 'mysql' && (
+                         <>
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                             <div>
+                               <label className="form-label">User</label>
+                               <input className="form-input" placeholder="root"
+                                 value={(dbForm as any).user || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), user: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                             <div>
+                               <label className="form-label">Password</label>
+                               <input className="form-input" type="password" placeholder="(from env)"
+                                 value={(dbForm as any).password || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), password: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                           </div>
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                             <div>
+                               <label className="form-label">Database</label>
+                               <input className="form-input" placeholder="all"
+                                 value={(dbForm as any).db || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), db: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                             <div>
+                               <label className="form-label">Output path</label>
+                               <input className="form-input font-mono" placeholder="/var/backups/drk-mysql.sql.gz"
+                                 value={(dbForm as any).outPath || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                           </div>
+                         </>
+                       )}
+
+                       {dbForm.kind === 'redis' && (
+                         <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                           <Info size={11} />
+                           Runs <code>redis-cli BGSAVE</code> to trigger a background save. No additional fields needed.
+                         </div>
+                       )}
+
+                       {dbForm.kind === 'mongodb' && (
+                         <>
+                           <div>
+                             <label className="form-label">Output directory</label>
+                             <input className="form-input font-mono" placeholder="/var/backups/drk-mongo"
+                               value={(dbForm as any).outPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                             />
+                           </div>
+                         </>
+                       )}
+
+                       {dbForm.kind === 'sqlite' && (
+                         <>
+                           <div>
+                             <label className="form-label">Database file path *</label>
+                             <input className="form-input font-mono" placeholder="/data/app.db"
+                               value={(dbForm as any).dbPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), dbPath: e.target.value } as DatabaseExporter)}
+                             />
+                           </div>
+                           <div>
+                             <label className="form-label">Output path</label>
+                             <input className="form-input font-mono" placeholder="/var/backups/drk-sqlite.db"
+                               value={(dbForm as any).outPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                             />
+                           </div>
+                         </>
+                       )}
+
+                       {dbForm.kind === 'influxdb' && (
+                         <>
+                           <div>
+                             <label className="form-label">InfluxDB version *</label>
+                             <select
+                               className="form-select"
+                               value={(dbForm as any).version}
+                               onChange={e => setDbForm({ ...(dbForm as any), version: e.target.value } as DatabaseExporter)}
+                             >
+                               <option value="v2">InfluxDB v2 (influx CLI)</option>
+                               <option value="v1">InfluxDB v1 (influxd)</option>
+                             </select>
+                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                               <Info size={11} />
+                               {(dbForm as any).version === 'v2'
+                                 ? 'Uses `influx backup`. Token reads from $INFLUX_TOKEN env if not set below.'
+                                 : 'Uses `influxd backup -portable`. Requires the influxdb v1 container image.'}
+                             </div>
+                           </div>
+                           {(dbForm as any).version === 'v2' && (
+                             <>
+                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                 <div>
+                                   <label className="form-label">Org</label>
+                                   <input className="form-input" placeholder="my-org"
+                                     value={(dbForm as any).org || ''}
+                                     onChange={e => setDbForm({ ...(dbForm as any), org: e.target.value } as DatabaseExporter)}
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className="form-label">Bucket</label>
+                                   <input className="form-input" placeholder="all buckets"
+                                     value={(dbForm as any).bucket || ''}
+                                     onChange={e => setDbForm({ ...(dbForm as any), bucket: e.target.value } as DatabaseExporter)}
+                                   />
+                                 </div>
+                               </div>
+                               <div>
+                                 <label className="form-label">Token</label>
+                                 <input className="form-input" type="password" placeholder="$INFLUX_TOKEN"
+                                   value={(dbForm as any).token || ''}
+                                   onChange={e => setDbForm({ ...(dbForm as any), token: e.target.value } as DatabaseExporter)}
+                                 />
+                                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                   <Info size={11} />
+                                   Optional. If empty, uses the <code>$INFLUX_TOKEN</code> env var inside the container.
+                                 </div>
+                               </div>
+                             </>
+                           )}
+                           {(dbForm as any).version === 'v1' && (
+                             <div>
+                               <label className="form-label">Database</label>
+                               <input className="form-input" placeholder="all databases"
+                                 value={(dbForm as any).db || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), db: e.target.value } as DatabaseExporter)}
+                               />
+                               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                 <Info size={11} />
+                                 Leave blank to back up all databases. Metadata-only backup if -db is omitted in v1.
+                               </div>
+                             </div>
+                           )}
+                           <div>
+                             <label className="form-label">Output directory</label>
+                             <input className="form-input font-mono" placeholder="/var/backups/drk-influxdb"
+                               value={(dbForm as any).outPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                             />
+                           </div>
+                         </>
+                       )}
+
+                       {dbForm.kind === 'mssql' && (
+                         <>
+                           <div>
+                             <label className="form-label">Database name *</label>
+                             <input className="form-input" placeholder="AppDb"
+                               value={(dbForm as any).db || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), db: e.target.value } as DatabaseExporter)}
+                             />
+                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                               <Info size={11} />
+                               Required — MSSQL has no &quot;all databases&quot; BACKUP statement.
+                             </div>
+                           </div>
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                             <div>
+                               <label className="form-label">Server</label>
+                               <input className="form-input font-mono" placeholder="."
+                                 value={(dbForm as any).server || ''}
+                                 onChange={e => setDbForm({ ...(dbForm as any), server: e.target.value } as DatabaseExporter)}
+                               />
+                             </div>
+                             <div>
+                               <label className="form-label">Auth mode</label>
+                               <select
+                                 className="form-select"
+                                 value={(dbForm as any).authMode || 'windows'}
+                                 onChange={e => setDbForm({ ...(dbForm as any), authMode: e.target.value } as DatabaseExporter)}
+                               >
+                                 <option value="windows">Windows auth (-E)</option>
+                                 <option value="sql">SQL auth (-U/-P)</option>
+                               </select>
+                             </div>
+                           </div>
+                           {(dbForm as any).authMode === 'sql' && (
+                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                               <div>
+                                 <label className="form-label">User</label>
+                                 <input className="form-input" placeholder="sa"
+                                   value={(dbForm as any).user || ''}
+                                   onChange={e => setDbForm({ ...(dbForm as any), user: e.target.value } as DatabaseExporter)}
+                                 />
+                               </div>
+                               <div>
+                                 <label className="form-label">Password *</label>
+                                 <input className="form-input" type="password" placeholder="required"
+                                   value={(dbForm as any).password || ''}
+                                   onChange={e => setDbForm({ ...(dbForm as any), password: e.target.value } as DatabaseExporter)}
+                                 />
+                               </div>
+                             </div>
+                           )}
+                           <div>
+                             <label className="form-label">Output file path</label>
+                             <input className="form-input font-mono" placeholder="/var/backups/drk-mssql.bak"
+                               value={(dbForm as any).outPath || ''}
+                               onChange={e => setDbForm({ ...(dbForm as any), outPath: e.target.value } as DatabaseExporter)}
+                             />
+                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                               <Info size={11} />
+                               Uses WITH INIT (overwrites). COMPRESSION omitted for Express edition compatibility.
+                             </div>
+                           </div>
+                         </>
+                       )}
+
+                       {/* Common output path for kinds that have it */}
+                       {['postgres', 'mysql', 'mongodb', 'sqlite', 'influxdb'].includes(dbForm.kind) && null}
+
+                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                         <button className="btn btn-ghost" onClick={() => setDbForm(null)}>Cancel</button>
+                         <button
+                           className="btn btn-primary"
+                           disabled={!(dbForm as any).container || (dbForm.kind === 'sqlite' && !(dbForm as any).dbPath) || (dbForm.kind === 'mssql' && !(dbForm as any).db)}
+                           onClick={() => {
+                             setForm(f => ({ ...f, databases: [...f.databases, dbForm!] }))
+                             setDbForm(null)
+                           }}
+                         >
+                           <Plus size={14} /> Add exporter
+                         </button>
+                       </div>
+                     </div>
+                   )}
+
+                   {form.databases.length === 0 && !dbForm && (
+                     <div className="empty-state" style={{ padding: '20px 12px', fontSize: 12 }}>
+                       <Database size={18} style={{ opacity: 0.4, marginBottom: 4 }} />
+                       <div>No database exporters configured. Your volume backups will still capture database files, but a structured dump gives you cleaner restores.</div>
+                     </div>
+                   )}
+                 </div>
+               )}
+
+               {/* ─── Step 4: STORAGE & REVIEW ────────────────── */}
+               {(step === 4) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                   {/* Left: storage type */}
                   <div>
@@ -555,6 +966,13 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                       ))}
                     </div>
 
+                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      <Info size={11} color="var(--blue-400, #60a5fa)" style={{ flexShrink: 0, marginTop: 1 }} />
+                      {form.storageType === 'local'
+                        ? 'Backups are stored on the Docker Desktop VM disk under /data/backups. Good for development; not recommended for sole production backups.'
+                        : 'Set up a connector first in the Connectors page to store credentials securely. Then select it here.'}
+                    </div>
+
                     {form.storageType !== 'local' && (
                       <div style={{ marginTop: 12 }}>
                         <label className="form-label">Saved connector (optional)</label>
@@ -563,11 +981,16 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                           value={form.storageConnectorId}
                           onChange={e => setForm(f => ({ ...f, storageConnectorId: e.target.value }))}
                         >
-                          <option value="">— none —</option>
+                          <option value="">— none — (will use inline config)</option>
                           {connectors.filter(c => c.type === form.storageType).map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
+                        {connectors.filter(c => c.type === form.storageType).length === 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--amber, #f59e0b)', marginTop: 4 }}>
+                            No {form.storageType} connectors saved yet. Add one in the Connectors page, then come back.
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -577,19 +1000,33 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
                     <label className="form-label">Policy summary</label>
                     <div className="card" style={{ background: 'var(--surface-1)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {[
-                        ['Name', form.name || '(auto-generated)'],
-                        ['Targets', `${form.targets.length} selected`],
-                        ['Schedule', form.schedule],
-                        ['Verify',  form.verifySchedule || 'Disabled'],
-                        ['Retention', `Keep ${form.retentionCount}`],
-                        ['Storage', form.storageType],
-                        ['Type', form.backupType],
-                      ].map(([k, v]) => (
+                         ['Name', form.name || '(auto-generated)'],
+                         ['Targets', `${form.targets.length} selected`],
+                         ['Schedule', form.schedule],
+                         ['Verify',  form.verifySchedule || 'Disabled'],
+                         ['Retention', `Keep ${form.retentionCount}`],
+                         ['Storage', form.storageType],
+                         ['Type', form.backupType],
+                         ['DB dumps', form.databases.length > 0 ? `${form.databases.length} configured` : 'None'],
+                       ].map(([k, v]) => (
                         <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                           <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{k}</span>
                           <span className={k === 'Schedule' || k === 'Verify' ? 'font-mono' : ''} style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
                         </div>
                       ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--surface-4)', paddingTop: 10 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Active</span>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={form.enabled}
+                            onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+                          />
+                          <span style={{ fontSize: 12, fontWeight: 600, color: form.enabled ? '#34d399' : 'var(--text-muted)' }}>
+                            {form.enabled ? 'Enabled' : 'Paused'}
+                          </span>
+                        </label>
+                      </div>
                     </div>
 
                     {/* Targets breakdown */}
@@ -623,7 +1060,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
             {step === 1 ? 'Cancel' : 'Back'}
           </button>
 
-          {step < 3 ? (
+          {step < 4 ? (
             <button
               className="btn btn-primary"
               onClick={() => setStep(s => s + 1)}
@@ -638,7 +1075,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess }) => {
               disabled={submitting || form.targets.length === 0}
             >
               <Save size={14} />
-              {submitting ? 'Creating…' : 'Create Policy'}
+              {submitting ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create Policy')}
             </button>
           )}
         </div>
