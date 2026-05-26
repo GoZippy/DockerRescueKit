@@ -46,12 +46,52 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
       org.opencontainers.image.source="https://github.com/gozippy/DockerRescueKit"
 
 # restic + rclone are required by all remote storage adapters.
-# restic:  official alpine build, battle-tested.
-# rclone:  single static binary that handles ~40 cloud providers.
-# tini:    proper PID-1 signal forwarding for graceful shutdown.
+#
+# We pull both as PINNED UPSTREAM BINARIES (not alpine apk packages). Reason:
+# rclone and restic are statically-linked Go binaries that bundle their own
+# copies of golang.org/x/crypto, google.golang.org/grpc, etc. Alpine's apk
+# packages lag upstream by months, so the bundled-Go libraries inside the
+# apk binaries carry stale CVEs (CVE-2026-46595/41179/41176 on alpine
+# rclone 1.72.1-r3, all the x/crypto 0.41.0 findings on alpine restic).
+# Docker Scout flags these even when the alpine layer itself is patched
+# because the vulnerabilities live in code statically linked INTO the
+# binary at upstream's compile time. Pulling upstream releases — which are
+# rebuilt against current Go stdlib on every release — is the only fix
+# that doesn't require alpine maintainers to ship a fresh apk first.
+#
+# Bump versions via --build-arg at image build time. Update the SHA256s
+# from upstream when you bump:
+#   rclone:  https://downloads.rclone.org/v${RCLONE_VERSION}/SHA256SUMS
+#   restic:  https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/SHA256SUMS
+ARG TARGETARCH
+ARG RCLONE_VERSION=1.74.2
+ARG RESTIC_VERSION=0.18.1
+ARG RCLONE_SHA256_AMD64=72a806370072015ccbe4d81bcd348cc5eaf3beca6c65ba693fd43fb31fcca5b1
+ARG RCLONE_SHA256_ARM64=bc2b2eb8269b743ed7bcea869f3782cfb4931e41efa53fc8befc6dc8308b7a50
+ARG RESTIC_SHA256_AMD64=680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d
+ARG RESTIC_SHA256_ARM64=87f53fddde38764095e9c058a3b31834052c37e5826d2acf34e18923c006bd45
+
+# tini: proper PID-1 signal forwarding for graceful shutdown.
 # fuse3 + ca-certificates: transitive deps for rclone mounts / TLS.
-RUN apk add --no-cache tini restic rclone ca-certificates fuse3 \
- && mkdir -p /data /backups
+RUN apk add --no-cache tini ca-certificates fuse3 \
+ && mkdir -p /data /backups \
+ && apk add --no-cache --virtual .upstream-fetch-deps wget unzip bzip2 \
+ && case "${TARGETARCH:-amd64}" in \
+      amd64) RCLONE_SHA="${RCLONE_SHA256_AMD64}"; RESTIC_SHA="${RESTIC_SHA256_AMD64}"; RCLONE_ARCH="amd64"; RESTIC_ARCH="amd64" ;; \
+      arm64) RCLONE_SHA="${RCLONE_SHA256_ARM64}"; RESTIC_SHA="${RESTIC_SHA256_ARM64}"; RCLONE_ARCH="arm64"; RESTIC_ARCH="arm64" ;; \
+      *)     echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && wget -qO /tmp/rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${RCLONE_ARCH}.zip" \
+ && echo "${RCLONE_SHA}  /tmp/rclone.zip" | sha256sum -c - \
+ && unzip -j /tmp/rclone.zip "rclone-v${RCLONE_VERSION}-linux-${RCLONE_ARCH}/rclone" -d /usr/local/bin/ \
+ && chmod +x /usr/local/bin/rclone \
+ && wget -qO /tmp/restic.bz2 "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${RESTIC_ARCH}.bz2" \
+ && echo "${RESTIC_SHA}  /tmp/restic.bz2" | sha256sum -c - \
+ && bzip2 -d /tmp/restic.bz2 \
+ && mv /tmp/restic /usr/local/bin/restic \
+ && chmod +x /usr/local/bin/restic \
+ && apk del .upstream-fetch-deps \
+ && rm -f /tmp/rclone.zip
 
 # Create a non-root user. The `node` base image already owns uid/gid 1000
 # (the built-in `node` user), so we pick 1100 to avoid the collision.
