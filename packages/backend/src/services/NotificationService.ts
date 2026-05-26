@@ -160,6 +160,12 @@ export class NotificationService {
       host: smtp.host,
       port: smtp.port,
       secure: smtp.secure,
+      // Require STARTTLS even when secure: false (port 587). Without this,
+      // nodemailer may attempt AUTH before upgrading to TLS — most mail
+      // servers reject plaintext AUTH with the misleading '535 Incorrect
+      // authentication data', which looks like a credential problem but is
+      // actually a session-encryption problem.
+      requireTLS: !smtp.secure,
       auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
       // Keep the connect attempt bounded so a misconfigured host doesn't
       // wedge the scheduler tick.
