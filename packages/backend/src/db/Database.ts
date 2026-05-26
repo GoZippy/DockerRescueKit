@@ -130,6 +130,23 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_log_events_container ON log_events(containerId);
       CREATE INDEX IF NOT EXISTS idx_log_events_category ON log_events(category);
       CREATE INDEX IF NOT EXISTS idx_log_events_timestamp ON log_events(timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS volumes_manifest (
+        id TEXT PRIMARY KEY,
+        volumeName TEXT NOT NULL UNIQUE,
+        backupId TEXT NOT NULL,
+        containerNames TEXT,
+        policyId TEXT,
+        restoreSuccess INTEGER DEFAULT 1,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        rehearsalId TEXT,
+        ttl INTEGER DEFAULT 604800,
+        FOREIGN KEY(backupId) REFERENCES backup_history(id),
+        FOREIGN KEY(policyId) REFERENCES policies(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_volumes_manifest_policy ON volumes_manifest(policyId);
+      CREATE INDEX IF NOT EXISTS idx_volumes_manifest_timestamp ON volumes_manifest(timestamp DESC);
     `)
 
     // Lightweight migration: older databases won't have verifySchedule on
@@ -545,6 +562,100 @@ export class Database {
   public async deleteOldLogEvents(olderThanDays: number = 7): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
     const stmt = this.db.prepare('DELETE FROM log_events WHERE detectedAt < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
+  }
+
+  // Volume Manifest Operations
+  public async insertVolumeManifest(entry: {
+    id: string
+    volumeName: string
+    backupId: string
+    containerNames?: string[]
+    policyId?: string
+    restoreSuccess: boolean
+    timestamp: string
+    rehearsalId?: string
+    ttl?: number
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO volumes_manifest (
+        id, volumeName, backupId, containerNames, policyId, restoreSuccess,
+        timestamp, rehearsalId, ttl
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      entry.id,
+      entry.volumeName,
+      entry.backupId,
+      entry.containerNames ? JSON.stringify(entry.containerNames) : null,
+      entry.policyId || null,
+      entry.restoreSuccess ? 1 : 0,
+      entry.timestamp,
+      entry.rehearsalId || null,
+      entry.ttl ?? 604800
+    )
+  }
+
+  public async getVolumesManifest(opts?: {
+    policyId?: string
+    since?: string
+    limit?: number
+  }): Promise<Array<{
+    id: string
+    volumeName: string
+    backupId: string
+    containerNames: string[]
+    policyId?: string
+    restoreSuccess: boolean
+    timestamp: string
+    rehearsalId?: string
+  }>> {
+    let query = 'SELECT * FROM volumes_manifest WHERE 1=1'
+    const params: any[] = []
+
+    if (opts?.policyId) {
+      query += ' AND policyId = ?'
+      params.push(opts.policyId)
+    }
+
+    if (opts?.since) {
+      query += ' AND timestamp > ?'
+      params.push(opts.since)
+    }
+
+    query += ' ORDER BY timestamp DESC'
+
+    if (opts?.limit) {
+      query += ' LIMIT ?'
+      params.push(opts.limit)
+    }
+
+    const rows = this.db.prepare(query).all(...params) as any[]
+    return rows.map(r => ({
+      id: r.id,
+      volumeName: r.volumeName,
+      backupId: r.backupId,
+      containerNames: r.containerNames ? JSON.parse(r.containerNames) : [],
+      policyId: r.policyId || undefined,
+      restoreSuccess: r.restoreSuccess === 1,
+      timestamp: r.timestamp,
+      rehearsalId: r.rehearsalId || undefined
+    }))
+  }
+
+  public async getManagedVolumes(): Promise<string[]> {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT volumeName FROM volumes_manifest
+      WHERE timestamp > datetime('now', '-7 days')
+      ORDER BY volumeName
+    `).all() as any[]
+    return rows.map(r => r.volumeName)
+  }
+
+  public async deleteOldVolumeManifests(olderThanDays: number = 7): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM volumes_manifest WHERE timestamp < ?')
     const result = stmt.run(cutoff)
     return result.changes
   }

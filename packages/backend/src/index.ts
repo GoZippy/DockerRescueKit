@@ -44,6 +44,7 @@ import { HealthCheckService } from './services/HealthCheckService'
 import { LogTriageService } from './services/LogTriageService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
 import { mountLogsRoutes } from './routes/logs'
+import { mountVolumesRoutes } from './routes/volumes'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
@@ -164,6 +165,20 @@ export class BackupService {
     }, 24 * 60 * 60 * 1000) // Every 24 hours
     logCleanupInterval.unref() // Don't keep process alive just for this timer
 
+    // Schedule daily cleanup of old volume manifest entries (TTL enforcement)
+    // Delete entries older than 7 days
+    const volumeManifestCleanupInterval = setInterval(async () => {
+      try {
+        const deletedCount = await this.db.deleteOldVolumeManifests(7)
+        if (deletedCount > 0) {
+          logger.info(`Volume manifest TTL cleanup: deleted ${deletedCount} entries older than 7 days`)
+        }
+      } catch (err) {
+        logger.error({ err }, 'Volume manifest TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    volumeManifestCleanupInterval.unref() // Don't keep process alive just for this timer
+
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
@@ -173,6 +188,7 @@ export class BackupService {
       logger.error({ err }, 'Failed to mount logs routes')
       throw err
     }
+    mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
     this.setupStaticUI()
     this.setupErrorHandler()
 

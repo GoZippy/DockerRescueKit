@@ -458,3 +458,41 @@ export interface LogTriageHistoryResponse {
   readonly limit: number
   readonly pages?: number
 }
+
+// ===========================================================================
+// Volume Manifest (v1.3 Safe Cleanup Wizard) — volume backup tracking
+// ===========================================================================
+
+/**
+ * VolumeManifestEntry represents a single Docker volume that has been backed up.
+ * Created when a restore-rehearsal completes successfully with backup volumes.
+ * Used by Safe Cleanup Wizard to determine "which volumes have no backups?".
+ */
+export interface VolumeManifestEntry {
+  readonly id: string
+  readonly volumeName: string
+  readonly backupId: string
+  readonly containerNames?: readonly string[]
+  readonly policyId?: string
+  readonly restoreSuccess: boolean
+  readonly timestamp: string // ISO 8601
+  readonly rehearsalId?: string
+}
+
+/**
+ * Response from GET /api/volumes/manifest — list of backed-up volumes.
+ */
+export interface VolumesManifestResponse {
+  readonly volumes: readonly VolumeManifestEntry[]
+  readonly total: number
+  readonly policyId?: string
+}
+
+/**
+ * Response from GET /api/volumes/unmanaged — volumes without backups.
+ * Used by Safe Cleanup Wizard to display "orphaned" volumes safe for cleanup.
+ */
+export interface UnmanagedVolumesResponse {
+  readonly unmanagedVolumes: readonly string[]
+  readonly total: number
+}

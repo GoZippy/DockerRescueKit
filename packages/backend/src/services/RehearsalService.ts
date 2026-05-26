@@ -345,6 +345,13 @@ export class RehearsalService {
         }
       }
 
+      // (5.5) MANIFEST — generate volume manifest after smoke checks pass
+      // Only generate if smoke checks passed (not failed/aborted) to ensure
+      // we only track volumes in a known-good state.
+      if (!anyCheckFailed && run.report.status !== 'aborted') {
+        await this.generateVolumeManifest(run, backups, volumeNameMap)
+      }
+
       // (6) TEARDOWN happens in the finally block below — guaranteed
       await this.finalize(run, anyCheckFailed ? 'failed' : 'success', startMs)
     } catch (err: any) {
@@ -635,6 +642,49 @@ export class RehearsalService {
       logger.info({ stats }, '[Rehearsal] reaped orphans from previous run')
     }
     return stats
+  }
+
+  private async generateVolumeManifest(
+    run: InternalRun,
+    backups: Array<{ id: string; policyId: string }>,
+    volumeNameMap: Record<string, string>
+  ): Promise<void> {
+    try {
+      const { db } = this.deps
+
+      // For each restored volume, create a manifest entry
+      for (const [originalName, tempVolumeName] of Object.entries(volumeNameMap)) {
+        // Find which backup this volume came from
+        const backup = backups[0] // For MVP, associate with first backup
+        if (!backup) continue
+
+        const entry = {
+          id: uuidv4(),
+          volumeName: originalName,
+          backupId: backup.id,
+          containerNames: this.getContainersForVolume(originalName, run.report),
+          policyId: run.request.policyId,
+          restoreSuccess: true,
+          timestamp: new Date().toISOString(),
+          rehearsalId: run.id,
+          ttl: 604800 // 7 days
+        }
+
+        await db.insertVolumeManifest(entry)
+      }
+
+      this.recordStep(run, 'manifest-generation', true, `${Object.keys(volumeNameMap).length} volume(s) manifest recorded`)
+    } catch (err: any) {
+      // Manifest generation is informational; don't fail the rehearsal if it fails
+      logger.warn({ err, rehearsalId: run.id }, '[Rehearsal] manifest generation failed (non-fatal)')
+      this.recordStep(run, 'manifest-generation', false, err?.message || 'manifest generation failed')
+    }
+  }
+
+  private getContainersForVolume(volumeName: string, report: RehearsalReport): string[] {
+    // For MVP, we don't yet track which containers use which volumes
+    // This is a placeholder for future enhancement when we have full container-volume tracking
+    return []
   }
 }
 
