@@ -2,6 +2,7 @@ import type Dockerode from 'dockerode'
 import { DockerService } from './DockerService'
 import { PolicyManager } from './PolicyManager'
 import { RehearsalService } from './RehearsalService'
+import { NotificationDispatcher } from './NotificationDispatcher'
 import { Database } from '../db/Database'
 import { logger } from '../utils/logger'
 
@@ -48,7 +49,8 @@ export class HealthCheckService {
     private docker: DockerService,
     private policyManager: PolicyManager,
     private rehearsal: RehearsalService,
-    private db: Database
+    private db: Database,
+    private notificationDispatcher?: NotificationDispatcher
   ) {}
 
   /**
@@ -127,6 +129,11 @@ export class HealthCheckService {
 
       // (2) Disk pressure — deferred to v1.5 (requires Prometheus or docker system df exec)
       // For now, return zeros as placeholder.
+
+      // Dispatch N-1 notifications asynchronously
+      if (this.notificationDispatcher) {
+        this.dispatchNotificationsAsync(score, containers, volumes)
+      }
 
       return score
     } catch (err: any) {
@@ -450,5 +457,98 @@ export class HealthCheckService {
     if (exitCode === 137) return 'oomkilled'
     if (exitCode === 126 || exitCode === 127) return 'permerror'
     return 'exited'
+  }
+
+  /**
+   * Dispatch N-1 health notifications asynchronously.
+   * Runs in background without blocking getDashboardScore() response.
+   *
+   * Sends notifications for:
+   * - Unhealthy containers
+   * - Restart-looping containers
+   * - Volumes without backups
+   */
+  private dispatchNotificationsAsync(
+    score: DashboardHealthScore,
+    containers: Dockerode.ContainerInfo[],
+    volumes: any[]
+  ): void {
+    // Fire in background — don't await or block the dashboard response
+    setImmediate(async () => {
+      try {
+        if (!this.notificationDispatcher) return
+
+        // 1. Unhealthy containers
+        const unhealthyContainers = containers.filter(c => c.State === 'running' && c.Status?.includes('unhealthy'))
+        for (const c of unhealthyContainers) {
+          const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.substring(0, 12)
+          await this.notificationDispatcher.dispatchNotification(
+            'unhealthy',
+            c.Id,
+            name,
+            {
+              containerName: name,
+              containerId: c.Id.substring(0, 12),
+              image: c.Image,
+              healthStatus: 'unhealthy',
+              lastHealthCheck: new Date().toISOString()
+            },
+            'warning'
+          )
+        }
+
+        // 2. Restart-looping containers (high RestartCount)
+        const restartLoopThreshold = 5  // Can be customized in preferences
+        const restartingContainers = containers.filter(c => {
+          if (c.State !== 'running' && c.State !== 'restarting') return false
+          return (c as any).RestartCount && (c as any).RestartCount > restartLoopThreshold
+        })
+        for (const c of restartingContainers) {
+          const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.substring(0, 12)
+          await this.notificationDispatcher.dispatchNotification(
+            'restart_loop',
+            c.Id,
+            name,
+            {
+              containerName: name,
+              containerId: c.Id.substring(0, 12),
+              image: c.Image,
+              restartCount: (c as any).RestartCount,
+              lastRestartTime: new Date().toISOString(),
+              lastExitCode: (c as any).State?.ExitCode || 0
+            },
+            'warning'
+          )
+        }
+
+        // 3. Volumes without backups
+        const backedUpVolumeNames = new Set<string>()
+        const policies = await this.policyManager.listPolicies()
+        for (const policy of policies) {
+          for (const target of policy.targets) {
+            if (target.type === 'volume') {
+              backedUpVolumeNames.add(target.selector)
+            }
+          }
+        }
+        for (const vol of volumes) {
+          if (!backedUpVolumeNames.has(vol.Name)) {
+            await this.notificationDispatcher.dispatchNotification(
+              'no_backup',
+              vol.Name,
+              vol.Name,
+              {
+                volumeName: vol.Name,
+                volumeSize: (vol as any).UsageData?.Size || 0,
+                driver: vol.Driver || 'local'
+              },
+              'warning'
+            )
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, '[HealthCheck] Notification dispatch failed')
+      }
+    })
   }
 }

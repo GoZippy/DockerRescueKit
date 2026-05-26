@@ -42,9 +42,12 @@ import { VerifyService } from './services/VerifyService'
 import { RehearsalService } from './services/RehearsalService'
 import { HealthCheckService } from './services/HealthCheckService'
 import { LogTriageService } from './services/LogTriageService'
+import { NotificationDispatcher } from './services/NotificationDispatcher'
+import { NotificationService } from './services/NotificationService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
 import { mountLogsRoutes } from './routes/logs'
 import { mountVolumesRoutes } from './routes/volumes'
+import { mountNotificationRoutes } from './routes/notifications'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
@@ -190,6 +193,7 @@ export class BackupService {
   private audit: AuditService
   private rclone: RcloneService
   private license: LicenseService
+  private notificationDispatcher: NotificationDispatcher
   private httpServer: Server | null = null
 
   constructor() {
@@ -221,14 +225,23 @@ export class BackupService {
     this.audit = new AuditService(this.db)
     this.rclone = new RcloneService(dataDir)
     this.scheduler = new SchedulerEngine(this.policyManager, this.verify)
+    // NotificationService is for backup notifications (paid tier)
+    // NotificationDispatcher is for N-1 health alerts (included in all tiers)
+    const notificationService = new NotificationService(this.license, this.settings)
+    this.notificationDispatcher = new NotificationDispatcher(
+      this.db,
+      this.dockerService,
+      notificationService
+    )
     this.rehearsal = new RehearsalService({
       docker: this.dockerService,
       policyManager: this.policyManager,
       audit: this.audit,
       stagingDir: path.join(dataDir, 'staging'),
       db: this.db,
+      notificationDispatcher: this.notificationDispatcher,
     })
-    this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db)
+    this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db, this.notificationDispatcher)
     this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
 
     // Schedule daily cleanup of old log events (TTL enforcement)
@@ -259,6 +272,20 @@ export class BackupService {
     }, 24 * 60 * 60 * 1000) // Every 24 hours
     volumeManifestCleanupInterval.unref() // Don't keep process alive just for this timer
 
+    // Schedule daily cleanup of old notifications (TTL enforcement)
+    // Delete entries older than 30 days
+    const notificationCleanupInterval = setInterval(async () => {
+      try {
+        const deletedCount = await this.db.cleanupOldNotifications(30)
+        if (deletedCount > 0) {
+          logger.info(`Notification TTL cleanup: deleted ${deletedCount} entries older than 30 days`)
+        }
+      } catch (err) {
+        logger.error({ err }, 'Notification TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    notificationCleanupInterval.unref() // Don't keep process alive just for this timer
+
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
@@ -269,6 +296,7 @@ export class BackupService {
       throw err
     }
     mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
+    mountNotificationRoutes(this.app, { db: this.db })
 
     // Cost analysis config — static per-backend pricing/performance reference data.
     // Users can override via DRK_COST_CONFIG env var (JSON) for their region.

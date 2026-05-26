@@ -488,6 +488,64 @@ export interface VolumesManifestResponse {
   readonly policyId?: string
 }
 
+// ===========================================================================
+// N-1 Notification System (v1.3 P2 — Proactive Health Alerts)
+// ===========================================================================
+
+export type NotificationEventType = 'unhealthy' | 'restart_loop' | 'no_backup' | 'disk_pressure' | 'restore_failed'
+
+/**
+ * User notification preferences for N-1 events.
+ * Configurable per-event-type: enabled/disabled, frequency, channels, custom thresholds.
+ */
+export interface NotificationPreferences {
+  readonly userId: string
+  readonly unsubscribeToken: string
+  readonly enabled: Record<NotificationEventType, boolean>
+  readonly frequencies: Record<NotificationEventType, 'immediate' | 'daily' | 'weekly'>
+  readonly deliveryChannels: ('webhook' | 'email')[]
+  readonly webhookUrl?: string
+  readonly customThresholds?: {
+    restartCount?: number
+    diskPercent?: number
+    backupAgeDays?: number
+  }
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/**
+ * N-1 notification payload sent to webhook/email.
+ * Structured envelope for all notification types.
+ */
+export interface NotificationPayload {
+  readonly id: string
+  readonly eventType: NotificationEventType
+  readonly severity: 'warning' | 'critical'
+  readonly timestamp: string
+  readonly subject: string
+  readonly message: string
+  readonly actionUrl?: string
+  readonly details: Record<string, any>
+}
+
+/**
+ * Log entry for notification delivery tracking and deduplication.
+ */
+export interface NotificationLogEntry {
+  readonly id: string
+  readonly eventType: NotificationEventType
+  readonly resourceId?: string
+  readonly resourceName?: string
+  readonly status: 'pending' | 'sent' | 'failed'
+  readonly deliveryChannel: string
+  readonly sentAt?: string
+  readonly acknowledgedAt?: string
+  readonly errorMessage?: string
+  readonly retryCount: number
+  readonly createdAt: string
+}
+
 /**
  * Response from GET /api/volumes/unmanaged — volumes without backups.
  * Used by Safe Cleanup Wizard to display "orphaned" volumes safe for cleanup.

@@ -1,6 +1,8 @@
 import DatabaseConstructor, { Database as SQLiteDatabase } from 'better-sqlite3'
 import path from 'path'
 import fs from 'fs-extra'
+import { v4 as uuid } from 'uuid'
+import { randomBytes } from 'crypto'
 import {
   BackupPolicy,
   StorageConfig,
@@ -147,6 +149,48 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_volumes_manifest_policy ON volumes_manifest(policyId);
       CREATE INDEX IF NOT EXISTS idx_volumes_manifest_timestamp ON volumes_manifest(timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        userId TEXT PRIMARY KEY,
+        unsubscribeToken TEXT UNIQUE,
+        unhealthy_enabled INTEGER DEFAULT 1,
+        restart_loop_enabled INTEGER DEFAULT 1,
+        no_backup_enabled INTEGER DEFAULT 1,
+        disk_pressure_enabled INTEGER DEFAULT 1,
+        restore_failed_enabled INTEGER DEFAULT 1,
+        unhealthy_frequency TEXT DEFAULT 'immediate',
+        restart_loop_frequency TEXT DEFAULT 'immediate',
+        no_backup_frequency TEXT DEFAULT 'daily',
+        disk_pressure_frequency TEXT DEFAULT 'immediate',
+        restore_failed_frequency TEXT DEFAULT 'immediate',
+        delivery_channels TEXT DEFAULT 'webhook',  -- JSON array: ['webhook', 'email']
+        webhook_url TEXT,
+        custom_thresholds TEXT,  -- JSON: { restartCount: 5, diskPercent: 70, backupAgeDays: 7 }
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS notification_log (
+        id TEXT PRIMARY KEY,
+        eventType TEXT NOT NULL,
+        resourceId TEXT,
+        resourceName TEXT,
+        severity TEXT DEFAULT 'warning',
+        status TEXT DEFAULT 'pending',
+        deliveryChannel TEXT,
+        payload TEXT,  -- JSON notification payload
+        sentAt DATETIME,
+        acknowledgedAt DATETIME,
+        errorMessage TEXT,
+        retryCount INTEGER DEFAULT 0,
+        nextRetryAt DATETIME,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        ttl INTEGER DEFAULT 2592000
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_notification_log_event_time ON notification_log(eventType, createdAt DESC);
+      CREATE INDEX IF NOT EXISTS idx_notification_log_resource ON notification_log(resourceId, eventType);
+      CREATE INDEX IF NOT EXISTS idx_notification_log_status ON notification_log(status, nextRetryAt);
     `)
 
     // Lightweight migration: older databases won't have verifySchedule on
@@ -656,6 +700,153 @@ export class Database {
   public async deleteOldVolumeManifests(olderThanDays: number = 7): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
     const stmt = this.db.prepare('DELETE FROM volumes_manifest WHERE timestamp < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
+  }
+
+  // Notification Preferences
+  public async getNotificationPreferences(userId: string): Promise<any | null> {
+    const row = this.db.prepare('SELECT * FROM notification_preferences WHERE userId = ?').get(userId) as any
+    if (!row) return null
+    return {
+      userId: row.userId,
+      unsubscribeToken: row.unsubscribeToken,
+      enabled: {
+        unhealthy: row.unhealthy_enabled === 1,
+        restart_loop: row.restart_loop_enabled === 1,
+        no_backup: row.no_backup_enabled === 1,
+        disk_pressure: row.disk_pressure_enabled === 1,
+        restore_failed: row.restore_failed_enabled === 1
+      },
+      frequencies: {
+        unhealthy: row.unhealthy_frequency,
+        restart_loop: row.restart_loop_frequency,
+        no_backup: row.no_backup_frequency,
+        disk_pressure: row.disk_pressure_frequency,
+        restore_failed: row.restore_failed_frequency
+      },
+      deliveryChannels: row.delivery_channels ? JSON.parse(row.delivery_channels) : ['webhook'],
+      webhookUrl: row.webhook_url,
+      customThresholds: row.custom_thresholds ? JSON.parse(row.custom_thresholds) : {},
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    }
+  }
+
+  public async upsertNotificationPreferences(userId: string, prefs: any): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO notification_preferences (
+        userId, unsubscribeToken,
+        unhealthy_enabled, restart_loop_enabled, no_backup_enabled, disk_pressure_enabled, restore_failed_enabled,
+        unhealthy_frequency, restart_loop_frequency, no_backup_frequency, disk_pressure_frequency, restore_failed_frequency,
+        delivery_channels, webhook_url, custom_thresholds, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(userId) DO UPDATE SET
+        unsubscribeToken = excluded.unsubscribeToken,
+        unhealthy_enabled = excluded.unhealthy_enabled,
+        restart_loop_enabled = excluded.restart_loop_enabled,
+        no_backup_enabled = excluded.no_backup_enabled,
+        disk_pressure_enabled = excluded.disk_pressure_enabled,
+        restore_failed_enabled = excluded.restore_failed_enabled,
+        unhealthy_frequency = excluded.unhealthy_frequency,
+        restart_loop_frequency = excluded.restart_loop_frequency,
+        no_backup_frequency = excluded.no_backup_frequency,
+        disk_pressure_frequency = excluded.disk_pressure_frequency,
+        restore_failed_frequency = excluded.restore_failed_frequency,
+        delivery_channels = excluded.delivery_channels,
+        webhook_url = excluded.webhook_url,
+        custom_thresholds = excluded.custom_thresholds,
+        updatedAt = CURRENT_TIMESTAMP
+    `)
+    const token = prefs.unsubscribeToken || randomBytes(16).toString('hex')
+    stmt.run(
+      userId,
+      token,
+      prefs.enabled?.unhealthy !== false ? 1 : 0,
+      prefs.enabled?.restart_loop !== false ? 1 : 0,
+      prefs.enabled?.no_backup !== false ? 1 : 0,
+      prefs.enabled?.disk_pressure !== false ? 1 : 0,
+      prefs.enabled?.restore_failed !== false ? 1 : 0,
+      prefs.frequencies?.unhealthy || 'immediate',
+      prefs.frequencies?.restart_loop || 'immediate',
+      prefs.frequencies?.no_backup || 'daily',
+      prefs.frequencies?.disk_pressure || 'immediate',
+      prefs.frequencies?.restore_failed || 'immediate',
+      JSON.stringify(prefs.deliveryChannels || ['webhook']),
+      prefs.webhookUrl || null,
+      JSON.stringify(prefs.customThresholds || {})
+    )
+  }
+
+  // Notification Log
+  public async insertNotificationLog(entry: any): Promise<string> {
+    const id = uuid()
+    const stmt = this.db.prepare(`
+      INSERT INTO notification_log (
+        id, eventType, resourceId, resourceName, severity, status, deliveryChannel, payload, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `)
+    stmt.run(
+      id,
+      entry.eventType,
+      entry.resourceId || null,
+      entry.resourceName || null,
+      entry.severity || 'warning',
+      entry.status || 'pending',
+      entry.deliveryChannel || 'webhook',
+      JSON.stringify(entry.payload || {})
+    )
+    return id
+  }
+
+  public async getLastNotification(eventType: string, resourceId: string): Promise<any | null> {
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const row = this.db.prepare(`
+      SELECT * FROM notification_log
+      WHERE eventType = ? AND resourceId = ? AND createdAt > ? AND status = 'sent'
+      ORDER BY createdAt DESC
+      LIMIT 1
+    `).get(eventType, resourceId, cutoffTime) as any
+    if (!row) return null
+    return {
+      id: row.id,
+      eventType: row.eventType,
+      resourceId: row.resourceId,
+      status: row.status,
+      sentAt: row.sentAt,
+      createdAt: row.createdAt
+    }
+  }
+
+  public async updateNotificationStatus(id: string, status: 'sent' | 'failed', error?: string): Promise<void> {
+    const stmt = this.db.prepare(`
+      UPDATE notification_log
+      SET status = ?, sentAt = ?, errorMessage = ?
+      WHERE id = ?
+    `)
+    stmt.run(status, status === 'sent' ? new Date().toISOString() : null, error || null, id)
+  }
+
+  public async getFailedNotifications(): Promise<any[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM notification_log
+      WHERE status = 'failed' AND nextRetryAt <= datetime('now')
+      ORDER BY createdAt DESC
+      LIMIT 100
+    `).all() as any[]
+    return rows.map(row => ({
+      id: row.id,
+      eventType: row.eventType,
+      resourceId: row.resourceId,
+      payload: JSON.parse(row.payload),
+      retryCount: row.retryCount,
+      deliveryChannel: row.deliveryChannel
+    }))
+  }
+
+  public async cleanupOldNotifications(ttlDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM notification_log WHERE createdAt < ?')
     const result = stmt.run(cutoff)
     return result.changes
   }

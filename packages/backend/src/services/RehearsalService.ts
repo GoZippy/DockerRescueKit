@@ -15,6 +15,7 @@ import {
 import { DockerService } from './DockerService'
 import { PolicyManager } from './PolicyManager'
 import { AuditService } from './AuditService'
+import { NotificationDispatcher } from './NotificationDispatcher'
 import { Database } from '../db/Database'
 import { StorageFactory } from '../storage/StorageFactory'
 import { safeJoin, safeFilenameFragment } from '../utils/PathSafety'
@@ -44,6 +45,7 @@ export interface RehearsalServiceDeps {
   audit: AuditService
   stagingDir: string
   db: Database
+  notificationDispatcher: NotificationDispatcher
 }
 
 interface InternalRun {
@@ -382,6 +384,32 @@ export class RehearsalService {
       durationMs: run.report.durationMs,
       smokeFailures: run.report.smokeCheckResults.filter(r => !r.ok).length,
     })
+
+    // Dispatch restore_failed notification if rehearsal failed
+    if (!run.report.ok) {
+      const failureReason = run.report.status === 'aborted'
+        ? 'Rehearsal was aborted'
+        : run.report.smokeCheckResults.filter(r => !r.ok).length > 0
+          ? 'Smoke checks failed'
+          : 'Rehearsal execution failed'
+
+      await this.deps.notificationDispatcher.dispatchNotification(
+        'restore_failed',
+        run.request.policyId || run.id,
+        run.request.policyId || 'Unknown Policy',
+        {
+          policyId: run.request.policyId,
+          policyName: run.request.policyId,
+          failureReason,
+          timestamp: new Date().toISOString(),
+          rehearsalId: run.id,
+          failedChecks: run.report.smokeCheckResults.filter(r => !r.ok).map(r => r.check)
+        },
+        'critical'
+      ).catch(err => {
+        logger.error({ err, rehearsalId: run.id }, '[Rehearsal] Failed to dispatch restore_failed notification')
+      })
+    }
   }
 
   private async teardown(run: InternalRun, networkId: string | undefined): Promise<void> {
