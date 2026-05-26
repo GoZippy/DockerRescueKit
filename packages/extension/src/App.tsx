@@ -11,16 +11,17 @@ import { StacksPage } from './components/StacksPage'
 import { SetupScreen } from './components/SetupScreen'
 import { VersionBadge } from './components/VersionBadge'
 import { RehearsalsPage } from './components/RehearsalsPage'
+import { CostAnalysisPage } from './components/CostAnalysisPage'
 import { getApiKey, getStatus } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
-  Server, Plug, Shield, Settings, Menu, X, ChevronLeft,
+  Server, Plug, Shield, Settings, Menu, X, ChevronLeft, TrendingUp,
   type LucideProps,
 } from 'lucide-react'
 
 type TabId =
-  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals'
+  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals' | 'costs'
   | 'storage' | 'connectors' | 'audit' | 'settings'
 
 interface NavItem {
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { id: 'history',    label: 'Backup History',   icon: Clock,       bottomNav: true },
   { id: 'verify',     label: 'Verify History',   icon: ShieldCheck, bottomNav: false },
   { id: 'rehearsals', label: 'Rehearsals',        icon: ShieldCheck, bottomNav: false },
+  { id: 'costs',      label: 'Cost Analysis',     icon: TrendingUp,  bottomNav: false },
   { id: 'storage',    label: 'Storage Vault',    icon: Server,      bottomNav: false },
   { id: 'connectors', label: 'Integrations',     icon: Plug,        bottomNav: false },
   { id: 'audit',      label: 'Security Audit',   icon: Shield,      bottomNav: false },
@@ -293,6 +295,7 @@ const MainApp: React.FC = () => {
             {active === 'history'    && <BackupHistory />}
             {active === 'verify'     && <VerifyHistory />}
             {active === 'rehearsals' && <RehearsalsPage />}
+            {active === 'costs'      && <CostAnalysisPage />}
             {active === 'storage'    && <VaultList />}
             {active === 'connectors' && <ConnectorsPage />}
             {active === 'audit'      && <SecurityAudit />}

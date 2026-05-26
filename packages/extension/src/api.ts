@@ -299,3 +299,18 @@ export const getRehearsalStreamUrl = (id: string) => {
   }
   return `/api/rehearsals/${id}/stream?apiKey=${encodeURIComponent(getApiKey())}`
 }
+
+// ── Cost Analysis (C-3) ───────────────────────────────────────────────────
+
+export const getCostConfig = async () => {
+  return apiClient.get<Array<{
+    storageType: string
+    label: string
+    icon: string
+    costPerGBMonth: number
+    costPerGBDownload: number
+    restoreSpeedMBps: number
+    durability: string
+    notes: string
+  }>>('/settings/cost-config')
+}

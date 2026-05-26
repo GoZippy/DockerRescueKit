@@ -54,6 +54,86 @@ import { Server } from 'http'
 
 dotenv.config()
 
+export interface StorageCostConfig {
+  storageType: string
+  label: string
+  icon: string
+  costPerGBMonth: number
+  costPerGBDownload: number
+  restoreSpeedMBps: number
+  durability: string
+  notes: string
+}
+
+export function getDefaultCostConfig(): StorageCostConfig[] {
+  const raw = process.env.DRK_COST_CONFIG
+  if (raw) {
+    try { return JSON.parse(raw) } catch { /* fall through to defaults */ }
+  }
+  return [
+    {
+      storageType: 'local',
+      label: 'Local Disk',
+      icon: 'hard-drive',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 500,
+      durability: 'Single disk — no redundancy',
+      notes: 'Fastest restore. No cloud egress. Risk: disk failure = total loss.',
+    },
+    {
+      storageType: 'smb',
+      label: 'SMB / CIFS (NAS)',
+      icon: 'server',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 100,
+      durability: 'Depends on NAS RAID config',
+      notes: 'Good for homelab. Speed limited by network. No egress fees.',
+    },
+    {
+      storageType: 'sftp',
+      label: 'SFTP / SSH',
+      icon: 'lock',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 50,
+      durability: 'Depends on server',
+      notes: 'Any SSH server works. Slower than SMB over WAN.',
+    },
+    {
+      storageType: 's3',
+      label: 'S3 / Object Storage',
+      icon: 'cloud',
+      costPerGBMonth: 0.023,
+      costPerGBDownload: 0.09,
+      restoreSpeedMBps: 200,
+      durability: '99.999999999% (11 nines)',
+      notes: 'AWS S3 Standard pricing shown. MinIO/Wasabi/B2 may differ. Egress is the main cost.',
+    },
+    {
+      storageType: 'proxmox',
+      label: 'Proxmox Backup Server',
+      icon: 'database',
+      costPerGBMonth: 0,
+      costPerGBDownload: 0,
+      restoreSpeedMBps: 200,
+      durability: 'Depends on PBS storage',
+      notes: 'Deduplication + compression. No egress. Requires Proxmox infrastructure.',
+    },
+    {
+      storageType: 'rclone',
+      label: 'Rclone (40+ providers)',
+      icon: 'globe',
+      costPerGBMonth: 0.02,
+      costPerGBDownload: 0.08,
+      restoreSpeedMBps: 100,
+      durability: 'Varies by provider',
+      notes: 'Google Drive, OneDrive, Dropbox, B2, etc. Pricing varies — shown as S3 equivalent estimate.',
+    },
+  ]
+}
+
 // Read backend version from package.json once at startup. Walks up from
 // __dirname until it finds the backend's own manifest — works in both dev
 // (src/index.ts) and prod (dist/backend/src/index.js).
@@ -189,6 +269,13 @@ export class BackupService {
       throw err
     }
     mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
+
+    // Cost analysis config — static per-backend pricing/performance reference data.
+    // Users can override via DRK_COST_CONFIG env var (JSON) for their region.
+    this.app.get('/api/settings/cost-config', (_req, res) => {
+      res.json(getDefaultCostConfig())
+    })
+
     this.setupStaticUI()
     this.setupErrorHandler()
 
