@@ -229,8 +229,13 @@ export class RehearsalService {
         }
         const adapter = StorageFactory.create(policy.storage.type, policy.storage)
 
-        const manifestRemote = path.posix.join(backup.id, 'manifest.json')
-        const manifestLocal = safeJoin(workDir, `${safeFilenameFragment(backup.id)}-manifest.json`)
+        // manifestRemote is a key passed to the storage adapter (S3 key / rclone
+        // remote path), not a local filesystem path. backup.id is sanitized to
+        // a safe filename fragment so a tampered DB row can't inject "../" or
+        // backslashes into the key.
+        const safeBackupId = safeFilenameFragment(backup.id)
+        const manifestRemote = `${safeBackupId}/manifest.json`
+        const manifestLocal = safeJoin(workDir, `${safeBackupId}-manifest.json`)
         await adapter.download(manifestRemote, manifestLocal)
         const manifest = await fs.readJson(manifestLocal)
 

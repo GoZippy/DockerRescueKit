@@ -7,6 +7,27 @@ import type { SettingsService } from './SettingsService'
 export type NotifyEvent = 'success' | 'failure'
 
 /**
+ * Validate an operator-configured webhook URL before issuing an HTTP request.
+ * Accepts only http(s); rejects empty, malformed, or non-HTTP(S) schemes.
+ *
+ * We intentionally do NOT block private/RFC-1918 hosts — operators commonly
+ * point notifications at self-hosted Slack/ntfy on their LAN (10.0.0.0/8,
+ * 192.168.0.0/16, etc.). The URL flows from the local DB config row, not
+ * from any HTTP request input, so SSRF is bounded to the operator's own
+ * configuration choices.
+ */
+function parseNotificationUrl(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error('notification URL is missing')
+  }
+  const u = new URL(raw)
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new Error(`notification URL has unsupported protocol: ${u.protocol}`)
+  }
+  return u.toString()
+}
+
+/**
  * Multi-channel notifier. Supports:
  *  - webhook  (generic POST with JSON body)
  *  - ntfy     (homelab-friendly push)
@@ -77,7 +98,8 @@ export class NotificationService {
     const config = cfg.config || {}
     switch (cfg.type) {
       case 'webhook': {
-        await axios.post(config.url, {
+        const target = parseNotificationUrl(config.url)
+        await axios.post(target, {
           event,
           policyId: policy.id,
           policyName: policy.name,
@@ -89,11 +111,13 @@ export class NotificationService {
         return
       }
       case 'slack': {
-        await axios.post(config.url, { text: message }, { timeout: 15_000 })
+        const target = parseNotificationUrl(config.url)
+        await axios.post(target, { text: message }, { timeout: 15_000 })
         return
       }
       case 'ntfy': {
-        await axios.post(config.url, message, {
+        const target = parseNotificationUrl(config.url)
+        await axios.post(target, message, {
           headers: {
             'Content-Type': 'text/plain',
             Title: `DockerRescueKit: ${backup.status}`,

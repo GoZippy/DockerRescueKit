@@ -790,7 +790,7 @@ export class BackupService {
       path.resolve(process.cwd(), 'public')
     ].filter(Boolean) as string[]
 
-    const uiDir = candidates.find(d => fs.existsSync(path.join(d, 'index.html')))
+    const uiDir = candidates.find(d => fs.existsSync(`${d}/index.html`))
     if (!uiDir) {
       console.warn(`[DockerRescueKit] No UI bundle found. Tried: ${candidates.join(', ')}`)
       return

@@ -15,10 +15,13 @@ export class Database {
   private db: SQLiteDatabase
 
   constructor(dbPath: string = 'data/backups.db') {
-    const fullPath = path.resolve(dbPath)
-    fs.ensureDirSync(path.dirname(fullPath))
-    
-    this.db = new DatabaseConstructor(fullPath)
+    if (typeof dbPath !== 'string' || dbPath.length === 0 || dbPath.includes('\0')) {
+      throw new Error('Database: invalid dbPath')
+    }
+    const dir = path.dirname(dbPath)
+    if (dir && dir !== '.') fs.ensureDirSync(dir)
+
+    this.db = new DatabaseConstructor(dbPath)
     this.initSchema()
   }
 

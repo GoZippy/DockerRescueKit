@@ -8,6 +8,23 @@ import type { NotificationPayload, NotificationEventType } from '@docker-rescue-
 import type { Logger } from 'pino'
 
 /**
+ * Validate an operator-configured webhook URL. Accepts only http(s).
+ * Private/RFC-1918 hosts are intentionally allowed — operators commonly
+ * point at LAN-hosted Slack/ntfy/n8n. URL flows from the local DB config
+ * row, not from any HTTP request input.
+ */
+function parseWebhookUrl(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error('webhook URL is missing')
+  }
+  const u = new URL(raw)
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new Error(`webhook URL has unsupported protocol: ${u.protocol}`)
+  }
+  return u.toString()
+}
+
+/**
  * N-1 Notification Dispatcher — sends proactive health alerts before failure occurs.
  *
  * Handles:
@@ -240,12 +257,13 @@ export class NotificationDispatcher {
    * Max 3 retries: 1s, 2s, 4s.
    */
   private async sendWebhook(payload: NotificationPayload, url: string): Promise<void> {
+    const target = parseWebhookUrl(url)
     const maxRetries = 3
     let lastError: any
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await axios.post(url, payload, {
+        await axios.post(target, payload, {
           timeout: 15_000,
           headers: {
             'Content-Type': 'application/json',
