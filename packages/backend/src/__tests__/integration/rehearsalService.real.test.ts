@@ -7,6 +7,8 @@ import { DockerService } from '../../services/DockerService'
 import { PolicyManager } from '../../services/PolicyManager'
 import { AuditService } from '../../services/AuditService'
 import { RehearsalService } from '../../services/RehearsalService'
+import { NotificationDispatcher } from '../../services/NotificationDispatcher'
+import { NotificationService } from '../../services/NotificationService'
 import type { RehearsalRequest, BackupPolicy, Backup } from '@docker-rescue-kit/shared'
 
 /**
@@ -46,12 +48,15 @@ describeOrSkip('RehearsalService (real Docker)', () => {
     docker = new DockerService()
     policyManager = new PolicyManager(db, path.join(tmp, 'staging'))
     audit = new AuditService(db)
+    const notificationService = new NotificationService()
+    const notificationDispatcher = new NotificationDispatcher(db, docker, notificationService)
     svc = new RehearsalService({
       docker,
       policyManager,
       audit,
       stagingDir: path.join(tmp, 'staging'),
       db,
+      notificationDispatcher,
     })
 
     // Confirm Docker is actually reachable before running the rest.

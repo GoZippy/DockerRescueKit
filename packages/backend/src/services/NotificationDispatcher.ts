@@ -5,6 +5,7 @@ import { NotificationService } from './NotificationService'
 import { logger } from '../utils/logger'
 import { v4 as uuid } from 'uuid'
 import type { NotificationPayload, NotificationEventType } from '@docker-rescue-kit/shared'
+import type { Logger } from 'pino'
 
 /**
  * N-1 Notification Dispatcher — sends proactive health alerts before failure occurs.
@@ -28,7 +29,7 @@ export class NotificationDispatcher {
     private database: Database,
     private docker: DockerService,
     private notificationService: NotificationService,
-    private logger = logger
+    private logger: Logger = logger
   ) {}
 
   /**

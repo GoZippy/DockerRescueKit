@@ -41,19 +41,27 @@ class FakeDocker {
   }
 }
 
+class FakeNotificationDispatcher {
+  async dispatchNotification() {
+    return true
+  }
+}
+
 function newService() {
   const docker = new FakeDocker() as any
   const policyManager = new FakePolicyManager() as any
   const audit = new FakeAudit() as any
   const db = new FakeDb() as any
+  const notificationDispatcher = new FakeNotificationDispatcher() as any
   const svc = new RehearsalService({
     docker,
     policyManager,
     audit,
     stagingDir: '/tmp/drk-test-staging',
     db,
+    notificationDispatcher,
   })
-  return { svc, docker, policyManager, audit, db }
+  return { svc, docker, policyManager, audit, db, notificationDispatcher }
 }
 
 // ---------------------------------------------------------------------------
