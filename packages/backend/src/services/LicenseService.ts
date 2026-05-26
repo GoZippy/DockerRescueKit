@@ -109,8 +109,17 @@ export interface LicenseStatus {
 // any real token. To override at runtime without editing source (useful for
 // CI and dev), set DRK_LICENSE_PUBLIC_KEY to a full PEM string.
 
+// Production public key issued 2026-05-25. Matches the private key held
+// only on the license server (CT 94002, drk-license-server private repo).
+// SAFE to commit — public-key half of the RS256 keypair.
 const LICENSE_PUBLIC_KEY_PEM_DEFAULT = `-----BEGIN PUBLIC KEY-----
-PLACEHOLDER_REPLACE_WITH_REAL_RS256_PUBLIC_KEY_BEFORE_PRODUCTION
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyOu1/kvTqQwouz0+Q/OE
+nEZKYfaWDYa1tshNdnXUsdihc//wwohQYKEwsKRfo07IYqyRZt9U4oUab3DPyRig
+OVlyVN4/9tqgfWWPgwDaH/5WVo0eCwDrnay2zJ3pBoebCvvSj644jwFeWUoS1YHF
+OmeFc3QaozZ/tdJtbqjI9KIjyX0nzZjhpC0nyrxACCsyD/VDcYIUw96AlpUsTGJC
+beG5rx48I2Hbrovz61y8SbNmAc39jDrEWPotyDsUytiRZtd96Zcfm1arlpPIvdt8
+pocn+NjHOHvMGxgE7IYOb4efiS7stk59g6pXh+Kk6Smi60Y86UV6M4c4YPP7yk4y
+PQIDAQAB
 -----END PUBLIC KEY-----`
 
 function loadPublicKey(): { pem: string; isDev: boolean } {

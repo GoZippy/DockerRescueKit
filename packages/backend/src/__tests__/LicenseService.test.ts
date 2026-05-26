@@ -162,8 +162,10 @@ describe('LicenseService', () => {
     expect(await svc.hasFeature('rbac')).toBe(false)
   })
 
-  it('falls back to Free when DRK_LICENSE_PUBLIC_KEY is unset (placeholder rejects all real tokens)', async () => {
-    // Don't override the public key — service should use the placeholder.
+  it('falls back to Free when a token signed by an unknown key is presented against the bundled production key', async () => {
+    // Service uses the bundled LICENSE_PUBLIC_KEY_PEM_DEFAULT (a real
+    // production key as of 2026-05-25). A token signed by a different
+    // ephemeral test key must not verify.
     delete process.env.DRK_LICENSE_PUBLIC_KEY
     const svc = new LicenseService(new MemorySettings() as any)
     process.env.DRK_LICENSE_KEY = signToken({
@@ -172,6 +174,7 @@ describe('LicenseService', () => {
     })
     const s = await svc.getStatus()
     expect(s.tier).toBe('free')
-    expect(s.devMode).toBe(true)
+    // Production key bundled (not the placeholder), so devMode is false.
+    expect(s.devMode).toBe(false)
   })
 })
