@@ -80,8 +80,14 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
 # (see Stage 1b / Stage 1c above) — built against current x/crypto/x/net/grpc
 # so the bundled-Go CVEs that affect both upstream prebuilt binaries (rclone)
 # and upstream source (restic) are eliminated at compile time.
+#
+# Strip the bundled npm + npx from the node image — we run via `node`
+# directly (see CMD) and never invoke npm at runtime. Removing them drops
+# ~50MB AND eliminates every CVE in npm's transitive deps (tar, minimatch,
+# glob, cross-spawn, etc. all bundled inside /usr/local/lib/node_modules/npm).
 RUN apk add --no-cache tini ca-certificates fuse3 \
- && mkdir -p /data /backups
+ && mkdir -p /data /backups \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Copy from-source-built CVE-clean binaries
 COPY --from=rclone-build /rclone /usr/local/bin/rclone

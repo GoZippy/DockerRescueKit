@@ -1,6 +1,6 @@
 {
   "name": "docker-backup-service",
-  "version": "1.1.0",
+  "version": "1.2.2",
   "description": "Enterprise-grade Docker backup management with scheduling, retention policies, and multi-destination support",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
@@ -17,5 +17,13 @@
     "build": "npm run build -ws",
     "test": "npm test -ws",
     "lint": "npm run lint -ws"
+  },
+  "overrides": {
+    "tar": "^7.5.15",
+    "cross-spawn": "^7.0.6",
+    "minimatch": "^10.0.0",
+    "glob": "^11.0.0",
+    "protobufjs": "^8.4.2",
+    "qs": "^6.14.0"
   }
 }

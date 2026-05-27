@@ -90,8 +90,14 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit" \
 # tini + ca-certificates + fuse3 are the only runtime deps we still take
 # from alpine apk. rclone and restic come from the from-source build stages
 # (rclone-build, restic-build) above — see those stages for the CVE rationale.
+#
+# Strip the bundled npm + npx from the node image — we run via `node`
+# directly (see CMD) and never invoke npm at runtime. Removing them drops
+# ~50MB AND eliminates every CVE in npm's transitive deps (tar, minimatch,
+# glob, cross-spawn, etc. all bundled inside /usr/local/lib/node_modules/npm).
 RUN apk add --no-cache tini ca-certificates fuse3 \
- && mkdir -p /data /run/guest-services
+ && mkdir -p /data /run/guest-services \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app
 
