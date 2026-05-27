@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Info, ExternalLink, Settings as SettingsIcon, Tag, GitBranch } from 'lucide-react'
-import { getSettingsMeta } from '../api'
+import {
+  Info, ExternalLink, Settings as SettingsIcon, Tag, GitBranch,
+  RefreshCw, Download, ClipboardCopy, MessageSquarePlus, Check,
+  AlertCircle, Loader2,
+} from 'lucide-react'
+import { getSettingsMeta, checkVersion } from '../api'
+import { openExternal, openMarketplace } from '../utils/openExternal'
 
 const REPO_URL = 'https://github.com/gozippy/DockerRescueKit'
 const RELEASES_URL = `${REPO_URL}/releases`
@@ -9,18 +14,36 @@ const DOCKER_HUB_TAGS = 'https://hub.docker.com/r/gozippy/dockerrescuekit/tags'
 
 interface VersionBadgeProps {
   onOpenSettings?: () => void
+  onOpenFeedback?: () => void
   compact?: boolean
 }
 
-export const VersionBadge: React.FC<VersionBadgeProps> = ({ onOpenSettings, compact }) => {
+type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'current'; latest: string }
+  | { kind: 'available'; latest: string }
+  | { kind: 'error'; message: string }
+
+export const VersionBadge: React.FC<VersionBadgeProps> = ({
+  onOpenSettings, onOpenFeedback, compact,
+}) => {
   const [version, setVersion] = useState<string | null>(null)
+  const [meta, setMeta] = useState<{ dataDir?: string; staging?: string } | null>(null)
   const [open, setOpen] = useState(false)
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' })
+  const [copied, setCopied] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
+  // Load version once at mount — best-effort.
   useEffect(() => {
     let cancelled = false
     getSettingsMeta()
-      .then(m => { if (!cancelled) setVersion(m?.version ?? null) })
+      .then(m => {
+        if (cancelled) return
+        setVersion(m?.version ?? null)
+        setMeta({ dataDir: m?.dataDir, staging: m?.staging })
+      })
       .catch(() => { /* silent — version label is best-effort */ })
     return () => { cancelled = true }
   }, [])
@@ -40,12 +63,51 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({ onOpenSettings, comp
     }
   }, [open])
 
+  const runUpdateCheck = async () => {
+    setUpdateState({ kind: 'checking' })
+    try {
+      const res = await checkVersion()
+      if (res.hubError) {
+        setUpdateState({ kind: 'error', message: res.hubError })
+        return
+      }
+      if (res.updateAvailable && res.latest) {
+        setUpdateState({ kind: 'available', latest: res.latest })
+      } else if (res.latest) {
+        setUpdateState({ kind: 'current', latest: res.latest })
+      } else {
+        setUpdateState({ kind: 'error', message: 'No latest version returned' })
+      }
+    } catch (e: any) {
+      setUpdateState({ kind: 'error', message: e?.message || 'Check failed' })
+    }
+  }
+
+  const copyDiagnostics = async () => {
+    const lines = [
+      `DockerRescueKit ${version ? 'v' + version : '(version unknown)'}`,
+      `Transport: ${import.meta.env.VITE_TRANSPORT || 'tcp'}`,
+      `User-Agent: ${navigator.userAgent}`,
+      `Data dir: ${meta?.dataDir || '(unknown)'}`,
+      `Staging: ${meta?.staging || '(unknown)'}`,
+      `Captured at: ${new Date().toISOString()}`,
+    ]
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch {
+      // clipboard blocked — show toast-like fallback by appending to URL or window prompt
+      window.prompt('Copy diagnostics manually:', lines.join('\n'))
+    }
+  }
+
   if (!version && !open) {
-    // No version available yet — render an invisible placeholder so layout doesn't jump.
     return <div style={{ height: compact ? 28 : 30 }} aria-hidden />
   }
 
   const label = version ? `v${version}` : 'v?'
+  const checking = updateState.kind === 'checking'
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', padding: '0 8px 8px' }}>
@@ -81,6 +143,16 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({ onOpenSettings, comp
       >
         <Tag size={11} />
         <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
+        {updateState.kind === 'available' && (
+          <span
+            aria-label="Update available"
+            title={`Update available: v${updateState.latest}`}
+            style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: 'var(--amber, #f59e0b)',
+            }}
+          />
+        )}
         <Info size={11} style={{ opacity: 0.6 }} />
       </button>
 
@@ -99,7 +171,7 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({ onOpenSettings, comp
             padding: 8,
             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
             zIndex: 30,
-            minWidth: 200,
+            minWidth: 240,
           }}
         >
           <div style={{
@@ -114,39 +186,127 @@ export const VersionBadge: React.FC<VersionBadgeProps> = ({ onOpenSettings, comp
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary, #e2e8f0)' }}>
               DockerRescueKit
             </span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono, monospace)' }}>
+            <span style={{
+              fontSize: 11, color: 'var(--text-muted, #64748b)',
+              fontFamily: 'var(--font-mono, monospace)', marginLeft: 'auto',
+            }}>
               {label}
             </span>
           </div>
 
-          <PopoverLink href={RELEASES_URL} icon={<ExternalLink size={12} />}>
+          {/* Update status pane — only render when something happened */}
+          {updateState.kind !== 'idle' && (
+            <div style={{
+              padding: '8px 8px 10px',
+              margin: '0 0 6px',
+              borderBottom: '1px solid var(--surface-4, rgba(255,255,255,0.06))',
+              fontSize: 11.5,
+              color: 'var(--text-secondary, #94a3b8)',
+            }}>
+              {updateState.kind === 'checking' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Loader2 size={12} className="animate-spin" /> Checking Docker Hub…
+                </span>
+              )}
+              {updateState.kind === 'current' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--emerald, #10b981)' }}>
+                  <Check size={12} /> You're on the latest (v{updateState.latest})
+                </span>
+              )}
+              {updateState.kind === 'available' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--amber, #f59e0b)' }}>
+                    <Download size={12} /> Update available: v{updateState.latest}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); openMarketplace() }}
+                    style={{
+                      ...rowStyle,
+                      width: '100%',
+                      cursor: 'pointer',
+                      border: '1px solid var(--blue-500, #3b82f6)',
+                      background: 'rgba(59,130,246,0.10)',
+                      color: 'var(--blue-500, #3b82f6)',
+                      justifyContent: 'center',
+                      padding: '7px 10px',
+                    }}
+                  >
+                    <Download size={12} />
+                    <span style={{ flex: 'unset' }}>Open Marketplace to update</span>
+                  </button>
+                </div>
+              )}
+              {updateState.kind === 'error' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--rose, #f43f5e)' }}>
+                  <AlertCircle size={12} /> {updateState.message}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Action rows */}
+          <PopoverButton
+            icon={<RefreshCw size={12} className={checking ? 'animate-spin' : undefined} />}
+            onClick={runUpdateCheck}
+            disabled={checking}
+          >
+            {checking ? 'Checking…' : 'Check for updates'}
+          </PopoverButton>
+
+          <PopoverButton
+            icon={<Download size={12} />}
+            onClick={() => { setOpen(false); openMarketplace() }}
+          >
+            Open Marketplace
+          </PopoverButton>
+
+          <div style={dividerStyle} />
+
+          <PopoverButton
+            icon={<ExternalLink size={12} />}
+            onClick={() => { setOpen(false); openExternal(RELEASES_URL) }}
+          >
             Release notes
-          </PopoverLink>
-          <PopoverLink href={CHANGELOG_URL} icon={<ExternalLink size={12} />}>
+          </PopoverButton>
+          <PopoverButton
+            icon={<ExternalLink size={12} />}
+            onClick={() => { setOpen(false); openExternal(CHANGELOG_URL) }}
+          >
             Changelog
-          </PopoverLink>
-          <PopoverLink href={DOCKER_HUB_TAGS} icon={<ExternalLink size={12} />}>
+          </PopoverButton>
+          <PopoverButton
+            icon={<ExternalLink size={12} />}
+            onClick={() => { setOpen(false); openExternal(DOCKER_HUB_TAGS) }}
+          >
             All versions
-          </PopoverLink>
+          </PopoverButton>
+
+          <div style={dividerStyle} />
+
+          <PopoverButton
+            icon={copied ? <Check size={12} color="var(--emerald, #10b981)" /> : <ClipboardCopy size={12} />}
+            onClick={copyDiagnostics}
+          >
+            {copied ? 'Copied diagnostics' : 'Copy diagnostics'}
+          </PopoverButton>
+
+          {onOpenFeedback && (
+            <PopoverButton
+              icon={<MessageSquarePlus size={12} />}
+              onClick={() => { setOpen(false); onOpenFeedback() }}
+            >
+              Send feedback
+            </PopoverButton>
+          )}
 
           {onOpenSettings && (
-            <button
-              type="button"
+            <PopoverButton
+              icon={<SettingsIcon size={12} />}
               onClick={() => { setOpen(false); onOpenSettings() }}
-              style={{
-                ...rowStyle,
-                width: '100%',
-                cursor: 'pointer',
-                border: 'none',
-                textAlign: 'left',
-                background: 'transparent',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3, rgba(255,255,255,0.05))' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
             >
-              <SettingsIcon size={12} />
-              <span style={{ flex: 1 }}>Open Settings</span>
-            </button>
+              Open Settings
+            </PopoverButton>
           )}
         </div>
       )}
@@ -166,22 +326,39 @@ const rowStyle: React.CSSProperties = {
   transition: 'background 0.15s, color 0.15s',
 }
 
-const PopoverLink: React.FC<{ href: string; icon: React.ReactNode; children: React.ReactNode }> = ({ href, icon, children }) => (
-  <a
-    href={href}
-    target="_blank"
-    rel="noopener noreferrer"
-    style={rowStyle}
+const dividerStyle: React.CSSProperties = {
+  height: 1,
+  background: 'var(--surface-4, rgba(255,255,255,0.06))',
+  margin: '4px 0',
+}
+
+const PopoverButton: React.FC<{
+  icon: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  children: React.ReactNode
+}> = ({ icon, onClick, disabled, children }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      ...rowStyle,
+      width: '100%',
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      border: 'none',
+      textAlign: 'left',
+      background: 'transparent',
+      opacity: disabled ? 0.6 : 1,
+    }}
     onMouseEnter={e => {
-      e.currentTarget.style.background = 'var(--surface-3, rgba(255,255,255,0.05))'
-      e.currentTarget.style.color = 'var(--text-primary, #e2e8f0)'
+      if (!disabled) e.currentTarget.style.background = 'var(--surface-3, rgba(255,255,255,0.05))'
     }}
     onMouseLeave={e => {
       e.currentTarget.style.background = 'transparent'
-      e.currentTarget.style.color = 'var(--text-secondary, #94a3b8)'
     }}
   >
     {icon}
     <span style={{ flex: 1 }}>{children}</span>
-  </a>
+  </button>
 )

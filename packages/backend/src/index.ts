@@ -48,6 +48,10 @@ import { mountRehearsalRoutes } from './routes/rehearsals'
 import { mountLogsRoutes } from './routes/logs'
 import { mountVolumesRoutes } from './routes/volumes'
 import { mountNotificationRoutes } from './routes/notifications'
+import { mountFeedbackRoutes } from './routes/feedback'
+import { mountVersionRoutes } from './routes/version'
+import { FeedbackService } from './services/FeedbackService'
+import { APP_VERSION } from './utils/appVersion'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { RcloneService } from './services/RcloneService'
@@ -137,25 +141,9 @@ export function getDefaultCostConfig(): StorageCostConfig[] {
   ]
 }
 
-// Read backend version from package.json once at startup. Walks up from
-// __dirname until it finds the backend's own manifest — works in both dev
-// (src/index.ts) and prod (dist/backend/src/index.js).
-const APP_VERSION: string = (() => {
-  let dir = __dirname
-  for (let i = 0; i < 6; i++) {
-    const p = path.join(dir, 'package.json')
-    try {
-      const pkg = JSON.parse(fs.readFileSync(p, 'utf8'))
-      if (pkg?.name === '@docker-rescue-kit/backend' && typeof pkg.version === 'string') {
-        return pkg.version
-      }
-    } catch { /* keep walking */ }
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return 'unknown'
-})()
+// Backend version is resolved once at module load in utils/appVersion.ts —
+// imported above so both the /api/settings/meta route and the new
+// /api/version/check route reference the same constant.
 
 // ---- Transport selection ---------------------------------------------------
 // Phase 8 — Docker Desktop extension integration.
@@ -297,6 +285,13 @@ export class BackupService {
     }
     mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
     mountNotificationRoutes(this.app, { db: this.db })
+    // v1.2.2 in-product feedback + update-check. FeedbackService fans out to
+    // local file / email / GitHub / webhook sinks; the version route compares
+    // the running APP_VERSION against Docker Hub tags so the UI can show an
+    // "update available" badge without hard-failing on Hub outages.
+    const feedbackService = new FeedbackService(this.settings, dataDir)
+    mountFeedbackRoutes(this.app, { feedback: feedbackService })
+    mountVersionRoutes(this.app, { settings: this.settings })
 
     // Cost analysis config — static per-backend pricing/performance reference data.
     // Users can override via DRK_COST_CONFIG env var (JSON) for their region.

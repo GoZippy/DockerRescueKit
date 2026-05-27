@@ -27,8 +27,11 @@ COPY packages/extension/package.json  ./packages/extension/
 # Install ALL deps (including devDependencies — we need tsc / vite)
 RUN npm ci --workspaces --include-workspace-root
 
-# shared/ is type-only — copy sources for tsc to resolve imports
+# shared/ has runtime exports (SMOKE_CHECK_TEMPLATES, SCRUB_ENV_DEFAULT_PATTERNS)
+# used by backend's RehearsalService — must be compiled to JS before backend.
+# Without this, node fails with MODULE_NOT_FOUND on dist/...types.ts at runtime.
 COPY packages/shared/    ./packages/shared/
+RUN npm run build --workspace=@docker-rescue-kit/shared
 
 # Build backend (tsc compiles src/ → dist/ per tsconfig outDir)
 COPY packages/backend/   ./packages/backend/
@@ -108,6 +111,7 @@ COPY --from=restic-build /restic /usr/local/bin/restic
 # Copy runtime artifacts from the builder stage
 COPY --from=builder /workspace/node_modules                     ./node_modules
 COPY --from=builder /workspace/packages/shared/package.json     ./packages/shared/package.json
+COPY --from=builder /workspace/packages/shared/dist             ./packages/shared/dist
 COPY --from=builder /workspace/packages/backend/package.json    ./packages/backend/package.json
 COPY --from=builder /workspace/packages/backend/dist            ./packages/backend/dist
 COPY --from=builder /workspace/packages/extension/dist          /ui

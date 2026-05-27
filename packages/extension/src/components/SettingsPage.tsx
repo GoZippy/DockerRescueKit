@@ -1,27 +1,225 @@
 import React, { useEffect, useState } from 'react'
-import { getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey } from '../api'
-import { Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut } from 'lucide-react'
+import {
+  getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey,
+  getSetting, saveSetting,
+  // TODO(v1.2.3): the following functions need to be added to ../api once the
+  // backend endpoints land. Until then the catch() branches degrade each card
+  // gracefully without crashing the page.
+  getLicenseStatus, checkVersion, submitFeedback,
+} from '../api'
+import { openExternal, openMarketplace } from '../utils/openExternal'
+import { formatDistanceToNowStrict } from 'date-fns'
+import {
+  Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut,
+  Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Github, Package,
+} from 'lucide-react'
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const DOCKER_HUB_URL  = 'https://hub.docker.com/r/gozippy/dockerrescuekit'
+const GITHUB_URL      = 'https://github.com/gozippy/DockerRescueKit'
+const LICENSE_URL     = 'https://github.com/gozippy/DockerRescueKit/blob/main/LICENSE'
+const CHANGELOG_URL   = 'https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function formatUptime(seconds: number | undefined | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  const s = Math.floor(seconds)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+// Small section heading separator between card groups.
+const SectionHeading: React.FC<{ children: React.ReactNode; first?: boolean }> = ({ children, first }) => (
+  <h3 style={{
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    margin: first ? '0 0 8px' : '24px 0 8px',
+  }}>
+    {children}
+  </h3>
+)
+
+// ── License tier pill ────────────────────────────────────────────────────────
+type Tier = 'free' | 'pro' | 'enterprise' | 'unknown'
+
+const TIER_STYLES: Record<Tier, { bg: string; fg: string; label: string }> = {
+  free:       { bg: 'var(--surface-3)',  fg: 'var(--text-secondary)', label: 'Free' },
+  pro:        { bg: 'rgba(59,130,246,0.18)',  fg: '#60a5fa',          label: 'Pro' },
+  enterprise: { bg: 'rgba(234,179,8,0.18)',   fg: '#facc15',          label: 'Enterprise' },
+  unknown:    { bg: 'var(--surface-3)',  fg: 'var(--text-muted)',     label: 'Unknown' },
+}
+
+const TierPill: React.FC<{ tier: Tier }> = ({ tier }) => {
+  const s = TIER_STYLES[tier]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+      background: s.bg, color: s.fg,
+      textTransform: 'uppercase', letterSpacing: '0.05em',
+    }}>
+      {s.label}
+    </span>
+  )
+}
+
+// ── External link row (used in About card) ───────────────────────────────────
+const ExtLink: React.FC<{ href: string; icon: React.ReactNode; children: React.ReactNode }> = ({
+  href, icon, children,
+}) => (
+  <button
+    type="button"
+    onClick={() => openExternal(href)}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 10px',
+      background: 'transparent',
+      border: '1px solid var(--surface-4)',
+      borderRadius: 'var(--r-sm)',
+      color: 'var(--text-secondary)',
+      fontSize: 12,
+      cursor: 'pointer',
+      textAlign: 'left',
+      width: '100%',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)' }}
+    onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+  >
+    {icon}
+    <span style={{ flex: 1 }}>{children}</span>
+    <ExternalLink size={12} style={{ opacity: 0.5 }} />
+  </button>
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const [meta, setMeta] = useState<any>(null)
-  const [newKey, setNewKey] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [paused, setPaused] = useState(false)
+  const [meta, setMeta]         = useState<any>(null)
+  const [status, setStatusObj]  = useState<any>(null)
+  const [newKey, setNewKey]     = useState<string | null>(null)
+  const [copied, setCopied]     = useState(false)
+  const [loading, setLoading]   = useState(true)
+  const [paused, setPaused]     = useState(false)
 
+  // ── License state ──
+  const [license, setLicense] = useState<{
+    tier: Tier
+    features: string[]
+    expiresAt?: string
+  } | null>(null)
+
+  // ── Update-check state ──
+  const [updateInfo, setUpdateInfo] = useState<{
+    current: string
+    latest: string | null
+    updateAvailable: boolean
+    checkedAt: string
+    hubError?: string
+  } | null>(null)
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateError, setUpdateError]       = useState<string | null>(null)
+
+  // ── Notifications (SMTP) state ──
+  const [smtp, setSmtp] = useState({
+    host: '', port: '587', user: '', pass: '', secure: false, from: '',
+  })
+  const [smtpTestNote, setSmtpTestNote] = useState<string | null>(null)
+
+  // ── Feedback webhook state ──
+  const [webhookUrl, setWebhookUrl]     = useState('')
+  const [webhookBusy, setWebhookBusy]   = useState(false)
+  const [webhookResult, setWebhookResult] = useState<string | null>(null)
+
+  // ── Initial load ────────────────────────────────────────────────────────
   const load = async () => {
     setLoading(true)
     try {
-      const [m, s] = await Promise.all([getSettingsMeta(), getStatus()])
+      const [m, s] = await Promise.all([
+        getSettingsMeta().catch(() => null),
+        getStatus().catch(() => null),
+      ])
       setMeta(m)
+      setStatusObj(s)
       setPaused(!!s?.paused)
+
+      // License — degrade gracefully if endpoint doesn't exist yet.
+      try {
+        const lic = await getLicenseStatus()
+        setLicense({
+          tier: (lic?.tier as Tier) ?? 'unknown',
+          features: Array.isArray(lic?.features) ? lic.features : [],
+          expiresAt: lic?.expiresAt,
+        })
+      } catch {
+        setLicense({ tier: 'unknown', features: [] })
+      }
+
+      // SMTP settings — best-effort load.
+      try {
+        const [host, port, user, pass, secure, from] = await Promise.all([
+          getSetting('notifications.smtp.host').catch(() => null),
+          getSetting('notifications.smtp.port').catch(() => null),
+          getSetting('notifications.smtp.user').catch(() => null),
+          getSetting('notifications.smtp.pass').catch(() => null),
+          getSetting('notifications.smtp.secure').catch(() => null),
+          getSetting('notifications.smtp.from').catch(() => null),
+        ])
+        setSmtp({
+          host:   host   ?? '',
+          port:   port   ?? '587',
+          user:   user   ?? '',
+          pass:   pass   ?? '',
+          secure: secure === 'true',
+          from:   from   ?? '',
+        })
+      } catch { /* ignore — defaults already set */ }
+
+      // Feedback webhook URL.
+      try {
+        const w = await getSetting('feedback.webhook_url')
+        setWebhookUrl(w ?? '')
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }
   }
 
+  // ── Lazy version check on mount ─────────────────────────────────────────
+  const runVersionCheck = async () => {
+    setUpdateChecking(true)
+    setUpdateError(null)
+    try {
+      const res = await checkVersion()
+      setUpdateInfo(res)
+    } catch (e: any) {
+      setUpdateError(e?.message ?? 'Version check failed')
+    } finally {
+      setUpdateChecking(false)
+    }
+  }
+
   useEffect(() => { load() }, [])
 
+  // Defer the version check until the rest of the page has rendered.
+  useEffect(() => {
+    if (!loading) {
+      runVersionCheck()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
+
+  // ── Handlers ────────────────────────────────────────────────────────────
   const togglePause = async () => {
     if (paused) await resumeScheduler()
     else await pauseScheduler()
@@ -41,43 +239,311 @@ export const SettingsPage: React.FC = () => {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // SMTP auto-save on blur. Each field key persists separately.
+  const persistSmtp = (key: keyof typeof smtp) => async () => {
+    try {
+      await saveSetting(`notifications.smtp.${key}`, String(smtp[key]))
+    } catch (e) {
+      console.warn(`Failed to save notifications.smtp.${key}`, e)
+    }
+  }
+
+  const sendTestEmail = () => {
+    // TODO(v1.2.3): wire to POST /api/notifications/test once endpoint exists.
+    setSmtpTestNote('Test send will land in v1.2.3 — endpoint not implemented yet.')
+    console.log('[SettingsPage] SMTP test requested with config:', {
+      host: smtp.host, port: smtp.port, user: smtp.user, secure: smtp.secure, from: smtp.from,
+    })
+    setTimeout(() => setSmtpTestNote(null), 6000)
+  }
+
+  const persistWebhook = async () => {
+    try {
+      await saveSetting('feedback.webhook_url', webhookUrl)
+    } catch (e) {
+      console.warn('Failed to save feedback.webhook_url', e)
+    }
+  }
+
+  const sendWebhookTestPing = async () => {
+    setWebhookBusy(true)
+    setWebhookResult(null)
+    try {
+      const res = await submitFeedback({
+        type: 'question',
+        message: `[Test ping from Settings UI] ${new Date().toISOString()} — feedback_webhook.test`,
+      })
+      const sinks = (res && (res as any).sinks) || (res as any)?.delivered || res
+      setWebhookResult(`OK — ${JSON.stringify(sinks)}`)
+    } catch (e: any) {
+      setWebhookResult(`Error — ${e?.message ?? String(e)}`)
+    } finally {
+      setWebhookBusy(false)
+    }
+  }
+
+  // ── Loading state ───────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, gap: 8, color: 'var(--text-muted)' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: 200, gap: 8, color: 'var(--text-muted)',
+      }}>
         <Loader2 size={16} className="animate-spin" /> Loading settings…
       </div>
     )
   }
 
+  // ── Derived values ──────────────────────────────────────────────────────
+  const tier: Tier = license?.tier ?? 'unknown'
+  const isPro = tier === 'pro' || tier === 'enterprise'
+
+  const dockerOnline = !!status?.docker
+  const uptimeStr    = formatUptime(status?.uptime)
+  const buildSha     = (import.meta as any).env?.VITE_BUILD_SHA as string | undefined
+  const buildLabel   = buildSha ? buildSha.slice(0, 7) : 'dev build'
+
+  const lastCheckedStr = updateInfo?.checkedAt
+    ? `${formatDistanceToNowStrict(new Date(updateInfo.checkedAt))} ago`
+    : null
+
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680 }}>
 
-      {/* Runtime info */}
+      {/* ╔══════════════════════════════════════════════════════════════╗ */}
+      {/* ║ SECTION: About this install                                   ║ */}
+      {/* ╚══════════════════════════════════════════════════════════════╝ */}
+      <SectionHeading first>About this install</SectionHeading>
+
+      {/* ── Runtime ──────────────────────────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 12 }}>
           <Database size={16} color="var(--text-muted)" /> Runtime
         </div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, margin: 0 }}>
-          {[
-            ['Version',          meta?.version],
-            ['Data directory',   meta?.dataDir],
-            ['Staging directory',meta?.staging],
-            ['Encryption key',   meta?.hasEncryptionKey ? '✓ Initialized' : '✗ Missing'],
-          ].map(([k, v]) => (
-            <div key={k as string}>
-              <dt style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{k}</dt>
-              <dd className="font-mono" style={{
-                fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                color: k === 'Encryption key' ? (meta?.hasEncryptionKey ? 'var(--emerald)' : 'var(--rose)') : 'var(--text-primary)',
-              }}>
-                {v as string}
-              </dd>
-            </div>
-          ))}
+          <div>
+            <dt style={ROW_DT}>Version</dt>
+            <dd className="font-mono" style={ROW_DD}>{meta?.version ?? '—'}</dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Data directory</dt>
+            <dd className="font-mono" style={ROW_DD}>{meta?.dataDir ?? '—'}</dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Staging directory</dt>
+            <dd className="font-mono" style={ROW_DD}>{meta?.staging ?? '—'}</dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Backup encryption</dt>
+            <dd className="font-mono" style={{
+              ...ROW_DD,
+              color: meta?.hasEncryptionKey ? 'var(--emerald)' : 'var(--rose)',
+            }}>
+              {meta?.hasEncryptionKey ? '✓ Initialized' : '✗ Missing'}
+            </dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Backend uptime</dt>
+            <dd className="font-mono" style={ROW_DD}>{uptimeStr}</dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Docker daemon</dt>
+            <dd style={{ margin: 0 }}>
+              {status == null ? (
+                <span className="font-mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+              ) : (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                  background: dockerOnline ? 'var(--emerald-dim)' : 'var(--rose-dim)',
+                  color: dockerOnline ? 'var(--emerald)' : 'var(--rose)',
+                }}>
+                  {dockerOnline ? 'Connected' : 'Offline'}
+                </span>
+              )}
+            </dd>
+          </div>
         </dl>
       </div>
 
-      {/* API Key */}
+      {/* ── About (license + links) ─────────────────────────────── */}
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 12 }}>
+          <Info size={16} color="var(--text-muted)" /> About
+        </div>
+
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
+        }}>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>License:</span>
+          <TierPill tier={tier} />
+          {license?.expiresAt && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+              expires {new Date(license.expiresAt).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 14 }}>
+          <ExtLink href={DOCKER_HUB_URL} icon={<Package size={13} color="var(--blue-500)" />}>
+            Docker Hub
+          </ExtLink>
+          <ExtLink href={GITHUB_URL} icon={<Github size={13} color="var(--text-secondary)" />}>
+            GitHub
+          </ExtLink>
+          <ExtLink href={LICENSE_URL} icon={<Lock size={13} color="var(--text-muted)" />}>
+            License (Zippy Tech Source-Available v1.3)
+          </ExtLink>
+        </div>
+
+        <div style={{
+          background: 'var(--surface-2)',
+          border: '1px solid var(--surface-4)',
+          borderRadius: 'var(--r-sm)',
+          padding: '8px 10px',
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <span style={ROW_DT}>Build info</span>
+          <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+            v{meta?.version ?? '?'} · {buildLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* ╔══════════════════════════════════════════════════════════════╗ */}
+      {/* ║ SECTION: Updates                                              ║ */}
+      {/* ╚══════════════════════════════════════════════════════════════╝ */}
+      <SectionHeading>Updates</SectionHeading>
+
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 12 }}>
+          <Download size={16} color="var(--text-muted)" /> Updates
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <dt style={ROW_DT}>Current</dt>
+            <dd className="font-mono" style={ROW_DD}>
+              v{updateInfo?.current ?? meta?.version ?? '?'}
+            </dd>
+          </div>
+          <div>
+            <dt style={ROW_DT}>Latest</dt>
+            <dd className="font-mono" style={ROW_DD}>
+              {updateChecking
+                ? 'Checking…'
+                : updateInfo?.hubError || updateError
+                  ? '—'
+                  : updateInfo?.latest
+                    ? `v${updateInfo.latest}`
+                    : '—'}
+            </dd>
+          </div>
+        </div>
+
+        {/* Update-available callout */}
+        {updateInfo?.updateAvailable && updateInfo.latest && (
+          <div style={{
+            background: 'var(--amber-dim)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 'var(--r-md)',
+            padding: '10px 12px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <AlertTriangle size={16} color="#fbbf24" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <strong style={{ color: '#fbbf24' }}>Update available: v{updateInfo.latest}</strong>
+              {' — '}
+              You're on v{updateInfo.current}.
+            </span>
+            <button
+              className="btn btn-primary"
+              onClick={() => openMarketplace('gozippy/dockerrescuekit')}
+              style={{ flexShrink: 0 }}
+            >
+              <ExternalLink size={14} /> Open Marketplace
+            </button>
+          </div>
+        )}
+
+        {/* On-latest reassurance */}
+        {updateInfo && !updateInfo.updateAvailable && !updateInfo.hubError && !updateError && (
+          <div style={{
+            background: 'var(--emerald-dim)',
+            border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: 'var(--r-md)',
+            padding: '10px 12px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <CheckCircle2 size={16} color="var(--emerald)" />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              You're on the latest version.
+            </span>
+          </div>
+        )}
+
+        {/* Hub error / unreachable */}
+        {(updateInfo?.hubError || updateError) && (
+          <div style={{
+            background: 'var(--rose-dim)',
+            border: '1px solid rgba(244,63,94,0.25)',
+            borderRadius: 'var(--r-md)',
+            padding: '10px 12px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12,
+            color: 'var(--text-secondary)',
+          }}>
+            <AlertTriangle size={16} color="var(--rose)" />
+            Couldn't reach Docker Hub: {updateInfo?.hubError ?? updateError}
+          </div>
+        )}
+
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          marginTop: 4,
+        }}>
+          <button
+            className="btn btn-ghost"
+            onClick={runVersionCheck}
+            disabled={updateChecking}
+          >
+            <RefreshCw size={14} className={updateChecking ? 'animate-spin' : undefined} />
+            {updateChecking ? 'Checking…' : 'Check now'}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => openExternal(CHANGELOG_URL)}
+          >
+            <ExternalLink size={14} /> View changelog
+          </button>
+          {lastCheckedStr && !updateChecking && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+              Last checked: {lastCheckedStr}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ╔══════════════════════════════════════════════════════════════╗ */}
+      {/* ║ SECTION: Operations                                           ║ */}
+      {/* ╚══════════════════════════════════════════════════════════════╝ */}
+      <SectionHeading>Operations</SectionHeading>
+
+      {/* ── API Key (unchanged) ─────────────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
           <Key size={16} color="var(--text-muted)" /> API Key
@@ -108,9 +574,7 @@ export const SettingsPage: React.FC = () => {
         )}
 
         <div style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 6,
+          display: 'flex', alignItems: 'flex-start', gap: 6,
           background: 'var(--amber-dim)',
           border: '1px solid rgba(245,158,11,0.3)',
           borderRadius: 'var(--r-md)',
@@ -132,7 +596,7 @@ export const SettingsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Scheduler */}
+      {/* ── Scheduler (unchanged) ───────────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
           {paused
@@ -156,7 +620,131 @@ export const SettingsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Dependencies */}
+      {/* ╔══════════════════════════════════════════════════════════════╗ */}
+      {/* ║ SECTION: Integrations                                         ║ */}
+      {/* ╚══════════════════════════════════════════════════════════════╝ */}
+      <SectionHeading>Integrations</SectionHeading>
+
+      {/* ── Notifications (SMTP) ────────────────────────────────── */}
+      <div className="card" style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
+          <Bell size={16} color="var(--text-muted)" /> Notifications
+          {isPro && <TierPill tier={tier} />}
+        </div>
+
+        {!isPro ? (
+          <div style={{ position: 'relative' }}>
+            {/* Greyed-out preview form */}
+            <div style={{
+              opacity: 0.35,
+              pointerEvents: 'none',
+              userSelect: 'none',
+              filter: 'blur(0.5px)',
+            }}>
+              <SmtpForm smtp={smtp} setSmtp={setSmtp} persist={() => () => {}} />
+            </div>
+            {/* Lock overlay */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 8, textAlign: 'center',
+              background: 'linear-gradient(180deg, rgba(15,23,42,0.65), rgba(15,23,42,0.85))',
+              borderRadius: 'var(--r-md)',
+            }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: 10,
+                background: 'rgba(59,130,246,0.18)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Lock size={20} color="#60a5fa" />
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Notifications require a Pro license</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 320 }}>
+                Email alerts for backup failures, rehearsal results and version updates.
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={() => openExternal(LICENSE_URL)}
+                style={{ marginTop: 4 }}
+              >
+                <ExternalLink size={14} /> Learn more
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+              SMTP credentials for outbound email alerts. Settings auto-save when you leave a field.
+            </p>
+
+            <SmtpForm smtp={smtp} setSmtp={setSmtp} persist={persistSmtp} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <button className="btn btn-ghost" onClick={sendTestEmail}>
+                <Bell size={14} /> Send test email
+              </button>
+              {smtpTestNote && (
+                <span style={{ fontSize: 11, color: 'var(--amber)' }}>{smtpTestNote}</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Feedback Webhooks ───────────────────────────────────── */}
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
+          <Webhook size={16} color="var(--text-muted)" /> Feedback Webhooks
+        </div>
+
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+          We POST a JSON body to this URL each time a user submits feedback.
+          Works with Slack incoming webhooks, Discord, n8n, Zapier, etc.
+          We never send any secrets in the payload.
+        </p>
+
+        <label style={LABEL_STYLE}>
+          Webhook URL
+          <input
+            type="text"
+            value={webhookUrl}
+            onChange={e => setWebhookUrl(e.target.value)}
+            onBlur={persistWebhook}
+            placeholder="https://hooks.slack.com/services/..."
+            className="font-mono"
+            style={INPUT_STYLE}
+          />
+        </label>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <button
+            className="btn btn-ghost"
+            onClick={sendWebhookTestPing}
+            disabled={webhookBusy}
+          >
+            {webhookBusy
+              ? <><Loader2 size={14} className="animate-spin" /> Pinging…</>
+              : <><Webhook size={14} /> Send test ping</>}
+          </button>
+          {webhookResult && (
+            <span className="font-mono" style={{
+              fontSize: 11,
+              color: webhookResult.startsWith('OK') ? 'var(--emerald)' : 'var(--rose)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              flex: 1,
+            }}>
+              {webhookResult}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ╔══════════════════════════════════════════════════════════════╗ */}
+      {/* ║ SECTION: Danger zone                                          ║ */}
+      {/* ╚══════════════════════════════════════════════════════════════╝ */}
+      <SectionHeading>Danger zone</SectionHeading>
+
+      {/* ── Backend dependencies (unchanged) ────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
           <Folder size={16} color="var(--text-muted)" /> Backend dependencies
@@ -167,7 +755,7 @@ export const SettingsPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Disconnect */}
+      {/* ── Switch instance ─────────────────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
           <LogOut size={16} color="var(--text-muted)" /> Switch instance
@@ -190,3 +778,132 @@ export const SettingsPage: React.FC = () => {
     </div>
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-components & shared styles
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROW_DT: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-muted)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  marginBottom: 3,
+}
+
+const ROW_DD: React.CSSProperties = {
+  fontSize: 12, margin: 0,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  color: 'var(--text-primary)',
+}
+
+const LABEL_STYLE: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 4,
+  fontSize: 11, color: 'var(--text-muted)',
+  textTransform: 'uppercase', letterSpacing: '0.04em',
+  marginBottom: 10,
+}
+
+const INPUT_STYLE: React.CSSProperties = {
+  background: 'var(--surface-0)',
+  border: '1px solid var(--surface-4)',
+  borderRadius: 'var(--r-sm)',
+  padding: '7px 10px',
+  fontSize: 12,
+  color: 'var(--text-primary)',
+  textTransform: 'none',
+  letterSpacing: 'normal',
+  width: '100%',
+}
+
+interface SmtpFormProps {
+  smtp: {
+    host: string; port: string; user: string; pass: string; secure: boolean; from: string
+  }
+  setSmtp: React.Dispatch<React.SetStateAction<SmtpFormProps['smtp']>>
+  persist: (key: keyof SmtpFormProps['smtp']) => () => void | Promise<void>
+}
+
+const SmtpForm: React.FC<SmtpFormProps> = ({ smtp, setSmtp, persist }) => (
+  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+    <label style={LABEL_STYLE}>
+      SMTP host
+      <input
+        type="text"
+        value={smtp.host}
+        onChange={e => setSmtp(s => ({ ...s, host: e.target.value }))}
+        onBlur={persist('host')}
+        placeholder="smtp.example.com"
+        className="font-mono"
+        style={INPUT_STYLE}
+      />
+    </label>
+    <label style={LABEL_STYLE}>
+      Port
+      <input
+        type="number"
+        value={smtp.port}
+        onChange={e => setSmtp(s => ({ ...s, port: e.target.value }))}
+        onBlur={persist('port')}
+        placeholder="587"
+        className="font-mono"
+        style={INPUT_STYLE}
+      />
+    </label>
+    <label style={LABEL_STYLE}>
+      Username
+      <input
+        type="text"
+        value={smtp.user}
+        onChange={e => setSmtp(s => ({ ...s, user: e.target.value }))}
+        onBlur={persist('user')}
+        placeholder="apikey or user@example.com"
+        className="font-mono"
+        style={INPUT_STYLE}
+      />
+    </label>
+    <label style={LABEL_STYLE}>
+      Password
+      <input
+        type="password"
+        value={smtp.pass}
+        onChange={e => setSmtp(s => ({ ...s, pass: e.target.value }))}
+        onBlur={persist('pass')}
+        placeholder="••••••••"
+        className="font-mono"
+        style={INPUT_STYLE}
+      />
+    </label>
+    <label style={{ ...LABEL_STYLE, gridColumn: '1 / span 2' }}>
+      From address
+      <input
+        type="text"
+        value={smtp.from}
+        onChange={e => setSmtp(s => ({ ...s, from: e.target.value }))}
+        onBlur={persist('from')}
+        placeholder="DockerRescueKit <noreply@example.com>"
+        className="font-mono"
+        style={INPUT_STYLE}
+      />
+    </label>
+    <label style={{
+      ...LABEL_STYLE,
+      gridColumn: '1 / span 2',
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      textTransform: 'none', letterSpacing: 'normal',
+      fontSize: 13, color: 'var(--text-secondary)',
+    }}>
+      <input
+        type="checkbox"
+        checked={smtp.secure}
+        onChange={e => {
+          const next = e.target.checked
+          setSmtp(s => ({ ...s, secure: next }))
+          // Fire-and-forget persist on toggle (no blur event for checkboxes).
+          persist('secure')()
+        }}
+      />
+      Use TLS (port 465 implicit TLS)
+    </label>
+  </div>
+)

@@ -2,7 +2,7 @@ import axios from 'axios'
 import { Database } from '../db/Database'
 import { DockerService } from './DockerService'
 import { NotificationService } from './NotificationService'
-import { logger } from '../utils/logger'
+import { logger as defaultLogger } from '../utils/logger'
 import { v4 as uuid } from 'uuid'
 import type { NotificationPayload, NotificationEventType } from '@docker-rescue-kit/shared'
 import type { Logger } from 'pino'
@@ -42,11 +42,17 @@ function parseWebhookUrl(raw: unknown): string {
  * - TTL cleanup of old notifications (30 days)
  */
 export class NotificationDispatcher {
+  // Default-parameter referencing the imported `logger` name was a TDZ
+  // hazard — once TypeScript renamed the param to `logger` to match the
+  // property, the param shadowed the import in the default expression,
+  // crashing every container startup with
+  //   ReferenceError: Cannot access 'logger' before initialization
+  // Renaming the import to defaultLogger removes the shadow.
   constructor(
     private database: Database,
     private docker: DockerService,
     private notificationService: NotificationService,
-    private logger: Logger = logger
+    private logger: Logger = defaultLogger
   ) {}
 
   /**

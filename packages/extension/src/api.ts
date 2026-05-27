@@ -314,3 +314,75 @@ export const getCostConfig = async () => {
     notes: string
   }>>('/settings/cost-config')
 }
+
+// ── License (v1.2.2) ──────────────────────────────────────────────────────
+
+export interface LicenseStatusDTO {
+  tier: 'free' | 'pro' | 'enterprise'
+  seats: number
+  features: string[]
+  majorVersion?: string
+  launchLockIn: boolean
+  expiresAt?: string
+  staleButValid: boolean
+  licenseId?: string
+  devMode: boolean
+}
+
+export const getLicenseStatus = async (): Promise<LicenseStatusDTO> => {
+  return apiClient.get<LicenseStatusDTO>('/license')
+}
+
+// ── Version / update check (v1.2.2) ───────────────────────────────────────
+
+export interface VersionCheckResult {
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  checkedAt: string
+  hubError?: string
+}
+
+export const checkVersion = async (): Promise<VersionCheckResult> => {
+  return apiClient.get<VersionCheckResult>('/version/check')
+}
+
+// ── Feedback (v1.2.2) ─────────────────────────────────────────────────────
+
+export type FeedbackType =
+  | 'bug' | 'suggestion' | 'wish' | 'integration_request' | 'question'
+
+export interface FeedbackSubmission {
+  type: FeedbackType
+  message: string
+  screenshotPngBase64?: string
+  context?: {
+    page?: string
+    version?: string
+    dataDir?: string
+    userAgent?: string
+  }
+}
+
+export type FeedbackSinkOutcome = 'sent' | 'failed' | 'skipped'
+
+export interface FeedbackResult {
+  id: string
+  sinks: Record<string, FeedbackSinkOutcome>
+}
+
+export const submitFeedback = async (
+  payload: FeedbackSubmission,
+): Promise<FeedbackResult> => {
+  return apiClient.post<FeedbackResult>('/feedback', payload)
+}
+
+export interface FeedbackConfigStatus {
+  webhookConfigured: boolean
+  emailConfigured: boolean
+  githubConfigured: boolean
+}
+
+export const getFeedbackConfig = async (): Promise<FeedbackConfigStatus> => {
+  return apiClient.get<FeedbackConfigStatus>('/feedback/config')
+}

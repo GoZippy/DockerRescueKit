@@ -12,7 +12,8 @@ import { SetupScreen } from './components/SetupScreen'
 import { VersionBadge } from './components/VersionBadge'
 import { RehearsalsPage } from './components/RehearsalsPage'
 import { CostAnalysisPage } from './components/CostAnalysisPage'
-import { getApiKey, getStatus } from './api'
+import { FeedbackModal } from './components/FeedbackModal'
+import { getApiKey, getStatus, getSettingsMeta } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
@@ -56,6 +57,8 @@ const MainApp: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [dockerOnline, setDockerOnline] = useState<boolean | null>(null)
   const [deepLinkPolicyId, setDeepLinkPolicyId] = useState<string | undefined>()
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [installMeta, setInstallMeta] = useState<{ version?: string; dataDir?: string }>({})
 
   useEffect(() => {
     const check = async () => {
@@ -69,6 +72,12 @@ const MainApp: React.FC = () => {
     check()
     const interval = setInterval(check, 15000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    getSettingsMeta()
+      .then(m => setInstallMeta({ version: m?.version, dataDir: m?.dataDir }))
+      .catch(() => { /* best-effort */ })
   }, [])
 
   // Show setup screen when no API key is configured. Skipped entirely in
@@ -134,7 +143,10 @@ const MainApp: React.FC = () => {
 
         {/* Version badge — hidden when sidebar is collapsed (non-invasive) */}
         {!sidebarCollapsed && (
-          <VersionBadge onOpenSettings={() => navigate('settings')} />
+          <VersionBadge
+            onOpenSettings={() => navigate('settings')}
+            onOpenFeedback={() => setFeedbackOpen(true)}
+          />
         )}
 
         {/* Collapse toggle */}
@@ -193,7 +205,11 @@ const MainApp: React.FC = () => {
               </button>
             ))}
             <div style={{ marginTop: 12, borderTop: '1px solid var(--surface-4)', paddingTop: 8 }}>
-              <VersionBadge compact onOpenSettings={() => navigate('settings')} />
+              <VersionBadge
+                compact
+                onOpenSettings={() => navigate('settings')}
+                onOpenFeedback={() => setFeedbackOpen(true)}
+              />
             </div>
           </div>
         </div>
@@ -325,6 +341,17 @@ const MainApp: React.FC = () => {
           </button>
         </nav>
       </div>
+
+      {/* ── Feedback modal (mounted at root so it overlays everything) ── */}
+      <FeedbackModal
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        context={{
+          page: currentPage?.label,
+          version: installMeta.version,
+          dataDir: installMeta.dataDir,
+        }}
+      />
 
       {/* ── Responsive CSS via style tag ─────────────────────── */}
       <style>{`

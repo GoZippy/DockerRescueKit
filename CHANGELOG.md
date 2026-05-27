@@ -11,6 +11,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.2.2] - 2026-05-27
+
+In-product update awareness + structured feedback. After installing v1.2.1
+users reported (a) external links in the version popover did nothing and
+(b) there was no way to check whether a newer version was available without
+leaving the extension. v1.2.2 fixes both and adds a first-class "Send
+feedback" path so user pain reaches us without a GitHub round-trip.
+
+### Critical fix
+
+**Two independent startup crashes that shipped in v1.2.0 and v1.2.1**
+made every Hub image in the v1.2 line non-functional. Anyone who pulled
+`gozippy/dockerrescuekit:v1.2.0`, `:v1.2.1`, or `:latest` between
+2026-05-14 and v1.2.2 was running an extension whose backend container
+crash-looped at startup. The UI loaded, but every API call returned
+"Offline" because the backend was never up.
+
+**Crash #1 — shared package points main at `.ts` source.**
+- `packages/shared/package.json` declared `main: "./src/types.ts"`, so
+  Node tried to `require()` a TypeScript source at runtime →
+  `Cannot find module '.../shared/src/types.ts'`.
+- v1.1.0 was unaffected because every shared import was type-only and
+  erased by tsc. v1.2 added `RehearsalService` which imports
+  `SMOKE_CHECK_TEMPLATES` + `SCRUB_ENV_DEFAULT_PATTERNS` as runtime
+  values, exposing the bug.
+- Fix: `packages/shared` now has a `tsconfig.json` + real tsc build,
+  `main`/`exports` point at `./dist/types.js`, the Dockerfile builds
+  shared before backend, and `dist/` is copied into the final image.
+
+**Crash #2 — TDZ self-shadow in `NotificationDispatcher` constructor.**
+- The constructor default `private logger: Logger = logger` shadowed the
+  imported module-scoped `logger` with the same-named parameter →
+  `ReferenceError: Cannot access 'logger' before initialization` at
+  every `new NotificationDispatcher(...)` call.
+- Fix: import as `defaultLogger` so the parameter no longer shadows it.
+
+**Verification**: rebuilt image, ran `docker run` with the extension's
+exact env, container reaches `[Secrets] Initialized` AND continues past
+service construction without an exception. Reinstalled into Docker
+Desktop and `docker extension ls` reports `Running(1)`.
+
+**Anyone on `:v1.2.0`, `:v1.2.1`, or `:latest` (which was tagged at
+v1.2.1) before this release should upgrade to v1.2.2.**
+
+### Added
+
+- **Version badge popover overhaul** (`packages/extension/src/components/VersionBadge.tsx`)
+  - "Check for updates" — polls Docker Hub tags API for the running image
+    and surfaces an amber dot on the badge when a newer version is published.
+  - "Open Marketplace" — deep-links to Docker Desktop's Marketplace tab
+    via `ddClient.desktopUI.navigate('marketplace?extensionId=…')`.
+  - "Copy diagnostics" — single click puts version + transport + data dir
+    + user-agent on the clipboard for support tickets.
+  - "Send feedback" — opens the new FeedbackModal.
+  - **Bug fix**: external links (Release notes / Changelog / All versions)
+    now use `ddClient.host.openExternal()` instead of `<a target="_blank">`.
+    Plain anchors are blocked inside the Docker Desktop iframe — every link
+    in the popover was dead before this release.
+- **In-product feedback system**
+  - New `FeedbackModal` with 5 types (Bug / Suggestion / Wish / Integration
+    request / Question), 16k-char limit with live counter, optional screen-
+    capture via `getDisplayMedia`, and a 6-entry static FAQ accordion above
+    the form to deflect common questions.
+  - Backend `POST /api/feedback` fans out to four sinks in parallel:
+    - **local file** — `{dataDir}/feedback/{ts}-{type}-{id}.json` (always on)
+    - **email** — uses the same nodemailer SMTP resolver as
+      `NotificationService` (settings keys `smtp.host`/`smtp.port`/`smtp.user`/
+      `smtp.pass`/`smtp.secure` + `email.from`, or `DRK_SMTP_*` env), sends
+      to `gotadvantage@gmail.com` with the screenshot attached
+    - **GitHub issue** — when `DRK_GITHUB_FEEDBACK_TOKEN` is set, opens an
+      issue in `DRK_GITHUB_FEEDBACK_REPO` (default `gozippy/DockerRescueKit`)
+      with `feedback` + type labels
+    - **webhook** — POSTs to the URL stored under setting key
+      `feedback.webhook_url` (Slack / Discord / n8n / Zapier all work)
+  - `GET /api/feedback/config` returns boolean status of each sink so the
+    UI can show which channels are live (no secrets in the response).
+  - Each sink failure is caught + WARN-logged; one bad sink never blocks
+    another.
+- **Settings page rewrite** (`packages/extension/src/components/SettingsPage.tsx`)
+  - Sections: About this install / Updates / Operations / Integrations /
+    Danger zone. Sub-headings between groups.
+  - **About card** — license tier pill (Free/Pro/Enterprise via
+    `GET /api/license`), Docker Hub / GitHub / LICENSE links, build SHA
+    + version readout.
+  - **Updates card** — same Hub-tag poll as the popover, with "Check now",
+    relative "last checked" timestamp, "Open Marketplace" button, and a
+    changelog link.
+  - **Notifications card** (Pro-gated) — UI for SMTP host/port/user/pass/
+    secure + email.from + send-test (test endpoint stubbed for v1.2.3,
+    button shows "Test send will land in v1.2.3" inline). Auto-saves on
+    blur via existing `/api/settings/{key}`.
+  - **Feedback Webhooks card** — text input for the webhook URL +
+    "Send test ping" button that issues a real `submitFeedback` and renders
+    the sinks breakdown inline.
+  - Runtime card now shows backend uptime + Docker daemon status pill.
+- **`/api/version/check` backend endpoint** — fetches Hub tags, finds the
+  highest semver `vX.Y.Z`, compares to running `APP_VERSION`. Returns
+  `{ current, latest, updateAvailable, checkedAt, hubError? }`. Network
+  failures are reported, never thrown.
+- **`utils/openExternal.ts`** — shared frontend helper exporting
+  `openExternal(url)` + `openMarketplace(extensionId?)`. Uses ddClient in
+  extension mode, `window.open` in browser/TCP mode.
+- **`utils/appVersion.ts`** — extracted the package.json-walking
+  `APP_VERSION` constant out of `index.ts` so both `/api/settings/meta`
+  and `/api/version/check` read from the same source.
+
+### Fixed
+
+- **Displayed version no longer lies.** All three `package.json` files
+  (root, backend, extension) are now bumped to 1.2.2 — previously the
+  v1.2.0 and v1.2.1 releases shipped without bumping any of them, so the
+  badge still said "v1.1.0" after a successful update. Future releases
+  must bump these in lockstep with the git tag.
+- Plain `<a target="_blank">` links inside the Docker Desktop iframe
+  (silently no-op) are gone — every outbound link routes through
+  `openExternal`.
+
+### Environment
+
+New env vars (all optional):
+- `DRK_GITHUB_FEEDBACK_TOKEN` — PAT with `repo:public` scope for opening
+  issues from `/api/feedback`.
+- `DRK_GITHUB_FEEDBACK_REPO` — defaults to `gozippy/DockerRescueKit`.
+
+---
+
 ## [1.2.0-rc.2] - 2026-05-25
 
 Second release candidate of the v1.2 competitive-response sprint. Adds the
