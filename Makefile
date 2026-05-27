@@ -164,3 +164,35 @@ prod-stop: ## (legacy) Stop the docker-compose.prod.yml stack
 
 logs: ## (legacy) Stream logs from the docker-compose.prod.yml stack
 	docker compose -f docker-compose.prod.yml logs -f
+
+# ── ECR push (local, for testing) ──────────────────────────────────────────────
+# Usage:
+#   make ecr-push TAG=v1.2.3 AWS_ACCOUNT_ID=123456789012 AWS_REGION=us-east-1
+#
+# Requires: AWS CLI configured with ecr:* permissions, Docker with buildx.
+
+ECR_REPO_EXTENSION  ?= dockerrescuekit
+ECR_REPO_STANDALONE ?= dockerrescuekit-standalone
+ECR_REGISTRY        ?= $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
+
+.PHONY: ecr-login ecr-push-extension ecr-push-standalone ecr-push
+
+ecr-login: ## Authenticate Docker to Amazon ECR
+	aws ecr get-login-password --region $(AWS_REGION) \
+	  | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+
+ecr-push-extension: ecr-login ## Build + push extension image to ECR
+	docker buildx build \
+	  --platform linux/amd64,linux/arm64 \
+	  -t $(ECR_REGISTRY)/$(ECR_REPO_EXTENSION):$(TAG) \
+	  -t $(ECR_REGISTRY)/$(ECR_REPO_EXTENSION):latest \
+	  --push -f Dockerfile .
+
+ecr-push-standalone: ecr-login ## Build + push standalone image to ECR
+	docker buildx build \
+	  --platform linux/amd64,linux/arm64 \
+	  -t $(ECR_REGISTRY)/$(ECR_REPO_STANDALONE):$(TAG) \
+	  -t $(ECR_REGISTRY)/$(ECR_REPO_STANDALONE):standalone-latest \
+	  --push -f packages/backend/Dockerfile .
+
+ecr-push: ecr-push-extension ecr-push-standalone ## Push both images to ECR

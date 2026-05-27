@@ -51,3 +51,28 @@ docker extension update gozippy/dockerrescuekit:1.1.0
 ```
 
 Your data volume is preserved across tag switches.
+
+## Amazon ECR mirror
+
+DockerRescueKit images are also published to Amazon ECR for environments that
+restrict outbound access to Docker Hub. Replace the Docker Hub pull with:
+
+```bash
+# Authenticate (token valid 12 hours)
+aws ecr get-login-password --region <region> \
+  | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
+
+# Extension
+docker extension install <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:latest
+
+# Standalone
+docker run -d --name drk \
+  -v drk-data:/data -p 42880:42880 \
+  <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:latest
+```
+
+The ECR images are identical to Docker Hub — same multi-arch builds, same tags.
+Use ECR for:
+- Air-gapped or restricted-network environments
+- AWS Security Hub / ECR image scanning integration
+- Avoiding Docker Hub rate limits on EC2/cloud workstations

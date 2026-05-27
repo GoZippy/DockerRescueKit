@@ -1,18 +1,25 @@
 # Release workflow — fires on any v* tag.
 #
 # Builds two products in parallel, both multi-arch (amd64+arm64), both
-# pushed to Docker Hub:
+# pushed to Docker Hub AND Amazon ECR:
 #
 #   - Standalone backend → gozippy/dockerrescuekit:standalone-<tag>
 #                          gozippy/dockerrescuekit:standalone-latest
+#                          <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:<tag>
+#                          <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:latest
 #   - Marketplace extension → gozippy/dockerrescuekit:<tag-without-v>
 #                             gozippy/dockerrescuekit:latest
+#                             <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:<tag>
+#                             <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:latest
 #
 # Then runs Trivy on each pushed image and uploads SARIF to the Security tab.
 #
 # Required repo secrets:
 #   DOCKERHUB_USERNAME  — Docker Hub login
 #   DOCKERHUB_TOKEN     — Docker Hub access token (NOT the password)
+#   AWS_ACCOUNT_ID      — 12-digit AWS account ID
+#   AWS_REGION          — e.g. us-east-1
+#   AWS_ROLE_TO_ASSUME  — ARN of the IAM role for GitHub OIDC (with ecr:* permissions)
 name: Release Docker Image
 
 on:
@@ -22,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write      # Required for GitHub OIDC → AWS STS
   security-events: write
 
 jobs:
@@ -35,15 +43,15 @@ jobs:
             dockerfile: packages/backend/Dockerfile
             tag_versioned: standalone-${{ github.ref_name }}
             tag_latest: standalone-latest
+            ecr_repo: dockerrescuekit-standalone
           - product: extension
             dockerfile: Dockerfile
             # ref_name is e.g. "v1.1.0"; the extension product strips the
             # leading "v" so its primary tag is the bare semver.
             tag_versioned: ${{ github.ref_name }}
             tag_latest: latest
+            ecr_repo: dockerrescuekit
     outputs:
-      # Surfacing per-matrix outputs is awkward; trivy-scan computes refs
-      # itself from the same matrix below.
       ref: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
@@ -60,23 +68,52 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute versioned tag (strip leading v for extension)
+      - name: Configure AWS credentials (GitHub OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tags
         id: tag
         run: |
-          # The extension wants the bare semver (1.1.0), not v1.1.0.
-          # Standalone keeps its "standalone-" prefix including the v for
-          # backwards-compatibility with anyone pinning the previous scheme.
+          # Docker Hub tags
           if [ "${{ matrix.product }}" = "extension" ]; then
-            ver="${{ github.ref_name }}"
-            ver="${ver#v}"   # 1.1.0
-            echo "versioned=$ver" >> "$GITHUB_OUTPUT"
-            echo "image-ref=gozippy/dockerrescuekit:$ver" >> "$GITHUB_OUTPUT"
+            DH_VERSIONED="${{ github.ref_name }}"
+            DH_VERSIONED="${DH_VERSIONED#v}"   # strip leading v → 1.1.0
           else
-            echo "versioned=${{ matrix.tag_versioned }}" >> "$GITHUB_OUTPUT"
-            echo "image-ref=gozippy/dockerrescuekit:${{ matrix.tag_versioned }}" >> "$GITHUB_OUTPUT"
+            DH_VERSIONED="${{ matrix.tag_versioned }}"
           fi
+          DH_LATEST="${{ matrix.tag_latest }}"
+          DH_REGISTRY="gozippy/dockerrescuekit"
 
-      - name: Build and push (linux/amd64, linux/arm64)
+          # ECR tags — same versioning scheme, different registry
+          ECR_REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+          ECR_REPO="${{ matrix.ecr_repo }}"
+
+          # For ECR, extension also strips v; standalone keeps the v in the
+          # tag for backwards compatibility.
+          if [ "${{ matrix.product }}" = "extension" ]; then
+            ECR_VERSIONED="$DH_VERSIONED"
+          else
+            ECR_VERSIONED="$DH_VERSIONED"
+          fi
+          ECR_LATEST="$DH_LATEST"
+
+          # Output all 4 registry/repo:tag combos
+          echo "dh_versioned=${DH_REGISTRY}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
+          echo "dh_latest=${DH_REGISTRY}:${DH_LATEST}" >> "$GITHUB_OUTPUT"
+          echo "ecr_versioned=${ECR_REGISTRY}/${ECR_REPO}:${ECR_VERSIONED}" >> "$GITHUB_OUTPUT"
+          echo "ecr_latest=${ECR_REGISTRY}/${ECR_REPO}:${ECR_LATEST}" >> "$GITHUB_OUTPUT"
+
+          # Trivy scans the Docker Hub versioned tag
+          echo "image-ref=${DH_REGISTRY}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push to Docker Hub + Amazon ECR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -84,8 +121,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            gozippy/dockerrescuekit:${{ steps.tag.outputs.versioned }}
-            gozippy/dockerrescuekit:${{ matrix.tag_latest }}
+            ${{ steps.tag.outputs.dh_versioned }}
+            ${{ steps.tag.outputs.dh_latest }}
+            ${{ steps.tag.outputs.ecr_versioned }}
+            ${{ steps.tag.outputs.ecr_latest }}
           cache-from: type=gha,scope=${{ matrix.product }}
           cache-to: type=gha,mode=max,scope=${{ matrix.product }}
 
