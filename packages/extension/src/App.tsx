@@ -1,25 +1,32 @@
-import React, { useState, useEffect } from 'react'
-import { Dashboard } from './components/Dashboard'
-import { VaultList } from './components/VaultList'
-import { SecurityAudit } from './components/SecurityAudit'
-import { PolicyList } from './components/PolicyList'
-import { ConnectorsPage } from './components/ConnectorsPage'
-import { BackupHistory } from './components/BackupHistory'
-import { VerifyHistory } from './components/VerifyHistory'
-import { SettingsPage } from './components/SettingsPage'
-import { StacksPage } from './components/StacksPage'
-import { SetupScreen } from './components/SetupScreen'
+import React, { useState, useEffect, Suspense } from 'react'
+const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })))
+const VaultList = React.lazy(() => import('./components/VaultList').then(m => ({ default: m.VaultList })))
+const SecurityAudit = React.lazy(() => import('./components/SecurityAudit').then(m => ({ default: m.SecurityAudit })))
+const PolicyList = React.lazy(() => import('./components/PolicyList').then(m => ({ default: m.PolicyList })))
+const ConnectorsPage = React.lazy(() => import('./components/ConnectorsPage').then(m => ({ default: m.ConnectorsPage })))
+const BackupHistory = React.lazy(() => import('./components/BackupHistory').then(m => ({ default: m.BackupHistory })))
+const VerifyHistory = React.lazy(() => import('./components/VerifyHistory').then(m => ({ default: m.VerifyHistory })))
+const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const StacksPage = React.lazy(() => import('./components/StacksPage').then(m => ({ default: m.StacksPage })))
+const SetupScreen = React.lazy(() => import('./components/SetupScreen').then(m => ({ default: m.SetupScreen })))
+const RehearsalsPage = React.lazy(() => import('./components/RehearsalsPage').then(m => ({ default: m.RehearsalsPage })))
+const CostAnalysisPage = React.lazy(() => import('./components/CostAnalysisPage').then(m => ({ default: m.CostAnalysisPage })))
 import { VersionBadge } from './components/VersionBadge'
-import { RehearsalsPage } from './components/RehearsalsPage'
-import { CostAnalysisPage } from './components/CostAnalysisPage'
 import { FeedbackModal } from './components/FeedbackModal'
 import { getApiKey, getStatus, getSettingsMeta } from './api'
 import { ToastProvider } from './hooks/useToast'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
   Server, Plug, Shield, Settings, Menu, X, ChevronLeft, TrendingUp,
+  Loader2,
   type LucideProps,
 } from 'lucide-react'
+
+const PageFallback = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+    <Loader2 size={24} className="animate-spin" />
+  </div>
+)
 
 type TabId =
   | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals' | 'costs'
@@ -298,6 +305,7 @@ const MainApp: React.FC = () => {
           }}
           id="page-content"
         >
+          <Suspense fallback={<PageFallback />}>
           <div className="animate-fade-up">
             {active === 'dashboard'  && <Dashboard onNavigate={id => setActive(id as TabId)} />}
             {active === 'policies'   && <PolicyList initialPolicyId={deepLinkPolicyId} />}
@@ -317,6 +325,7 @@ const MainApp: React.FC = () => {
             {active === 'audit'      && <SecurityAudit />}
             {active === 'settings'   && <SettingsPage />}
           </div>
+          </Suspense>
         </main>
 
         {/* Bottom nav — mobile only */}

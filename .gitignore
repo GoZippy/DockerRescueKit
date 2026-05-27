@@ -35,6 +35,7 @@ backup-temp-*
 # ── Node / npm ────────────────────────────────────────────────────────────────
 node_modules/
 dist/
+!packages/shared/dist
 build/
 .cache/
 .turbo/

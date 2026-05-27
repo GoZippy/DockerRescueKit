@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey,
   getSetting, saveSetting,
   // TODO(v1.2.3): the following functions need to be added to ../api once the
   // backend endpoints land. Until then the catch() branches degrade each card
   // gracefully without crashing the page.
-  getLicenseStatus, checkVersion, submitFeedback,
+  getLicenseStatus, checkVersion, submitFeedback, exportConfig, importConfig,
 } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
 import { formatDistanceToNowStrict } from 'date-fns'
 import {
   Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut,
-  Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Github, Package,
+  Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Github, Package, Upload, FileText,
 } from 'lucide-react'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -140,6 +140,14 @@ export const SettingsPage: React.FC = () => {
   const [webhookUrl, setWebhookUrl]     = useState('')
   const [webhookBusy, setWebhookBusy]   = useState(false)
   const [webhookResult, setWebhookResult] = useState<string | null>(null)
+
+  // ── Config export / import state ──
+  const [exporting, setExporting]         = useState(false)
+  const [exportError, setExportError]     = useState<string | null>(null)
+  const [importing, setImporting]         = useState(false)
+  const [importResult, setImportResult]   = useState<string | null>(null)
+  const [importError, setImportError]     = useState<string | null>(null)
+  const fileInputRef                      = useRef<HTMLInputElement>(null)
 
   // ── Initial load ────────────────────────────────────────────────────────
   const load = async () => {
@@ -279,6 +287,56 @@ export const SettingsPage: React.FC = () => {
       setWebhookResult(`Error — ${e?.message ?? String(e)}`)
     } finally {
       setWebhookBusy(false)
+    }
+  }
+
+  // ── Config export / import handlers ──
+  const handleExport = async () => {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const bundle = await exportConfig()
+      // Trigger browser download
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `drk-config-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setExportError(e?.message ?? 'Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleImportFile = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportResult(null)
+    setImportError(null)
+    try {
+      const text = await file.text()
+      const bundle = JSON.parse(text)
+      if (!bundle.data) {
+        throw new Error('Invalid config file: missing data field')
+      }
+      const res = await importConfig(bundle)
+      setImportResult(`Imported — ${res.policiesImported} policies restored`)
+    } catch (err: any) {
+      setImportError(err?.message ?? 'Import failed')
+    } finally {
+      setImporting(false)
+      // Reset file input so the same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -753,6 +811,45 @@ export const SettingsPage: React.FC = () => {
           Remote storage adapters shell out to <span className="font-mono">restic</span> (and optionally <span className="font-mono">rclone</span>).
           The shipped Docker image bundles both. Running the backend outside Docker requires installing them separately.
         </p>
+      </div>
+
+      {/* ── Export / Import config ──────────────────────────────── */}
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 10 }}>
+          <FileText size={16} color="var(--amber)" /> Export / import config
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+          Download a snapshot of all DRK configuration (settings, policies, storage vaults, backup history, audit log)
+          that you can restore on a new install. Import overwrites existing config — export first if you want to keep it.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={handleExport} disabled={exporting}>
+            {exporting
+              ? <><Loader2 size={14} className="animate-spin" /> Exporting…</>
+              : <><Download size={14} /> Export config</>}
+          </button>
+          <button className="btn btn-danger" onClick={handleImportFile} disabled={importing}>
+            {importing
+              ? <><Loader2 size={14} className="animate-spin" /> Importing…</>
+              : <><Upload size={14} /> Import config</>}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+        </div>
+        {exportError && (
+          <p style={{ fontSize: 12, color: 'var(--rose)', margin: '8px 0 0' }}>{exportError}</p>
+        )}
+        {importResult && (
+          <p style={{ fontSize: 12, color: 'var(--emerald)', margin: '8px 0 0' }}>{importResult}</p>
+        )}
+        {importError && (
+          <p style={{ fontSize: 12, color: 'var(--rose)', margin: '8px 0 0' }}>{importError}</p>
+        )}
       </div>
 
       {/* ── Switch instance ─────────────────────────────────────── */}

@@ -50,6 +50,7 @@ import { mountVolumesRoutes } from './routes/volumes'
 import { mountNotificationRoutes } from './routes/notifications'
 import { mountFeedbackRoutes } from './routes/feedback'
 import { mountVersionRoutes } from './routes/version'
+import { mountConfigExportRoutes } from './routes/configExport'
 import { FeedbackService } from './services/FeedbackService'
 import { APP_VERSION } from './utils/appVersion'
 import { PartialRestoreService } from './services/PartialRestoreService'
@@ -292,6 +293,10 @@ export class BackupService {
     const feedbackService = new FeedbackService(this.settings, dataDir)
     mountFeedbackRoutes(this.app, { feedback: feedbackService })
     mountVersionRoutes(this.app, { settings: this.settings })
+
+    // Config export / import — full settings + policies + vaults + history dump
+    // so users can migrate between installs or recover from a broken upgrade.
+    mountConfigExportRoutes(this.app, { db: this.db, license: this.license })
 
     // Cost analysis config — static per-backend pricing/performance reference data.
     // Users can override via DRK_COST_CONFIG env var (JSON) for their region.

@@ -386,3 +386,35 @@ export interface FeedbackConfigStatus {
 export const getFeedbackConfig = async (): Promise<FeedbackConfigStatus> => {
   return apiClient.get<FeedbackConfigStatus>('/feedback/config')
 }
+
+// ── Config export / import ────────────────────────────────────────────────
+
+export interface ConfigExportBundle {
+  version: string
+  exportedAt: string
+  data: {
+    settings: Array<{ key: string; value: string }>
+    policies: any[]
+    storageVaults: any[]
+    backupHistory: any[]
+    auditLog: any[]
+  }
+}
+
+export const exportConfig = async (): Promise<ConfigExportBundle> => {
+  // The backend sets Content-Disposition: attachment, so we need to fetch
+  // as blob and trigger a download manually.
+  const resp = await fetch('/api/config/export', {
+    headers: { 'x-api-key': getApiKey() },
+  })
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: 'Export failed' }))
+    throw new Error(err.detail || 'Export failed')
+  }
+  // Parse as JSON (the backend returns JSON with download headers)
+  return resp.json()
+}
+
+export const importConfig = async (bundle: ConfigExportBundle): Promise<{ ok: boolean; policiesImported: number }> => {
+  return apiClient.post('/config/import', bundle)
+}

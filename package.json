@@ -16,7 +16,8 @@
     "dev": "npm run dev -ws",
     "build": "npm run build -ws",
     "test": "npm test -ws",
-    "lint": "npm run lint -ws"
+    "lint": "npm run lint -ws",
+    "postinstall": "npm run build --workspace=@docker-rescue-kit/shared"
   },
   "overrides": {
     "tar": "^7.5.15",
