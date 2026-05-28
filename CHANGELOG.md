@@ -11,6 +11,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.2.5] - 2026-05-28
+
+The data-safety / upgrade-path sprint. Motivated by the v1.2.4 cutover
+where `docker extension rm` deleted the previous extension's data volume
+and the user lost 12.8 GB of backups plus all policy/history state. From
+v1.2.5 forward, every install boots with a fresh JSON snapshot already
+written to disk, periodic timestamped snapshots run on a schedule, the
+Settings UI carries a persistent banner reminding users to export before
+upgrading, and a wizard restores from any prior export OR from a recovered
+legacy `docker_rescue.db`.
+
+### Added
+
+**Auto-export on boot.** Every `BackupService.start()` now writes
+`{dataDir}/exports/latest-bootstrap.json` after the listener binds. The
+write is fire-and-forget; a failed export logs WARN and never blocks
+readiness. The bundle includes policies, vaults, settings, the last 100
+audit entries, plus `schemaVersion` and `appVersion` for forward-compat.
+Source-of-truth lives in the new `services/ExportService.ts`; the
+existing `GET /api/config/export` route now delegates to it.
+
+**Periodic timestamped exports + retention.** `SchedulerEngine` registers
+a cron job (default `0 0,6,12,18 * * *` — every 6 hours) that writes
+`{dataDir}/exports/snap-{ISO}.json` and prunes older snapshots. Retention
+is **max(56 newest, all within last 14 days)** — whichever set is larger
+wins, so a high-churn install keeps more snapshots than the day-count
+floor and a low-churn install never drops below the count floor. Tunable
+via `drk.export.cron` and `drk.export.retention_days` setting keys;
+restart picks up changes (intentional, not a bug — live-reload would
+add complexity for a config the user changes once).
+
+**Import-from-disk (preview + apply, three source modes).**
+`POST /api/config/import` keeps its existing single-shot behavior for
+backward compat and adds two stages plus three source modes:
+- `?mode=preview` returns `ImportPreview` with detected schema version,
+  counts (policies / vaults / settings / audit), warnings, and a 10-minute
+  single-use `confirmationToken`. Never mutates the DB.
+- `?mode=apply` consumes the token and applies the staged bundle
+  transactionally, returning per-table counts and per-row errors.
+- Source modes: uploaded JSON (existing), bind-mount path under the
+  `DRK_IMPORT_ALLOWLIST` whitelist (default `/data/imports/`), and a
+  read-only open of a legacy `docker_rescue.db` from an older install.
+- Legacy SQLite mode does best-effort column mapping — missing columns
+  default gracefully and emit warnings rather than aborting the import.
+- Bind-mount path validation rejects `..` traversal and any path outside
+  the allowlist. The allowlist accepts colon-separated paths on POSIX,
+  semicolon-separated on Windows (matches `path.delimiter`).
+
+**Import wizard UI.** New `ImportWizard.tsx` component, opened from the
+Switch-instance card in Settings (next to Disconnect). Three steps —
+source select → preview → apply — with two-click destructive
+confirmation, inline warnings panel, and a result screen that shows the
+applied counts or the per-row errors. Wires into the new preview/apply
+endpoints via `importConfigPreview()` and `importConfigApply()` in
+`api.ts`.
+
+**Persistent upgrade-safety banner + promoted Export button.**
+`UpgradeBanner.tsx` mounts sticky-top on the Settings page. Amber
+callout: "Before any upgrade or reinstall, export your config." Shows
+the timestamp of the most recent `latest-bootstrap.json` so the user
+knows how stale their snapshot is. Dismissable per-session only —
+returns on every reload. The Updates card now also exposes a one-click
+Export button next to "Check now" so the export action is two clicks
+from anywhere in Settings.
+
+**`docs/UPGRADE.md`.** 468-line canonical reference covering the safe
+upgrade path (Hub tag-to-tag preserves the volume), the unsafe path
+(image ID change orphans the volume), volume-rename reference table,
+manual recovery commands (`docker run --rm -v old:/old -v new:/new
+alpine cp -a /old/. /new/`), an export/import walkthrough,
+troubleshooting (cold-start timing, where logs live, how to read the
+bootstrap snapshot), and a version-history caveat noting that the
+v1.2.0/v1.2.1/v1.2.2-pre Hub images crash-loop at startup and v1.2.4
+was the first verified-bootable image. README gains an "Upgrading"
+section linking to the doc.
+
+**Marketplace listing.** New "Safe upgrades" feature bullet in
+`docs/MARKETPLACE_LISTING_DRAFT.md`, second in the features list,
+linking to UPGRADE.md.
+
+### Fixed
+
+- `db.getAllSettings()` and `db.getAllVaults()` were referenced by
+  `routes/configExport.ts` via optional chaining but never defined on
+  the `Database` class. Every v1.2.3 / v1.2.4 config export silently
+  shipped empty arrays for both. Both methods now implemented; existing
+  exports will populate correctly on the next snapshot.
+- `parseImportAllowlist` test used a literal `:` separator that failed
+  on Windows where `path.delimiter` is `;`. Test now reads
+  `path.delimiter` at runtime — same source of truth as the implementation.
+
+### Env
+
+New optional env var: `DRK_IMPORT_ALLOWLIST` (path-delimiter–separated
+list of directories that import-from-disk can read from). Defaults to
+`/data/imports`. Validated against `..` traversal.
+
+### Tests
+
+- `__tests__/ExportService.test.ts` (251 lines) — snapshot shape,
+  pruning math (56-newest vs 14-day window), Windows-safe filename
+  generation.
+- `__tests__/ImportService.test.ts` (204 lines, 16 tests) — preview
+  immutability, token TTL + single-use semantics, JSON bind-mount mode,
+  allowlist enforcement.
+- `__tests__/integration/configImport.real.test.ts` (135 lines, gated
+  by `CI_INTEGRATION=1`) — builds a fake legacy DB in tmpdir, runs the
+  full preview→apply cycle, asserts counts match.
+
+### Sprint
+v1.2.5-data-safety, 9 tasks across 3 sprints, 4 agent tracks (WA-1
+backend, WA-2 frontend, WA-3 docs, WA-4 integration validation handed
+off to Kilo Code). Manifest at
+`.autoclaw/orchestrator/manifests/v1.2.5-data-safety.yaml`.
+
+---
+
 ## [1.2.4] - 2026-05-28
 
 Merges UI/backend fixes worked on in parallel by Kilo Code with the

@@ -1,6 +1,6 @@
 {
   "name": "docker-backup-service",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Enterprise-grade Docker backup management with scheduling, retention policies, and multi-destination support",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
