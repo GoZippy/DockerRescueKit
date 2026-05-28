@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { PolicyManager } from '../services/PolicyManager'
 import { VerifyService } from '../services/VerifyService'
+import { ExportService } from '../services/ExportService'
 import { BackupPolicy, Backup, RetentionPolicy, BackupTier } from '@docker-rescue-kit/shared'
 
 export interface ScheduledJob {
@@ -11,6 +12,9 @@ export interface ScheduledJob {
 export class SchedulerEngine {
   private jobs: Map<string, ScheduledJob> = new Map()
   private verifyJobs: Map<string, ScheduledJob> = new Map()
+  /** Periodic ExportService snapshot job (A2). At most one — registered on
+   *  start(), unregistered on stop(). */
+  private exportJob: cron.ScheduledTask | null = null
   /** Tracks policies whose backup is currently in flight. Used to skip
    *  overlapping cron fires ("if a Friday backup runs long, Saturday doesn't
    *  pile on top of it"). */
@@ -22,7 +26,12 @@ export class SchedulerEngine {
 
   constructor(
     private policyManager: PolicyManager,
-    private verifyService?: VerifyService
+    private verifyService?: VerifyService,
+    // Optional so existing tests (retention.test, schedulerConcurrency.test)
+    // that instantiate SchedulerEngine with `{} as any` keep compiling. When
+    // omitted the periodic-snapshot job is silently skipped — the boot-time
+    // bootstrap snapshot in BackupService.start() still runs.
+    private exportService?: ExportService,
   ) {}
 
   public pause(): void { this.paused = true }
@@ -39,6 +48,42 @@ export class SchedulerEngine {
     for (const policy of policies) {
       if (policy.enabled) this.schedulePolicy(policy)
     }
+
+    // A2 — periodic timestamped exports + rolling retention.
+    //
+    // Reads cron + retention from SettingsService via ExportService. Config
+    // changes do NOT live-reload — a backend restart picks them up. We
+    // accepted that tradeoff in v1.2.5 because (a) settings-UI editing of
+    // the cron expression is an admin operation done at most a handful of
+    // times per install, and (b) live-reload would require unschedule +
+    // re-schedule with a versioned config token, which is more risk than
+    // value for sprint-2 scope.
+    if (this.exportService) {
+      try {
+        const { cron: cronExpr } = await this.exportService.getRetentionConfig()
+        if (!cron.validate(cronExpr)) {
+          console.error(`[Scheduler] Invalid export cron "${cronExpr}"; periodic export disabled.`)
+        } else {
+          this.exportJob = cron.schedule(cronExpr, async () => {
+            if (this.paused) {
+              console.log('[Scheduler] Paused — skipping periodic export snapshot')
+              return
+            }
+            try {
+              await this.exportService!.writeSnapshot()
+              // writeSnapshot runs prune internally — no need to call it
+              // again here. Keeping the surface single-call also matches
+              // the manual-trigger path if we add one later.
+            } catch (err) {
+              console.error('[Scheduler] Periodic export snapshot failed:', err)
+            }
+          })
+          console.log(`\x1b[34m[Scheduler]\x1b[0m Periodic export job registered (cron="${cronExpr}")`)
+        }
+      } catch (err) {
+        console.error('[Scheduler] Failed to register periodic export job:', err)
+      }
+    }
   }
 
   public stop() {
@@ -46,6 +91,10 @@ export class SchedulerEngine {
     this.jobs.clear()
     this.verifyJobs.forEach(j => j.job.stop())
     this.verifyJobs.clear()
+    if (this.exportJob) {
+      this.exportJob.stop()
+      this.exportJob = null
+    }
     this.isRunning = false
   }
 
