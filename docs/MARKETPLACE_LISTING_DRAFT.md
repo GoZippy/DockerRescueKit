@@ -88,6 +88,7 @@ What you get that the bundled Volumes tab does not:
 ## Features
 
 - 7 storage backends: Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, Rclone (40+ cloud providers)
+- Safe upgrades: auto-export of database and config on every backend start, plus one-click export and import-from-disk for portable migrations. See [docs/UPGRADE.md](UPGRADE.md).
 - Cron-based scheduling with tiered retention
 - Backup verification in scratch container
 - Partial restore down to individual files
