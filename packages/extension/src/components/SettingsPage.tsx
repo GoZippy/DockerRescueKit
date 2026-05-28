@@ -9,6 +9,8 @@ import {
 } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
 import { formatDistanceToNowStrict } from 'date-fns'
+import { UpgradeBanner } from './UpgradeBanner'
+import { useToast } from '../hooks/useToast'
 import {
   Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut,
   Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Github, Package, Upload, FileText,
@@ -105,12 +107,19 @@ const ExtLink: React.FC<{ href: string; icon: React.ReactNode; children: React.R
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
+  const toast = useToast()
   const [meta, setMeta]         = useState<any>(null)
   const [status, setStatusObj]  = useState<any>(null)
   const [newKey, setNewKey]     = useState<string | null>(null)
   const [copied, setCopied]     = useState(false)
   const [loading, setLoading]   = useState(true)
   const [paused, setPaused]     = useState(false)
+
+  // Sprint-1 (B1): data-safety banner — visible at top of Settings until
+  // dismissed for the current session. Deliberately NOT persisted: every
+  // fresh page load (or extension reload) brings the banner back, because
+  // forgetting to export config has already cost users their backups.
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   // ── License state ──
   const [license, setLicense] = useState<{
@@ -313,6 +322,35 @@ export const SettingsPage: React.FC = () => {
     }
   }
 
+  // Sprint-1 (B1): toast-wrapped export used by the UpgradeBanner and the
+  // Updates-card "Export config" promoted button. Same logic as handleExport
+  // above, but surfaces success/failure via the global toast provider so the
+  // outcome is visible regardless of which card was off-screen at the time.
+  const exportConfigWithToast = async () => {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const bundle = await exportConfig()
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const fileName = `drk-config-${new Date().toISOString().slice(0, 10)}.json`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.push('success', `Exported to ${fileName}`)
+    } catch (e: any) {
+      const msg = e?.message ?? 'Export failed'
+      setExportError(msg)
+      toast.push('error', `Export failed: ${msg}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleImportFile = () => {
     fileInputRef.current?.click()
   }
@@ -368,6 +406,16 @@ export const SettingsPage: React.FC = () => {
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680 }}>
+
+      {/* ── Sprint-1 (B1): data-safety banner ────────────────────── */}
+      {!bannerDismissed && (
+        <UpgradeBanner
+          lastExportAt={meta?.lastExportAt}
+          onExportNow={exportConfigWithToast}
+          onDismiss={() => setBannerDismissed(true)}
+          exporting={exporting}
+        />
+      )}
 
       {/* ╔══════════════════════════════════════════════════════════════╗ */}
       {/* ║ SECTION: About this install                                   ║ */}
@@ -572,7 +620,7 @@ export const SettingsPage: React.FC = () => {
 
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          marginTop: 4,
+          marginTop: 4, flexWrap: 'wrap',
         }}>
           <button
             className="btn btn-ghost"
@@ -581,6 +629,19 @@ export const SettingsPage: React.FC = () => {
           >
             <RefreshCw size={14} className={updateChecking ? 'animate-spin' : undefined} />
             {updateChecking ? 'Checking…' : 'Check now'}
+          </button>
+          {/* Sprint-1 (B1): promoted Export button — high-visibility duplicate
+              of the Danger-zone export, so users see it before they ever
+              think about upgrading. */}
+          <button
+            className="btn btn-primary"
+            onClick={exportConfigWithToast}
+            disabled={exporting}
+            title="Export DRK config — recommended before any upgrade or reinstall"
+          >
+            {exporting
+              ? <><Loader2 size={14} className="animate-spin" /> Exporting…</>
+              : <><Download size={14} /> Export config</>}
           </button>
           <button
             className="btn btn-ghost"
