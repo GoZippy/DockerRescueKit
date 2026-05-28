@@ -29,18 +29,22 @@ describe('parseImportAllowlist', () => {
     expect(list[0].endsWith(path.sep)).toBe(true)
   })
 
-  it('splits colon-separated values and resolves each', () => {
-    // Use forward slashes that work on both POSIX and win32. path.resolve
-    // normalizes them either way.
-    const list = parseImportAllowlist('/data/imports:/var/drk/inbox')
+  it('splits PATH-style separator (: on POSIX, ; on Windows) and resolves each', () => {
+    // The separator is platform-dependent (path.delimiter) so the test must
+    // use the same delimiter the implementation splits on. Forward slashes
+    // in the path components work on both POSIX and win32 because
+    // path.resolve normalizes them.
+    const sep = path.delimiter
+    const list = parseImportAllowlist(`/data/imports${sep}/var/drk/inbox`)
     expect(list.length).toBe(2)
     for (const item of list) {
       expect(item.endsWith(path.sep)).toBe(true)
     }
   })
 
-  it('drops empty segments from accidental ::', () => {
-    const list = parseImportAllowlist('::/data/imports::')
+  it('drops empty segments from accidental double-separators', () => {
+    const sep = path.delimiter
+    const list = parseImportAllowlist(`${sep}${sep}/data/imports${sep}${sep}`)
     expect(list.length).toBe(1)
   })
 })
