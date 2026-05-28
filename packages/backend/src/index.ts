@@ -55,6 +55,7 @@ import { FeedbackService } from './services/FeedbackService'
 import { APP_VERSION } from './utils/appVersion'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
+import { ExportService } from './services/ExportService'
 import { RcloneService } from './services/RcloneService'
 import { LicenseService } from './services/LicenseService'
 import { EncryptionUtility } from './utils/Encryption'
@@ -180,6 +181,7 @@ export class BackupService {
   private logTriage: LogTriageService
   private partial: PartialRestoreService
   private audit: AuditService
+  private exportService: ExportService
   private rclone: RcloneService
   private license: LicenseService
   private notificationDispatcher: NotificationDispatcher
@@ -212,6 +214,12 @@ export class BackupService {
     this.verify = new VerifyService(this.policyManager, this.dockerService, path.join(dataDir, 'staging'), this.db)
     this.partial = new PartialRestoreService(this.policyManager, path.join(dataDir, 'staging'))
     this.audit = new AuditService(this.db)
+    // ExportService snapshots policies/vaults/settings/audit to disk. On every
+    // backend start (see `start()`), it fire-and-forget writes
+    // `{dataDir}/exports/latest-bootstrap.json` so the user always has a recent
+    // good config on disk. Two `docker extension rm` cycles in the v1.2.4
+    // window wiped the data volume and motivated this — see v1.2.5 sprint notes.
+    this.exportService = new ExportService(this.db, this.settings, dataDir, logger)
     this.rclone = new RcloneService(dataDir)
     this.scheduler = new SchedulerEngine(this.policyManager, this.verify)
     // NotificationService is for backup notifications (paid tier)
@@ -296,7 +304,7 @@ export class BackupService {
 
     // Config export / import — full settings + policies + vaults + history dump
     // so users can migrate between installs or recover from a broken upgrade.
-    mountConfigExportRoutes(this.app, { db: this.db, license: this.license })
+    mountConfigExportRoutes(this.app, { exportService: this.exportService, db: this.db, license: this.license })
 
     // Cost analysis config — static per-backend pricing/performance reference data.
     // Users can override via DRK_COST_CONFIG env var (JSON) for their region.
@@ -871,12 +879,28 @@ export class BackupService {
         }
         console.log(`[DRK] listening on unix:${socketPath} (transport=socket, auth=skipped)`)
         console.log(`\x1b[34m[Scheduler]\x1b[0m Engine initialized`)
+        // Auto-export on boot. Fire-and-forget so a slow disk write never
+        // delays readiness — `latest-bootstrap.json` exists for disaster
+        // recovery, not for the request path. ExportService catches its own
+        // errors internally; the .catch here is a belt-and-braces guard for
+        // an unexpected throw before the service's try/catch engages.
+        this.exportService
+          .writeLatestBootstrap()
+          .catch(err => logger.warn({ err }, '[ExportService] bootstrap snapshot failed'))
       })
     } else {
       const port = Number(process.env.PORT || 42880)
       this.httpServer = this.app.listen(port, () => {
         console.log(`\x1b[32m[DockerRescueKit]\x1b[0m Service running on port ${port}`)
         console.log(`\x1b[34m[Scheduler]\x1b[0m Engine initialized`)
+        // Auto-export on boot. Fire-and-forget so a slow disk write never
+        // delays readiness — `latest-bootstrap.json` exists for disaster
+        // recovery, not for the request path. ExportService catches its own
+        // errors internally; the .catch here is a belt-and-braces guard for
+        // an unexpected throw before the service's try/catch engages.
+        this.exportService
+          .writeLatestBootstrap()
+          .catch(err => logger.warn({ err }, '[ExportService] bootstrap snapshot failed'))
       })
     }
 
