@@ -162,6 +162,18 @@ published image.
 
 ---
 
+## Upgrading
+
+Before **any** upgrade, reinstall, or `docker extension rm`, export
+your config (Settings → Export config) and save the JSON outside the
+extension's data volume. Hub tag-to-tag upgrades on
+`gozippy/dockerrescuekit` are safe; image-ID changes (sideload → Hub,
+fork, repo rename) orphan the old volume. See
+[`docs/UPGRADE.md`](docs/UPGRADE.md) for the canonical playbook,
+manual migration commands, and the list of broken v1.2.x Hub tags.
+
+---
+
 ## Roadmap
 
 | Feature | Free | Pro (coming) |
