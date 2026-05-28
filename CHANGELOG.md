@@ -11,6 +11,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.2.4] - 2026-05-28
+
+Merges UI/backend fixes worked on in parallel by Kilo Code with the
+v1.2.2 NotificationDispatcher TDZ fix and v1.2.3 export/import work
+already on `main`. v1.2.4 is the first v1.2.x image actually verified to
+boot end-to-end inside Docker Desktop.
+
+### Critical: how earlier v1.2.x images were broken
+
+Two destructive bugs shipped together in the v1.2.0 / v1.2.1 / v1.2.2-pre
+images on Hub. The combination of both made the Hub images
+non-functional from 2026-05-14 through 2026-05-27:
+
+- `packages/shared/package.json` declared `main: "./src/types.ts"` — Node
+  cannot `require()` a TypeScript source. Crashed at startup with
+  `Cannot find module ".../shared/src/types.ts"`. **Fixed in v1.2.2** by
+  adding a real tsc build (`packages/shared/tsconfig.json`), changing
+  `main`/`exports` to `./dist/types.js`, and having the Dockerfile build
+  shared before backend.
+- `NotificationDispatcher` constructor had
+  `private logger: Logger = logger` — the parameter name shadowed the
+  imported `logger` symbol in the default expression, triggering a TDZ
+  `ReferenceError`. **Fixed in v1.2.2** by importing as `defaultLogger`.
+
+Kilo Code's parallel work on the `slash-purpose` branch (forked off
+`5a49418`, before the v1.2.2 fixes landed) shipped a `drk-extension:1.2.4`
+sideload that fixed the UI bugs above but regressed both crash fixes —
+that image crash-looped at startup.
+
+### Cherry-picked from `slash-purpose` (Kilo Code)
+
+- **Cost Analysis blank page fix** — `CostAnalysisPage.tsx` previously
+  called `config.reduce(..., config[0])` for the recommendation section.
+  When `config` came back empty (or the API returned a non-array), the
+  reduce crashed during render and React unmounted the entire component
+  tree → blank page. Fix: early-return with empty state, extract
+  cheapest/fastest reduces into top-level variables, add `Array.isArray`
+  guard on the API response.
+- **Backup history 500** — `parseBackup` in `Database.ts` did
+  `JSON.parse(r.targets)` and `JSON.parse(r.tags)` with no error
+  handling. Malformed rows bubbled out as unhandled 500s. Fix: wrap
+  each parse in `try/catch`, return `[]` for malformed columns.
+- **Modal popup/dropdown cutoff** — `.modal-overlay` used
+  `align-items: center` with fixed padding, and `.modal-body` had
+  `overflow-x: hidden`. In small windows the modal extended below the
+  viewport with no scrolling, and select dropdowns inside the body got
+  clipped. Fix: `.modal-overlay` switched to `align-items: flex-start`
+  with `padding: 40px 16px` and `overflow: auto`; `.modal-panel`
+  `max-height: calc(100dvh - 80px)` with `flex-shrink: 0`;
+  `.modal-body` `overflow: hidden auto`.
+- **Wizard inline-style cleanup** — `RehearsalWizard`, `PolicyWizard`,
+  and `PolicyDetail` had inline `alignItems: 'flex-start'` /
+  `marginTop: 24` overrides on the overlay/panel that bypassed the CSS
+  fixes above. Removed.
+
+### Manually layered on top
+
+- `GET /api/policies/:id/history` and `GET /api/backups` were the only
+  history-shaped routes NOT wrapped in `asyncHandler`. Thrown errors
+  bypassed the central error middleware → unhandled 500s. Both wrapped
+  now.
+
+### Dockerfile
+
+- Root `package.json` declares
+  `postinstall: "npm run build --workspace=@docker-rescue-kit/shared"`.
+  The original Dockerfile only copied `packages/shared/package.json`
+  before `npm ci`, so postinstall's `tsc` had no `.ts` source files and
+  exited 1, breaking every fresh image build. Moved the full
+  `COPY packages/shared/ ./packages/shared/` ahead of `npm ci`.
+
+### Verified
+
+- Standalone `docker run` with extension env vars: backend reaches
+  `Service running on port 42880` + `[Scheduler] Engine initialized` and
+  `/healthz` returns `{"status":"ok"}` within 35 s.
+- Installed into Docker Desktop as `gozippy/dockerrescuekit:1.2.4`
+  (canonical Hub name, NOT the `drk-extension` sideload tag) and shows
+  `Running(1)`.
+
+### Data-loss note for users
+
+`docker extension rm` deletes the extension's named data volume. The
+**volume name is derived from the extension's image ID**, so:
+
+| Action | Result |
+|---|---|
+| Tag-to-tag update on same ID (`gozippy/dockerrescuekit:1.2.4` → `:1.2.5`) | Safe — Docker Desktop preserves the volume |
+| ID changes (e.g. local sideload → Hub image) | Destructive — old volume orphaned then deleted |
+| `docker extension rm` then re-install | Destructive — volume deleted |
+
+Future Hub-tag updates on `gozippy/dockerrescuekit:*` are safe. v1.2.5
+will add auto-export-on-boot, periodic timestamped snapshots, UI banner
++ one-click export, import-from-disk for recovery, and `docs/UPGRADE.md`
+with manual volume-migration commands.
+
+---
+
 ## [1.2.2] - 2026-05-27
 
 In-product update awareness + structured feedback. After installing v1.2.1
