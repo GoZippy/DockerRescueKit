@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [1.2.5] - 2026-05-28
 
+### Hotfix (re-pushed within 1 hour of initial 1.2.5 push)
+
+The first 1.2.5 push contained a broken `docker-compose.extension.yml`
+that re-declared `/run/guest-services/gozippy_dockerrescuekit:/run/guest-services`
+even though Docker Desktop already mounts that directory automatically
+for any extension whose `metadata.json` declares `vm.exposes.socket`.
+Result: every fresh install of v1.2.0–v1.2.5-initial got two bind
+mounts to the same target and `docker compose up -d` exited 1 with the
+extension stuck "Offline" on the dashboard. The redundant line is gone
+in this build. Pre-existing installs whose compose.yaml was already
+written to disk also need the duplicate bind removed — `docs/UPGRADE.md`
+has the manual edit + `compose down/up` recipe.
+
+---
+
 The data-safety / upgrade-path sprint. Motivated by the v1.2.4 cutover
 where `docker extension rm` deleted the previous extension's data volume
 and the user lost 12.8 GB of backups plus all policy/history state. From

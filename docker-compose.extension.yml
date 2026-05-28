@@ -3,13 +3,16 @@
 # bundle by Docker Desktop from the `ui/` directory baked into the image.
 # ${DESKTOP_PLUGIN_IMAGE} is injected by `docker extension install`.
 #
-# Mount convention (matches docker/volumes-backup-extension and others):
-#   source: /run/guest-services/gozippy_dockerrescuekit  (host VM subdirectory)
-#   target: /run/guest-services                          (inside container)
-# Backend writes drk.sock to /run/guest-services/ inside the container,
-# which resolves to /run/guest-services/gozippy_dockerrescuekit/drk.sock on
-# the host. Docker Desktop reads the mount source + metadata.json vm.exposes.socket
-# to discover and proxy the socket — no label override needed.
+# Socket convention:
+# Backend writes drk.sock to /run/guest-services/drk.sock inside the
+# container. Docker Desktop automatically bind-mounts an extension-scoped
+# host VM directory onto /run/guest-services for any extension that
+# declares `vm.exposes.socket` in metadata.json — we DO NOT redeclare
+# that mount here. v1.2.5 hotfix: an earlier explicit declaration
+# created a duplicate bind mount on install (Docker Desktop appends its
+# own copy regardless), which caused `compose up -d` to fail with
+# "mount target /run/guest-services already exists" and left the
+# extension stuck "Offline" on every fresh install.
 
 services:
   backend:
@@ -21,7 +24,6 @@ services:
       - DRK_DATA_DIR=/data
     volumes:
       - drk-data:/data
-      - /run/guest-services/gozippy_dockerrescuekit:/run/guest-services
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       com.docker.desktop.extension.api.version: "0.3.4"
