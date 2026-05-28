@@ -145,10 +145,22 @@ export const regenerateApiKey = async () => {
   return apiClient.post<{ apiKey: string }>('/settings/regenerate-api-key')
 }
 
+export interface SettingsMetaDTO {
+  dataDir: string
+  hasEncryptionKey: boolean
+  version: string
+  staging: string
+  /**
+   * ISO timestamp of the most recent successful config export
+   * (mtime of `latest-bootstrap.json`). Optional — older backends
+   * that haven't been updated yet will simply omit this field, in
+   * which case the UI should treat it as "never exported".
+   */
+  lastExportAt?: string
+}
+
 export const getSettingsMeta = async () => {
-  return apiClient.get<{ dataDir: string; hasEncryptionKey: boolean; version: string; staging: string }>(
-    '/settings/meta'
-  )
+  return apiClient.get<SettingsMetaDTO>('/settings/meta')
 }
 
 export const pauseScheduler = async () => {
