@@ -56,6 +56,7 @@ import { APP_VERSION } from './utils/appVersion'
 import { PartialRestoreService } from './services/PartialRestoreService'
 import { AuditService } from './services/AuditService'
 import { ExportService } from './services/ExportService'
+import { ImportService } from './services/ImportService'
 import { RcloneService } from './services/RcloneService'
 import { LicenseService } from './services/LicenseService'
 import { EncryptionUtility } from './utils/Encryption'
@@ -182,6 +183,7 @@ export class BackupService {
   private partial: PartialRestoreService
   private audit: AuditService
   private exportService: ExportService
+  private importService: ImportService
   private rclone: RcloneService
   private license: LicenseService
   private notificationDispatcher: NotificationDispatcher
@@ -220,6 +222,12 @@ export class BackupService {
     // good config on disk. Two `docker extension rm` cycles in the v1.2.4
     // window wiped the data volume and motivated this — see v1.2.5 sprint notes.
     this.exportService = new ExportService(this.db, this.settings, dataDir, logger)
+    // ImportService backs the A3 /api/config/import preview+apply flow. The
+    // allowlist defaults to `/data/imports/` (overridable via
+    // DRK_IMPORT_ALLOWLIST, colon-separated). Bind-mount-json and
+    // legacy-sqlite-db modes require paths that resolve inside one of those
+    // roots; plain `mode=json` payloads are unconstrained.
+    this.importService = new ImportService(this.db)
     this.rclone = new RcloneService(dataDir)
     // Pass exportService so SchedulerEngine.start() can register the A2
     // periodic snapshot + rolling-retention cron job.
@@ -306,7 +314,12 @@ export class BackupService {
 
     // Config export / import — full settings + policies + vaults + history dump
     // so users can migrate between installs or recover from a broken upgrade.
-    mountConfigExportRoutes(this.app, { exportService: this.exportService, db: this.db, license: this.license })
+    mountConfigExportRoutes(this.app, {
+      exportService: this.exportService,
+      db: this.db,
+      license: this.license,
+      importService: this.importService,
+    })
 
     // Cost analysis config — static per-backend pricing/performance reference data.
     // Users can override via DRK_COST_CONFIG env var (JSON) for their region.

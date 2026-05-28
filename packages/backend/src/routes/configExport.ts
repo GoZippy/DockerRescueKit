@@ -1,6 +1,7 @@
 import { Express, Request, Response } from 'express'
 import { logger } from '../utils/logger'
 import { ExportService, SnapshotBundle } from '../services/ExportService'
+import { ImportService, ImportMode } from '../services/ImportService'
 
 /**
  * Config export / import routes.
@@ -89,7 +90,20 @@ function normalizeImportBundle(body: unknown): {
 
 export function mountConfigExportRoutes(
   app: Express,
-  { exportService, db, license }: { exportService: ExportService; db: any; license: any },
+  {
+    exportService,
+    db,
+    license,
+    importService,
+  }: {
+    exportService: ExportService
+    db: any
+    license: any
+    /** Optional during the transition — when omitted the route falls back to
+     *  the original in-line single-shot importer below, preserving every
+     *  pre-A3 behaviour. */
+    importService?: ImportService
+  },
 ) {
   // -- Export ---------------------------------------------------------------
   app.get('/api/config/export', async (_req: Request, res: Response) => {
@@ -107,7 +121,111 @@ export function mountConfigExportRoutes(
   })
 
   // -- Import ---------------------------------------------------------------
+  //
+  // Three call shapes:
+  //
+  //   POST /api/config/import?mode=preview
+  //     body: { mode: 'json' | 'bind-mount-json' | 'legacy-sqlite-db',
+  //             payload?: <bundle>, path?: <abs path> }
+  //     -> ImportPreview { confirmationToken, counts, warnings, … }
+  //     (never mutates DB)
+  //
+  //   POST /api/config/import?mode=apply
+  //     body: { token: <confirmationToken from preview> }
+  //     -> ImportResult { applied, counts, errors }
+  //
+  //   POST /api/config/import   (no mode query)
+  //     body: <bundle JSON> | { mode, payload, path }
+  //     -> legacy single-shot import; preserved for backwards compat with
+  //        v1.2.3/v1.2.4 callers and the existing UI button. When
+  //        importService is wired we route through previewAndApply so the
+  //        legacy callers benefit from the same validation; when it isn't
+  //        we fall back to the original in-line flow below.
+  //
   app.post('/api/config/import', async (req: Request, res: Response) => {
+    const mode = String(req.query.mode || '').toLowerCase()
+
+    // ---- mode=preview ----
+    if (mode === 'preview') {
+      if (!importService) {
+        res.status(503).json({ error: 'import_service_unavailable' })
+        return
+      }
+      try {
+        const body = (req.body && typeof req.body === 'object') ? req.body as any : {}
+        const inputMode = (body.mode || 'json') as ImportMode
+        const preview = await importService.preview({
+          mode: inputMode,
+          payload: body.payload ?? (inputMode === 'json' && !body.payload ? body : undefined),
+          path: body.path,
+        })
+        res.json(preview)
+      } catch (err: any) {
+        logger.warn({ err }, '[ConfigExport] preview failed')
+        res.status(400).json({ error: 'preview_failed', detail: err?.message })
+      }
+      return
+    }
+
+    // ---- mode=apply ----
+    if (mode === 'apply') {
+      if (!importService) {
+        res.status(503).json({ error: 'import_service_unavailable' })
+        return
+      }
+      try {
+        const token = String(req.body?.token || '').trim()
+        if (!token) {
+          res.status(400).json({ error: 'token_required' })
+          return
+        }
+        const result = await importService.apply(token)
+        // Token unknown/expired returns applied=false with a clear error.
+        // Surface that as a 410 Gone rather than 200 so callers can branch
+        // on status code; the body still tells them precisely what failed.
+        if (!result.applied) {
+          res.status(410).json(result)
+          return
+        }
+        res.json(result)
+      } catch (err: any) {
+        logger.warn({ err }, '[ConfigExport] apply failed')
+        res.status(500).json({ error: 'apply_failed', detail: err?.message })
+      }
+      return
+    }
+
+    // ---- legacy single-shot path (no mode query) ----
+    // If we have an ImportService, prefer the preview+apply round-trip so
+    // bind-mount-json / legacy-sqlite-db work transparently for callers
+    // that pass `{ mode, path }` bodies. Plain JSON body keeps working
+    // (treated as mode=json with payload=<entire body>).
+    if (importService) {
+      try {
+        const body = (req.body && typeof req.body === 'object') ? req.body as any : null
+        const inputMode = (body?.mode || 'json') as ImportMode
+        const result = await importService.previewAndApply({
+          mode: inputMode,
+          payload: inputMode === 'json' ? (body?.payload ?? body) : undefined,
+          path: body?.path,
+        })
+        // The legacy response shape exposes `policiesImported` so the
+        // existing UI doesn't break — surface both new + old fields.
+        res.json({
+          ok: result.applied,
+          policiesImported: result.counts.policies,
+          counts: result.counts,
+          errors: result.errors,
+        })
+        return
+      } catch (err: any) {
+        // Fall through to in-line legacy path on parse failure so a JSON
+        // body that doesn't match either shape gets the same error
+        // message users have seen since v1.2.3.
+        logger.warn({ err }, '[ConfigExport] previewAndApply failed; falling back to inline')
+      }
+    }
+
     try {
       const normalized = normalizeImportBundle(req.body)
       if (!normalized) {
