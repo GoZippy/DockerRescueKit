@@ -221,7 +221,9 @@ export class BackupService {
     // window wiped the data volume and motivated this — see v1.2.5 sprint notes.
     this.exportService = new ExportService(this.db, this.settings, dataDir, logger)
     this.rclone = new RcloneService(dataDir)
-    this.scheduler = new SchedulerEngine(this.policyManager, this.verify)
+    // Pass exportService so SchedulerEngine.start() can register the A2
+    // periodic snapshot + rolling-retention cron job.
+    this.scheduler = new SchedulerEngine(this.policyManager, this.verify, this.exportService)
     // NotificationService is for backup notifications (paid tier)
     // NotificationDispatcher is for N-1 health alerts (included in all tiers)
     const notificationService = new NotificationService(this.license, this.settings)
@@ -604,11 +606,18 @@ export class BackupService {
     })
 
     this.app.get('/api/settings/meta', async (_req, res) => {
+      // lastExportAt surfaces the mtime of latest-bootstrap.json so the UI
+      // can render "Last auto-export N minutes ago". null when the file is
+      // missing (first-ever boot before the bootstrap snapshot lands).
+      // Best-effort: stat failure other than ENOENT is logged inside
+      // ExportService.getLastExportAt and returned as null here.
+      const lastExportAt = await this.exportService.getLastExportAt()
       res.json({
         dataDir: process.env.DRK_DATA_DIR || 'data',
         hasEncryptionKey: true,
         version: APP_VERSION,
-        staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging')
+        staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging'),
+        lastExportAt,
       })
     })
 
