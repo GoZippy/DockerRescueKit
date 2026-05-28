@@ -375,10 +375,11 @@
     /* Highest z-index — above sidebar (z:30), header (z:20) */
     z-index: 9999;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    padding: 24px 16px;
+    padding: 40px 16px;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .modal-panel {
@@ -387,12 +388,13 @@
     border-radius: var(--r-xl);
     width: 100%;
     max-width: 860px;
-    /* Take up to the full viewport height minus comfortable margin */
-    max-height: min(calc(100dvh - 80px), 860px);
+    /* Cap to viewport height minus comfortable margin */
+    max-height: calc(100dvh - 80px);
     display: flex;
     flex-direction: column;
-    /* Panel itself doesn't scroll — only modal-body does */
+    /* Clip only the panel outline; body scrolls internally */
     overflow: hidden;
+    flex-shrink: 0;
   }
 
   .modal-header {

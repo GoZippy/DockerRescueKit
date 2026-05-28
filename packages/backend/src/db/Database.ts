@@ -329,16 +329,6 @@ export class Database {
     return row ? row.value : null
   }
 
-  public async getAllSettings(): Promise<Array<{ key: string; value: string }>> {
-    const rows = this.db.prepare('SELECT key, value FROM settings').all() as any[]
-    return rows || []
-  }
-
-  public async getAllVaults(): Promise<any[]> {
-    const rows = this.db.prepare('SELECT * FROM storage_vault').all() as any[]
-    return rows || []
-  }
-
   // Backup History
   public async saveBackup(backup: Backup): Promise<void> {
     const stmt = this.db.prepare(`
@@ -518,11 +508,15 @@ export class Database {
   }
 
   private parseBackup(r: any): Backup {
+    let targets: any[] = []
+    try { targets = JSON.parse(r.targets) } catch { /* malformed — return empty */ }
+    let tags: any[] = []
+    try { tags = r.tags ? JSON.parse(r.tags) : [] } catch { /* malformed — return empty */ }
     return {
       ...r,
       timestamp: new Date(r.timestamp),
-      targets: JSON.parse(r.targets),
-      tags: r.tags ? JSON.parse(r.tags) : []
+      targets,
+      tags,
     }
   }
 

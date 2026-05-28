@@ -119,10 +119,10 @@ export const PolicyDetail: React.FC<Props> = ({ policy, onClose, onChange }) => 
   }
 
   return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start', overflowY: 'auto' }}>
+    <div className="modal-overlay">
       <div
         className="modal-panel"
-        style={{ maxWidth: 760, marginTop: 24, marginBottom: 24 }}
+        style={{ maxWidth: 760 }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="policy-detail-title"

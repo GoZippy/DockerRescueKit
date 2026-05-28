@@ -19,19 +19,17 @@ RUN apk add --no-cache python3 make g++ \
 # Copy root workspace manifests first (layer-cache friendly)
 COPY package.json package-lock.json* ./
 
-# Copy package manifests for the packages we need to build
-COPY packages/shared/package.json     ./packages/shared/
+# Copy package manifests for the packages we need to build.
+# shared/ is also copied as a whole BEFORE `npm ci` because the root
+# package.json declares a postinstall hook that builds it via tsc — that
+# fails if shared/src/ isn't yet on disk when npm ci runs.
+COPY packages/shared/                 ./packages/shared/
 COPY packages/backend/package.json    ./packages/backend/
 COPY packages/extension/package.json  ./packages/extension/
 
-# Install ALL deps (including devDependencies — we need tsc / vite)
+# Install ALL deps (including devDependencies — we need tsc / vite).
+# The postinstall in root package.json compiles shared into dist/ here.
 RUN npm ci --workspaces --include-workspace-root
-
-# shared/ has runtime exports (SMOKE_CHECK_TEMPLATES, SCRUB_ENV_DEFAULT_PATTERNS)
-# used by backend's RehearsalService — must be compiled to JS before backend.
-# Without this, node fails with MODULE_NOT_FOUND on dist/...types.ts at runtime.
-COPY packages/shared/    ./packages/shared/
-RUN npm run build --workspace=@docker-rescue-kit/shared
 
 # Build backend (tsc compiles src/ → dist/ per tsconfig outDir)
 COPY packages/backend/   ./packages/backend/

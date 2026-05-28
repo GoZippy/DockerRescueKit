@@ -262,7 +262,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   }
 
   return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start', overflowY: 'auto' }}>
+    <div className="modal-overlay">
       <div
         ref={modalRef}
         role="dialog"
@@ -270,7 +270,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
         aria-labelledby="policy-wizard-title"
         onKeyDown={onPanelKeyDown}
         className="modal-panel"
-        style={{ maxWidth: 860, marginTop: 24, marginBottom: 24 }}
+        style={{ maxWidth: 860 }}
       >
 
         {/* Header */}

@@ -41,7 +41,7 @@ export const CostAnalysisPage: React.FC = () => {
           getPolicies().catch(() => []),
           listAllBackups().catch(() => []),
         ])
-        setConfig(c as CostConfig[])
+        setConfig(Array.isArray(c) ? (c as CostConfig[]) : [])
         setPolicies(p as any[])
         setBackups(b as any[])
       } finally {
@@ -86,6 +86,32 @@ export const CostAnalysisPage: React.FC = () => {
       </div>
     )
   }
+
+  if (config.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Cost Analysis</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+            Compare restore costs and speeds across storage backends.
+          </p>
+        </div>
+        <div className="empty-state card">
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            No cost configuration available. Set the <code>DRK_COST_CONFIG</code> environment variable with JSON data to enable cost analysis.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const cheapest = config.reduce((best, c) => {
+    const cost = monthlyCostFor(c.costPerGBMonth, selectedSizeGB) + egressCostFor(c.costPerGBDownload, selectedSizeGB)
+    const bestCost = monthlyCostFor(best.costPerGBMonth, selectedSizeGB) + egressCostFor(best.costPerGBDownload, selectedSizeGB)
+    return cost < bestCost ? c : best
+  }, config[0])
+
+  const fastest = config.reduce((best, c) => c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best, config[0])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -236,28 +262,13 @@ export const CostAnalysisPage: React.FC = () => {
           <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Recommendation</div>
           <p style={{ margin: 0 }}>
             For <strong>{selectedSizeGB >= 1000 ? `${selectedSizeGB / 1000}TB` : `${selectedSizeGB}GB`}</strong> of backup data,
-            the cheapest long-term option is <strong>{config.reduce((best, c) => {
-              const cost = monthlyCostFor(c.costPerGBMonth, selectedSizeGB) + egressCostFor(c.costPerGBDownload, selectedSizeGB)
-              const bestCost = monthlyCostFor(best.costPerGBMonth, selectedSizeGB) + egressCostFor(best.costPerGBDownload, selectedSizeGB)
-              return cost < bestCost ? c : best
-            }, config[0])?.label || 'N/A'}</strong> with a total estimated cost of{' '}
-            <strong>
-              {fmtCost(
-                (() => {
-                  const best = config.reduce((b, c) => {
-                    const cost = monthlyCostFor(c.costPerGBMonth, selectedSizeGB) + egressCostFor(c.costPerGBDownload, selectedSizeGB)
-                    const bCost = monthlyCostFor(b.costPerGBMonth, selectedSizeGB) + egressCostFor(b.costPerGBDownload, selectedSizeGB)
-                    return cost < bCost ? c : b
-                  }, config[0])
-                  return monthlyCostFor(best.costPerGBMonth, selectedSizeGB) + egressCostFor(best.costPerGBDownload, selectedSizeGB)
-                })()
-              )}
-            </strong>{' '}
+            the cheapest long-term option is <strong>{cheapest.label}</strong> with a total estimated cost of{' '}
+            <strong>{fmtCost(monthlyCostFor(cheapest.costPerGBMonth, selectedSizeGB) + egressCostFor(cheapest.costPerGBDownload, selectedSizeGB))}</strong>{' '}
             (monthly storage + one restore).
           </p>
           <p style={{ margin: '6px 0 0' }}>
-            For the fastest restore, use <strong>{config.reduce((best, c) => c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best, config[0])?.label || 'N/A'}</strong> at{' '}
-            <strong>{config.reduce((best, c) => c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best, config[0])?.restoreSpeedMBps || 0} MB/s</strong> (~{restoreTimeFor(config.reduce((best, c) => c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best, config[0])?.restoreSpeedMBps || 0, selectedSizeGB)}).
+            For the fastest restore, use <strong>{fastest.label}</strong> at{' '}
+            <strong>{fastest.restoreSpeedMBps} MB/s</strong> (~{restoreTimeFor(fastest.restoreSpeedMBps, selectedSizeGB)}).
           </p>
         </div>
       </div>

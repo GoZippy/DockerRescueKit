@@ -479,14 +479,14 @@ export class BackupService {
       res.json(result)
     }))
 
-    this.app.get('/api/policies/:id/history', validateParams(idParamSchema), async (req, res) => {
+    this.app.get('/api/policies/:id/history', validateParams(idParamSchema), asyncHandler(async (req, res) => {
       res.json(await this.policyManager.getBackupHistory(req.params.id))
-    })
+    }))
 
     // ---- Backups ---------------------------------------------------------
-    this.app.get('/api/backups', async (_req, res) => {
+    this.app.get('/api/backups', asyncHandler(async (_req, res) => {
       res.json(await this.policyManager.listAllBackups())
-    })
+    }))
 
     this.app.get('/api/backups/:id', validateParams(idParamSchema), asyncHandler(async (req, res) => {
       const backup = await this.policyManager.getBackup(req.params.id)

@@ -163,8 +163,8 @@ export const RehearsalWizard: React.FC<Props> = ({ onClose, onSuccess }) => {
   const STEP_LABELS = ['Backups', 'Smoke Checks', 'Run']
 
   return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start', overflowY: 'auto' }}>
-      <div className="modal-panel" style={{ maxWidth: 860, marginTop: 24, marginBottom: 24 }} role="dialog" aria-modal="true">
+    <div className="modal-overlay">
+      <div className="modal-panel" style={{ maxWidth: 860 }} role="dialog" aria-modal="true">
 
         {/* Header */}
         <div className="modal-header">
