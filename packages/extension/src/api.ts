@@ -418,3 +418,31 @@ export const exportConfig = async (): Promise<ConfigExportBundle> => {
 export const importConfig = async (bundle: ConfigExportBundle): Promise<{ ok: boolean; policiesImported: number }> => {
   return apiClient.post('/config/import', bundle)
 }
+
+// ── Config import — preview/apply (Sprint 3 wizard) ───────────────────────
+// Two-step flow served by ImportService on the backend. The wizard UI in
+// components/ImportWizard.tsx consumes these.
+export type ImportSourceMode = 'json' | 'bind-mount-json' | 'legacy-sqlite-db'
+
+export interface ImportPreview {
+  source: ImportSourceMode
+  schemaVersion?: string
+  detectedAppVersion?: string
+  counts: { policies: number; vaults: number; settings: number; audit: number }
+  warnings: string[]
+  confirmationToken: string
+}
+
+export interface ImportResult {
+  applied: boolean
+  counts: ImportPreview['counts']
+  errors: string[]
+}
+
+export const importConfigPreview = async (
+  req: { source: ImportSourceMode; payload?: any; path?: string },
+): Promise<ImportPreview> => apiClient.post('/config/import?mode=preview', req)
+
+export const importConfigApply = async (
+  token: string,
+): Promise<ImportResult> => apiClient.post('/config/import?mode=apply', { token })

@@ -8,6 +8,7 @@ import {
   getLicenseStatus, checkVersion, submitFeedback, exportConfig, importConfig,
 } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
+import { ImportWizard } from './ImportWizard'
 import { formatDistanceToNowStrict } from 'date-fns'
 import {
   Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut,
@@ -148,6 +149,9 @@ export const SettingsPage: React.FC = () => {
   const [importResult, setImportResult]   = useState<string | null>(null)
   const [importError, setImportError]     = useState<string | null>(null)
   const fileInputRef                      = useRef<HTMLInputElement>(null)
+
+  // ── Import wizard (Sprint 3 — B2) ──
+  const [importWizardOpen, setImportWizardOpen] = useState(false)
 
   // ── Initial load ────────────────────────────────────────────────────────
   const load = async () => {
@@ -861,17 +865,33 @@ export const SettingsPage: React.FC = () => {
           Clear the stored API key and return to the connection screen.
           Use this to connect to a different Docker Rescue Kit instance.
         </p>
-        <button
-          className="btn btn-danger"
-          onClick={() => {
-            if (confirm('Disconnect from this instance? You will need to re-enter the API key.')) {
-              clearApiKey()
-            }
-          }}
-        >
-          <LogOut size={14} /> Disconnect
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-danger"
+            onClick={() => {
+              if (confirm('Disconnect from this instance? You will need to re-enter the API key.')) {
+                clearApiKey()
+              }
+            }}
+          >
+            <LogOut size={14} /> Disconnect
+          </button>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => setImportWizardOpen(true)}
+            title="Open the import wizard to restore config from a JSON export or salvaged SQLite DB"
+          >
+            <Upload size={14} /> Import config…
+          </button>
+        </div>
       </div>
+
+      <ImportWizard
+        open={importWizardOpen}
+        onClose={() => setImportWizardOpen(false)}
+        onSuccess={load}
+      />
     </div>
   )
 }
