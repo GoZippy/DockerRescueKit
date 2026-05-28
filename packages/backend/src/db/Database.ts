@@ -273,6 +273,25 @@ export class Database {
     stmt.run(id, type, JSON.stringify(config))
   }
 
+  /**
+   * Snapshot helper: list every row in storage_vault.
+   *
+   * The existing config-export route used `db.getAllVaults?.()` with optional
+   * chaining, which meant the method never actually ran — `storageVaults` in
+   * every prior export was an empty array. ExportService (v1.2.5) needs the
+   * real data so users can restore vault config after a `docker extension rm`
+   * wipes the data volume. Parsing failures on `config` JSON are swallowed
+   * per-row so one corrupt vault doesn't poison the whole snapshot.
+   */
+  public async getAllVaults(): Promise<Array<{ id: string; type: string; config: any }>> {
+    const rows = this.db.prepare('SELECT id, type, config FROM storage_vault').all() as any[]
+    return rows.map(r => {
+      let parsed: any = null
+      try { parsed = r.config ? JSON.parse(r.config) : null } catch { parsed = null }
+      return { id: r.id, type: r.type, config: parsed }
+    })
+  }
+
   // Connector Instance Operations
   public async getConnectors(): Promise<any[]> {
     const rows = this.db.prepare('SELECT * FROM connectors').all() as any[]
@@ -327,6 +346,18 @@ export class Database {
   public async getSetting(key: string): Promise<string | null> {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any
     return row ? row.value : null
+  }
+
+  /**
+   * Snapshot helper: dump every setting row for ExportService / config export.
+   *
+   * Returns key/value pairs in insertion order (no ORDER BY — sqlite returns
+   * them in rowid order which is good enough for diffability). Safe to call
+   * during boot; no expensive joins or JSON parsing.
+   */
+  public async getAllSettings(): Promise<Array<{ key: string; value: string }>> {
+    const rows = this.db.prepare('SELECT key, value FROM settings').all() as any[]
+    return rows.map(r => ({ key: r.key, value: r.value }))
   }
 
   // Backup History
