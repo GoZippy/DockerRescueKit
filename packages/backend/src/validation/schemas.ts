@@ -40,7 +40,10 @@ export const ConnectorTestSchema = z.object({
 
 export const ConnectorDiscoverSchema = z.object({
   type: z.string().min(1),
-  config: z.record(z.any())
+  config: z.record(z.any()),
+  // DR-001: which discovery semantic the caller wants. Defaults to
+  // 'destinations' (pre-config enumeration) in resolveDiscovery().
+  mode: z.enum(['destinations', 'contents']).optional()
 })
 
 export const SaveConnectorSchema = z.object({

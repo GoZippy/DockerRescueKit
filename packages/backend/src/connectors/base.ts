@@ -51,9 +51,10 @@ export interface IConnectorPlugin {
    * /api/connectors/discover. Default behavior in the route layer forwards
    * to discoverDestinations() when present, else listContents(), else [].
    *
-   * Will be removed in v1.4.
+   * Will be removed in v1.4. Optional so migrated connectors (D1/D2/D3) can
+   * drop it once they implement discoverDestinations()/listContents().
    */
-  discoverResources(config: Record<string, any>): Promise<ConnectorResource[]>
+  discoverResources?(config: Record<string, any>): Promise<ConnectorResource[]>
 }
 
 /**
@@ -75,5 +76,9 @@ export async function resolveDiscovery(
     return plugin.listContents(config)
   }
   // Fallback to deprecated unified method (preserves existing behavior).
-  return plugin.discoverResources(config)
+  // Optional now — a migrated connector may have dropped it.
+  if (plugin.discoverResources) {
+    return plugin.discoverResources(config)
+  }
+  return []
 }

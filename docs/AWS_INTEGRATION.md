@@ -158,7 +158,7 @@ Developer Workstation (EC2 / Cloud9 / Local)
 │   └── SMB/NAS (homelab)
 │
 └── Audit & Compliance
-    ├── Audit log (every operation, JSON, tamper-evident)
+    ├── Audit log (every operation, JSON, append-only)
     ├── Verification reports (checksums, restore tests)
     └── Export bundle (full config portability)
 ```

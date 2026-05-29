@@ -1,4 +1,7 @@
-# DR-002 — rclone OAuth runs on the user's host, not in the container
+# DR-003 — rclone OAuth runs on the user's host, not in the container
+
+> Renumbered from DR-002 → DR-003: the v1.3-connectors plan reserved DR-002 for
+> the S3 client-choice decision (task G1). See coordination note 2026-05-29.
 
 **Status**: Accepted (project owner chose host-side authorize, 2026-05-29)
 **Date**: 2026-05-29

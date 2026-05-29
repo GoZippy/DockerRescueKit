@@ -213,7 +213,7 @@ connection refused.
 DRK container. rclone's OAuth callback only binds `127.0.0.1:53682`, which
 lives in the container's network namespace and is never published — your
 host browser can't reach it. The flow could never complete. See
-[`decisions/DR-002`](./decisions/DR-002-rclone-oauth-host-authorize.md).
+[`decisions/DR-003`](./decisions/DR-003-rclone-oauth-host-authorize.md).
 
 **Fix.** Update to the current build. The wizard now gives you a command to
 run on a machine that has a browser (your own desktop), then you paste the

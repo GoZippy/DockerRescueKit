@@ -31,7 +31,7 @@ import { PolicyManager } from './services/PolicyManager'
 import { SchedulerEngine } from './scheduler/SchedulerEngine'
 import { Database } from './db/Database'
 import { DockerService } from './services/DockerService'
-import { ConnectorRegistry } from './connectors'
+import { ConnectorRegistry, resolveDiscovery } from './connectors'
 import { ConnectorManager } from './services/ConnectorManager'
 import { TelemetryService } from './services/TelemetryService'
 import { SettingsService } from './services/SettingsService'
@@ -603,10 +603,12 @@ export class BackupService {
     })
 
     this.app.post('/api/connectors/discover', validate(ConnectorDiscoverSchema), asyncHandler(async (req, res) => {
-      const { type, config } = req.body
+      const { type, config, mode } = req.body
       const plugin = ConnectorRegistry.getPlugin(type)
       if (!plugin) throw new NotFoundError('Plugin', type)
-      res.json(await plugin.discoverResources(config))
+      // Route through the DR-001 resolver so discoverDestinations()/listContents()
+      // are reachable; falls back to the deprecated discoverResources() shim.
+      res.json(await resolveDiscovery(plugin, config, mode))
     }))
 
     // ---- Settings --------------------------------------------------------

@@ -1,7 +1,8 @@
 import { Database } from '../db/Database'
 import { VaultService } from './VaultService'
-import { ConnectorInstance } from '@docker-rescue-kit/shared'
+import { ConnectorInstance, ConnectorResource } from '@docker-rescue-kit/shared'
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry'
+import { resolveDiscovery } from '../connectors/base'
 
 export class ConnectorManager {
   private vault: VaultService
@@ -51,10 +52,16 @@ export class ConnectorManager {
     }
   }
 
-  public async discoverResources(type: string, config: any): Promise<any[]> {
+  public async discoverResources(
+    type: string,
+    config: any,
+    mode: 'destinations' | 'contents' = 'destinations'
+  ): Promise<ConnectorResource[]> {
     const plugin = ConnectorRegistry.getPlugin(type as any)
     if (!plugin) throw new Error('Connector type not supported')
-    return await plugin.discoverResources(config)
+    // Route through the DR-001 resolver so migrated connectors' new
+    // discoverDestinations()/listContents() are actually reached.
+    return await resolveDiscovery(plugin, config, mode)
   }
 
   private encryptConfig(config: any): any {
