@@ -1,0 +1,70 @@
+version: 2
+
+# DockerRescueKit dependency hygiene.
+#
+# Runs weekly so the PR queue stays manageable. Security advisories trigger
+# out-of-band PRs regardless of schedule. Open PR caps prevent runaway noise
+# when multiple ecosystems hit at once.
+
+updates:
+  # ── npm — root workspace ──────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      # Cluster minor/patch bumps into one PR per dev-tooling vs runtime split
+      # so the review surface stays low.
+      typescript-tooling:
+        patterns:
+          - "typescript"
+          - "ts-*"
+          - "@types/*"
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "prettier*"
+          - "jest*"
+          - "ts-jest"
+      runtime-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "typescript"
+          - "ts-*"
+          - "@types/*"
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "jest*"
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+
+  # ── Docker — base images in the extension Dockerfile + backend Dockerfile ─
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /packages/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5

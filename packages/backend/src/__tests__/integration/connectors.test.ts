@@ -75,6 +75,36 @@ describe('integration: /api/connectors', () => {
     expect(res.body.error).toMatch(/not found/i)
   })
 
+  // F2: ConnectorTestResult is the wire shape returned by /api/connectors/test.
+  // success is required; error/latencyMs/serverInfo are optional. Drives the
+  // structured-error UX in AddConnectorWizard once U1 lands.
+  it('POST /api/connectors/test surfaces ConnectorTestResult shape on a failed test', async () => {
+    // s3 with no credentials and a non-resolving endpoint must fail at the
+    // restic test() step. We just assert the wire shape, not the specific
+    // error string (restic version-dependent).
+    const res = await auth(
+      request(server.app)
+        .post('/api/connectors/test')
+        .send({
+          type: 's3',
+          config: {
+            endpoint: 's3.unresolvable.invalid',
+            bucket: 'drk-test',
+            accessKey: 'noop',
+            secretKey: 'noop',
+            password: 'noop'
+          }
+        })
+    )
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ success: false })
+    expect(typeof res.body.error).toBe('string')
+    // latencyMs is set even for failures so the UI can show "tried for 1.2s"
+    if ('latencyMs' in res.body) {
+      expect(typeof res.body.latencyMs).toBe('number')
+    }
+  })
+
   it('DELETE /api/connectors/<missing> returns 204 (idempotent delete)', async () => {
     const res = await auth(
       request(server.app).delete('/api/connectors/no-such-connector')

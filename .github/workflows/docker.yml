@@ -113,7 +113,56 @@ jobs:
           # Trivy scans the Docker Hub versioned tag
           echo "image-ref=${DH_REGISTRY}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push to Docker Hub + Amazon ECR
+      # Build a local single-arch image FIRST so Trivy can gate on it before
+      # we publish anything. Multi-arch buildx-push happens only after the
+      # scan passes, so a CRITICAL CVE never reaches Docker Hub or ECR.
+      - name: Build local image for scan (amd64 only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: drk-scan:${{ matrix.product }}-${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.product }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.product }}
+
+      # GATING scan — CRITICAL only. Build fails if any unfixed CRITICAL
+      # is present. HIGH does not gate (see SARIF step below for visibility).
+      - name: Trivy scan local image — GATE on CRITICAL
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: drk-scan:${{ matrix.product }}-${{ github.ref_name }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # Reporting scan — CRITICAL+HIGH into SARIF for the GitHub Security tab.
+      # Non-gating (exit-code:0) so this never fails the workflow on its own;
+      # the gate is the previous step.
+      - name: Trivy scan local image — SARIF report (CRITICAL+HIGH)
+        if: always()  # still publish findings even if the gate above failed
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: drk-scan:${{ matrix.product }}-${{ github.ref_name }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()  # publish findings even if the gate failed above
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-${{ matrix.product }}-${{ github.ref_name }}
+
+      # Trivy passed → safe to multi-arch publish. Buildx reuses the cache
+      # from the previous build step so this is cheap.
+      - name: Build and push (multi-arch) to Docker Hub + Amazon ECR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -127,20 +176,3 @@ jobs:
             ${{ steps.tag.outputs.ecr_latest }}
           cache-from: type=gha,scope=${{ matrix.product }}
           cache-to: type=gha,mode=max,scope=${{ matrix.product }}
-
-      - name: Run Trivy vulnerability scanner on pushed image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ steps.tag.outputs.image-ref }}
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '0'
-
-      - name: Upload Trivy SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy-${{ matrix.product }}-${{ github.ref_name }}

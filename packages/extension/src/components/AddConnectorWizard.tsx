@@ -15,7 +15,7 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    getConnectors().then(setDeps).catch(console.error)
+    getConnectors().then(setDefs).catch(console.error)
   }, [])
 
   // ESC-to-close + focus trap
