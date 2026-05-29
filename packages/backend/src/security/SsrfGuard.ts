@@ -3,23 +3,27 @@ import dns from 'dns/promises'
 import { URL } from 'url'
 
 /**
- * SSRF guard for connector endpoint / host fields. Blocks loopback,
- * link-local (incl. cloud metadata service 169.254.169.254), and
- * RFC1918 private ranges by default.
+ * SSRF guard for connector endpoint / host fields.
  *
- * Homelab users (DRK's primary audience) frequently target RFC1918 hosts
- * for SMB/SFTP/Proxmox/TrueNAS, so an override is supported via
- * `DRK_SSRF_ALLOWLIST` (csv of CIDRs). Empty default = strict.
+ * Default posture (homelab-first): denies ONLY the cloud instance-metadata
+ * endpoint (169.254.169.254 / fd00:ec2::254) — the high-value SSRF target that
+ * can exfiltrate cloud credentials. RFC1918 / loopback / LAN are allowed,
+ * because DRK's primary audience targets private hosts for
+ * Proxmox/TrueNAS/SMB/SFTP and we must not break them out of the box.
  *
- * Scope (F1 / v1.3-connectors / DR-001):
- *   Applied at ConnectorManager.testInstance() + discoverResources() in
- *   Sprint 2 wiring step. Proxmox/TrueNAS/PBS/S3 go through here.
- *   SFTP and Rclone bypass at the network layer (they don't take URLs)
- *   and are noted as separate concerns.
+ * Strict posture (set `DRK_SSRF_STRICT=1`, for hosted/multi-tenant): denies the
+ * full private/internal set — loopback, all link-local, RFC1918, and IPv6 ULA.
+ *
+ * `DRK_SSRF_ALLOWLIST` (csv of CIDRs) escapes the deny list under either
+ * posture (e.g. allow the metadata IP, or punch a hole in strict mode).
+ *
+ * Wiring (F1 / v1.3-connectors): called from ConnectorManager.testInstance() +
+ * discoverResources() against `config.endpoint || config.host`. Connectors
+ * without a network host field (rclone, local) are naturally skipped.
  *
  * Use:
- *   await SsrfGuard.assertSafe('https://192.168.1.50:8006')
- *   await SsrfGuard.assertSafe('s3.amazonaws.com')
+ *   await SsrfGuard.assertSafe('https://192.168.1.50:8006')  // ok (default)
+ *   await SsrfGuard.assertSafe('http://169.254.169.254')     // blocked
  */
 
 const RFC1918_CIDRS = [
@@ -42,7 +46,17 @@ const UNIQUE_LOCAL_CIDRS_V6 = [
   'fc00::/7',
 ]
 
-const DEFAULT_DENY = [
+// Cloud instance-metadata endpoints. AWS/GCP/Azure all use 169.254.169.254;
+// AWS IMDSv6 uses fd00:ec2::254. Reaching these is the classic SSRF →
+// cloud-credential-theft vector, so they are denied even in the default
+// (homelab-friendly) posture.
+const CLOUD_METADATA_CIDRS = [
+  '169.254.169.254/32',
+  'fd00:ec2::254/128',
+]
+
+// Full private/internal deny list — used only when DRK_SSRF_STRICT is set.
+const STRICT_DENY = [
   ...LOOPBACK_CIDRS,
   ...LINK_LOCAL_CIDRS,
   ...RFC1918_CIDRS,
@@ -91,7 +105,7 @@ export class SsrfGuard {
       throw new SsrfBlockedError(target, '', 'no host found in target string')
     }
 
-    const deny = opts.deny ?? DEFAULT_DENY
+    const deny = opts.deny ?? this.defaultDeny()
     const allowlist = opts.allowlist ?? this.envAllowlist()
 
     const addrs = await this.resolveAll(host, opts.dnsTimeoutMs ?? 3000)
@@ -111,6 +125,20 @@ export class SsrfGuard {
     const raw = process.env.DRK_SSRF_ALLOWLIST?.trim()
     if (!raw) return []
     return raw.split(',').map(s => s.trim()).filter(Boolean)
+  }
+
+  /**
+   * Strict mode (DRK_SSRF_STRICT) denies all private/internal ranges, not just
+   * cloud metadata. Off by default — DRK is homelab-first. Intended for
+   * hosted/multi-tenant deployments where users must not reach internal hosts.
+   */
+  static isStrict(): boolean {
+    return /^(1|true|yes|on)$/i.test(process.env.DRK_SSRF_STRICT?.trim() ?? '')
+  }
+
+  /** Deny list for the current posture: cloud-metadata only, or the full set under strict. */
+  static defaultDeny(): string[] {
+    return this.isStrict() ? STRICT_DENY : CLOUD_METADATA_CIDRS
   }
 
   static extractHost(target: string): string | null {

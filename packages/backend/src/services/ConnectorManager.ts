@@ -3,6 +3,7 @@ import { VaultService } from './VaultService'
 import { ConnectorInstance, ConnectorResource } from '@docker-rescue-kit/shared'
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry'
 import { resolveDiscovery } from '../connectors/base'
+import { SsrfGuard, SsrfBlockedError } from '../security/SsrfGuard'
 
 export class ConnectorManager {
   private vault: VaultService
@@ -45,9 +46,13 @@ export class ConnectorManager {
     if (!plugin) return { success: false, error: 'Connector type not supported' }
 
     try {
+      await this.guardTarget(config)
       const success = await plugin.testConnection(config)
       return { success }
     } catch (e: any) {
+      if (e instanceof SsrfBlockedError) {
+        return { success: false, error: `${e.message}. If this is an intentional internal target, add its CIDR to DRK_SSRF_ALLOWLIST.` }
+      }
       return { success: false, error: e.message }
     }
   }
@@ -59,9 +64,21 @@ export class ConnectorManager {
   ): Promise<ConnectorResource[]> {
     const plugin = ConnectorRegistry.getPlugin(type as any)
     if (!plugin) throw new Error('Connector type not supported')
+    await this.guardTarget(config)
     // Route through the DR-001 resolver so migrated connectors' new
     // discoverDestinations()/listContents() are actually reached.
     return await resolveDiscovery(plugin, config, mode)
+  }
+
+  /**
+   * F1: gate the connector's network target through the SSRF guard before any
+   * server-side request. Uses `config.endpoint` (S3) or `config.host`
+   * (Proxmox/TrueNAS/PBS/SMB/SFTP); connectors without one (rclone, local) are
+   * skipped. Default posture blocks only cloud metadata — see SsrfGuard.
+   */
+  private async guardTarget(config: any): Promise<void> {
+    const target = config?.endpoint || config?.host
+    if (target) await SsrfGuard.assertSafe(String(target))
   }
 
   private encryptConfig(config: any): any {

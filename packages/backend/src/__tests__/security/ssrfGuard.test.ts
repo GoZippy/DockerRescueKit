@@ -50,10 +50,38 @@ describe('SsrfGuard', () => {
     })
   })
 
-  describe('assertSafe — deny path (IP literals)', () => {
+  describe('assertSafe — default posture (cloud-metadata only)', () => {
+    it.each([
+      'http://169.254.169.254',     // AWS/GCP/Azure metadata
+      '169.254.169.254:80',
+      'http://[fd00:ec2::254]',     // AWS IMDSv6
+    ])('blocks cloud metadata %s', async (target) => {
+      await expect(SsrfGuard.assertSafe(target)).rejects.toBeInstanceOf(SsrfBlockedError)
+    })
+
     it.each([
       'http://127.0.0.1',
-      'http://169.254.169.254',  // cloud metadata
+      'http://10.0.0.1',
+      'http://172.16.0.1',
+      'http://192.168.1.50',
+      '[::1]',
+      'http://[fc00::1]',
+    ])('allows %s (homelab default)', async (target) => {
+      await expect(SsrfGuard.assertSafe(target)).resolves.toBeUndefined()
+    })
+  })
+
+  describe('assertSafe — strict posture (DRK_SSRF_STRICT)', () => {
+    let prev: string | undefined
+    beforeEach(() => { prev = process.env.DRK_SSRF_STRICT; process.env.DRK_SSRF_STRICT = '1' })
+    afterEach(() => {
+      if (prev === undefined) delete process.env.DRK_SSRF_STRICT
+      else process.env.DRK_SSRF_STRICT = prev
+    })
+
+    it.each([
+      'http://127.0.0.1',
+      'http://169.254.169.254',
       'http://10.0.0.1',
       'http://172.16.0.1',
       'http://192.168.1.50',
@@ -119,13 +147,13 @@ describe('SsrfGuard', () => {
 
     it('error surfaces resolved address + reason', async () => {
       try {
-        await SsrfGuard.assertSafe('http://127.0.0.1:8080')
+        await SsrfGuard.assertSafe('http://169.254.169.254:8080')
         fail('expected throw')
       } catch (err) {
         expect(err).toBeInstanceOf(SsrfBlockedError)
         const e = err as SsrfBlockedError
-        expect(e.target).toBe('http://127.0.0.1:8080')
-        expect(e.resolved).toBe('127.0.0.1')
+        expect(e.target).toBe('http://169.254.169.254:8080')
+        expect(e.resolved).toBe('169.254.169.254')
         expect(e.reason).toMatch(/denied range/)
       }
     })

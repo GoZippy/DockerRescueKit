@@ -7,6 +7,12 @@ export interface ResticRepoConfig {
   repo: string
   password: string
   env?: Record<string, string>
+  /**
+   * Extra backend options passed as `-o key=value` (restic global flags).
+   * e.g. `{ 'sftp.command': 'ssh user@host -p 2222 -s sftp' }` to reach an
+   * SFTP server on a non-default port (the `sftp:` repo URL can't carry one).
+   */
+  options?: Record<string, string>
 }
 
 export interface ResticSnapshot {
@@ -159,7 +165,7 @@ export class ResticEngine {
     filePath: string
   ): NodeJS.ReadableStream {
     const env = { ...process.env, RESTIC_PASSWORD: cfg.password, RESTIC_REPOSITORY: cfg.repo, ...(cfg.env || {}) }
-    const proc = spawn(this.binaryPath, ['dump', snapshotId, filePath], { env })
+    const proc = spawn(this.binaryPath, [...this.optionArgs(cfg), 'dump', snapshotId, filePath], { env })
     // Callers pipe proc.stdout and should also attach a stderr listener for errors.
     proc.stderr.on('data', chunk => {
       if (process.env.DEBUG_RESTIC) process.stderr.write(chunk)
@@ -191,6 +197,12 @@ export class ResticEngine {
 
   // --- internals ---------------------------------------------------------
 
+  /** Convert backend options into restic `-o key=value` global flags. */
+  private optionArgs(cfg: Partial<ResticRepoConfig>): string[] {
+    if (!cfg.options) return []
+    return Object.entries(cfg.options).flatMap(([k, v]) => ['-o', `${k}=${v}`])
+  }
+
   private async exec(args: string[], cfg: Partial<ResticRepoConfig>): Promise<ResticResult> {
     return new Promise((resolve, reject) => {
       const env = {
@@ -199,7 +211,7 @@ export class ResticEngine {
         ...(cfg.repo ? { RESTIC_REPOSITORY: cfg.repo } : {}),
         ...(cfg.env || {})
       }
-      const proc = spawn(this.binaryPath, args, { env })
+      const proc = spawn(this.binaryPath, [...this.optionArgs(cfg), ...args], { env })
 
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []
@@ -226,7 +238,7 @@ export class ResticEngine {
         ...(cfg.repo ? { RESTIC_REPOSITORY: cfg.repo } : {}),
         ...(cfg.env || {})
       }
-      const proc = spawn(this.binaryPath, args, { env })
+      const proc = spawn(this.binaryPath, [...this.optionArgs(cfg), ...args], { env })
 
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []

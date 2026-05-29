@@ -21,13 +21,18 @@ export class SFTPStorageAdapter extends ResticStorageAdapter {
 
     const user = config.username
     const host = config.host
-    const portSuffix = config.port ? `:${config.port}` : ''
     const remotePath = config.path.startsWith('/') ? config.path : `/${config.path}`
-    const repo = `sftp:${user}@${host}${portSuffix}:${remotePath}`
+    // Restic's `sftp:` short form does NOT accept an inline port — anything
+    // after the host colon is parsed as the path. So we keep the repo host
+    // clean and, for a non-default port, override the SSH connect command
+    // (restic's documented mechanism for custom SFTP ports).
+    const repo = `sftp:${user}@${host}:${remotePath}`
 
-    return {
-      repo,
-      password: config.password
+    const cfg: ResticRepoConfig = { repo, password: config.password }
+    const port = config.port ? String(config.port) : ''
+    if (port && port !== '22') {
+      cfg.options = { 'sftp.command': `ssh ${user}@${host} -p ${port} -s sftp` }
     }
+    return cfg
   }
 }
