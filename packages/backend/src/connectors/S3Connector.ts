@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { S3StorageAdapter } from '../storage/adapters/S3StorageAdapter'
 
 export class S3Connector implements IConnectorPlugin {
@@ -19,14 +19,18 @@ export class S3Connector implements IConnectorPlugin {
     ]
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const adapter = new S3StorageAdapter({ type: 's3', ...config })
       await adapter.test()
-      return true
-    } catch (err) {
-      console.error('S3 test failed:', err)
-      return false
+      return { success: true, latencyMs: Date.now() - started }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `S3 repository unreachable: ${err?.message ?? String(err)}`,
+        latencyMs: Date.now() - started
+      }
     }
   }
 

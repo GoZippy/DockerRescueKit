@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorResource, ConnectorDefinition } from '@docker-rescue-kit/shared'
+import { ConnectorResource, ConnectorDefinition, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import axios from 'axios'
 import https from 'https'
 
@@ -29,14 +29,28 @@ export class TrueNASConnector implements IConnectorPlugin {
     })
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const client = this.getClient(config)
       const res = await client.get('/system/info')
-      return res.status === 200
-    } catch (e) {
-      console.error('TrueNAS connection failed:', e)
-      return false
+      const latencyMs = Date.now() - started
+      if (res.status !== 200) {
+        return { success: false, error: `Unexpected HTTP ${res.status} from /api/v2.0/system/info`, latencyMs }
+      }
+      return {
+        success: true,
+        latencyMs,
+        serverInfo: { hostname: res.data?.hostname, version: res.data?.version }
+      }
+    } catch (e: any) {
+      const status = e?.response?.status
+      const msg = status
+        ? `TrueNAS API ${status}: ${e.response?.data?.message || e.message}`
+        : (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout'))
+          ? 'TrueNAS host did not respond within 10s — check host URL and API key'
+          : `TrueNAS unreachable: ${e.message}`
+      return { success: false, error: msg, latencyMs: Date.now() - started }
     }
   }
 

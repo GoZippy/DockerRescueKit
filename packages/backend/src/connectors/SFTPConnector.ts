@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { SFTPStorageAdapter } from '../storage/adapters/SFTPStorageAdapter'
 
 export class SFTPConnector implements IConnectorPlugin {
@@ -17,14 +17,18 @@ export class SFTPConnector implements IConnectorPlugin {
     ]
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const adapter = new SFTPStorageAdapter({ type: 'sftp', ...config })
       await adapter.test()
-      return true
-    } catch (err) {
-      console.error('SFTP test failed:', err)
-      return false
+      return { success: true, latencyMs: Date.now() - started }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `SFTP repository unreachable: ${err?.message ?? String(err)}`,
+        latencyMs: Date.now() - started
+      }
     }
   }
 

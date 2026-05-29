@@ -591,12 +591,16 @@ export class BackupService {
     // NOTE: /connectors/test keeps its local try/catch because the failure
     // payload is shaped specifically for the UI ({ success: false, error }),
     // not just `{ error }` like the central handler returns.
+    //
+    // F2: forward the structured ConnectorTestResult ({success, error?,
+    // latencyMs?, serverInfo?}) directly. Route through ConnectorManager so
+    // the SSRF guard runs before the connector touches the network.
     this.app.post('/api/connectors/test', validate(ConnectorTestSchema), async (req, res) => {
       try {
         const { type, config } = req.body
         const plugin = ConnectorRegistry.getPlugin(type)
         if (!plugin) return res.status(404).json({ error: `Plugin ${type} not found`, success: false })
-        res.json({ success: await plugin.testConnection(config) })
+        res.json(await this.connectorManager.testInstance(type, config))
       } catch (err: any) {
         res.status(500).json({ error: err.message, success: false })
       }

@@ -45,11 +45,11 @@ describe('SMBConnector', () => {
     expect(resources).toEqual([])
   })
 
-  it('testConnection returns false for unreachable host', async () => {
+  it('testConnection returns success:false for unreachable host', async () => {
     const result = await connector.testConnection({
       host: '192.0.2.1',
       share: 'test',
     })
-    expect(result).toBe(false)
+    expect(result.success).toBe(false)
   })
 })

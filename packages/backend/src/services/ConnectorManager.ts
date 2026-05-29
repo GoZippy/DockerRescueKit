@@ -1,6 +1,6 @@
 import { Database } from '../db/Database'
 import { VaultService } from './VaultService'
-import { ConnectorInstance, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorInstance, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry'
 import { resolveDiscovery } from '../connectors/base'
 import { SsrfGuard, SsrfBlockedError } from '../security/SsrfGuard'
@@ -41,19 +41,23 @@ export class ConnectorManager {
     await this.db.deleteConnector(id)
   }
 
-  public async testInstance(type: string, config: any): Promise<{ success: boolean; error?: string }> {
+  public async testInstance(type: string, config: any): Promise<ConnectorTestResult> {
     const plugin = ConnectorRegistry.getPlugin(type as any)
     if (!plugin) return { success: false, error: 'Connector type not supported' }
 
     try {
       await this.guardTarget(config)
-      const success = await plugin.testConnection(config)
-      return { success }
+      // F2: the connector returns a structured ConnectorTestResult — forward
+      // directly so callers get latency / serverInfo / per-impl error reason.
+      return await plugin.testConnection(config)
     } catch (e: any) {
       if (e instanceof SsrfBlockedError) {
         return { success: false, error: `${e.message}. If this is an intentional internal target, add its CIDR to DRK_SSRF_ALLOWLIST.` }
       }
-      return { success: false, error: e.message }
+      // Defensive — a well-behaved connector returns ok:false instead of
+      // throwing, but we wrap anyway so the route layer never sees an
+      // unhandled rejection.
+      return { success: false, error: e?.message ?? String(e) }
     }
   }
 

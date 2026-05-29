@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { PBSStorageAdapter } from '../storage/adapters/PBSStorageAdapter'
 
 export class PBSConnector implements IConnectorPlugin {
@@ -37,14 +37,18 @@ export class PBSConnector implements IConnectorPlugin {
     ]
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const adapter = new PBSStorageAdapter({ type: 'proxmox-backup-server', ...config })
       await adapter.test()
-      return true
-    } catch (err) {
-      console.error('[PBS] Connection test failed:', err)
-      return false
+      return { success: true, latencyMs: Date.now() - started }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `PBS unreachable: ${err?.message ?? String(err)}`,
+        latencyMs: Date.now() - started
+      }
     }
   }
 

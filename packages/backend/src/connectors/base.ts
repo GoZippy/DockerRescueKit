@@ -1,17 +1,20 @@
-import { ConnectorDefinition, ConnectorType, ConnectorInstance, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorType, ConnectorInstance, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 
 export interface IConnectorPlugin {
   readonly definition: ConnectorDefinition
 
   /**
-   * Validates configuration and checks that the remote system is reachable and authenticated.
+   * Validates configuration and checks that the remote system is reachable
+   * and authenticated. Returns a structured result so callers can surface
+   * the error reason without a side-channel.
    *
-   * Note (E0 / DR-001): the return contract is `Promise<boolean>` for now and
-   * changes to a structured `ConnectorTestResult` in F2 (Sprint 2). Callers
-   * that need the error reason should catch thrown errors from the implementation
-   * until F2 lands.
+   * F2 / v1.3-connectors: contract changed from `Promise<boolean>`.
+   * Implementations should return `{ success: true, latencyMs?, serverInfo? }`
+   * or `{ success: false, error: 'reason' }`. May still throw on truly
+   * unexpected errors — ConnectorManager catches and wraps as
+   * `{ success: false, error: e.message }`.
    */
-  testConnection(config: Record<string, any>): Promise<boolean>
+  testConnection(config: Record<string, any>): Promise<ConnectorTestResult>
 
   /**
    * Enumerate candidate backup destinations BEFORE the user has committed

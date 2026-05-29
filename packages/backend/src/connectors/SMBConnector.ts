@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { SMBStorageAdapter } from '../storage/adapters/SMBStorageAdapter'
 
 export class SMBConnector implements IConnectorPlugin {
@@ -17,13 +17,14 @@ export class SMBConnector implements IConnectorPlugin {
     ]
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const adapter = new SMBStorageAdapter({ type: 'smb', ...config })
       await adapter.test()
-      return true
-    } catch {
-      return false
+      return { success: true, latencyMs: Date.now() - started }
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Connection failed', latencyMs: Date.now() - started }
     }
   }
 

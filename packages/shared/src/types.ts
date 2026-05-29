@@ -368,6 +368,26 @@ export interface ConnectorResource {
   metadata?: Record<string, any>
 }
 
+/**
+ * Structured result of `IConnectorPlugin.testConnection()`.
+ *
+ * Wire format on `POST /api/connectors/test` matches this shape — the route
+ * forwards directly. `success` (not `ok`) is kept for back-compat with the
+ * existing UI (AddConnectorWizard checks `res.success`).
+ *
+ * See F2 / v1.3-connectors.
+ */
+export interface ConnectorTestResult {
+  /** True iff the remote system is reachable and authenticated. */
+  readonly success: boolean
+  /** Human-readable error reason when success === false. */
+  readonly error?: string
+  /** Round-trip latency for the test in milliseconds. */
+  readonly latencyMs?: number
+  /** Optional server-side info (e.g. Proxmox version, TrueNAS hostname). */
+  readonly serverInfo?: Record<string, unknown>
+}
+
 // ===========================================================================
 // Rescue Dashboard health-check endpoints (v1.3+)
 // ===========================================================================

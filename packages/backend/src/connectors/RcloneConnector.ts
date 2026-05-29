@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { RcloneStorageAdapter } from '../storage/adapters/RcloneStorageAdapter'
 
 export class RcloneConnector implements IConnectorPlugin {
@@ -16,14 +16,18 @@ export class RcloneConnector implements IConnectorPlugin {
     ]
   }
 
-  public async testConnection(config: Record<string, any>): Promise<boolean> {
+  public async testConnection(config: Record<string, any>): Promise<ConnectorTestResult> {
+    const started = Date.now()
     try {
       const adapter = new RcloneStorageAdapter({ type: 'rclone', ...config })
       await adapter.test()
-      return true
-    } catch (err) {
-      console.error('Rclone test failed:', err)
-      return false
+      return { success: true, latencyMs: Date.now() - started }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Rclone repository unreachable: ${err?.message ?? String(err)}`,
+        latencyMs: Date.now() - started
+      }
     }
   }
 
