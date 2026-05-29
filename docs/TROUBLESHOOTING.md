@@ -200,3 +200,32 @@ docker pull --platform linux/arm/v7 gozippy/dockerrescuekit:standalone-latest
 
 If you're on 32-bit Raspbian, upgrade to 64-bit Bookworm — `better-
 sqlite3` (DRK's storage engine) drops 32-bit ARM in its next major.
+
+---
+
+## Cloud OAuth (Google Drive / OneDrive / Dropbox) shows `127.0.0.1:53682` and won't connect
+
+**Symptom.** Adding a Google Drive / OneDrive / Dropbox remote shows a link
+like `http://127.0.0.1:53682/` and "Open in browser" does nothing /
+connection refused.
+
+**Diagnosis.** Older builds (≤ v1.2.x) ran `rclone authorize` *inside* the
+DRK container. rclone's OAuth callback only binds `127.0.0.1:53682`, which
+lives in the container's network namespace and is never published — your
+host browser can't reach it. The flow could never complete. See
+[`decisions/DR-002`](./decisions/DR-002-rclone-oauth-host-authorize.md).
+
+**Fix.** Update to the current build. The wizard now gives you a command to
+run on a machine that has a browser (your own desktop), then you paste the
+token back:
+
+1. In **Integrations → Add Remote → Google Drive**, enter a name and click
+   **Authorize**.
+2. On your desktop (with [rclone](https://rclone.org/downloads/) installed),
+   run the command shown — e.g. `rclone authorize "drive"`. A browser tab
+   opens; sign in and approve.
+3. rclone prints a token between `--->` and `<---End paste`. Copy that JSON.
+4. Paste it into **Step 2** in the wizard and click **Save token**.
+
+The token is stored encrypted at rest (AES-256-GCM); rclone never runs a
+browser flow inside the container.

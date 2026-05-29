@@ -196,20 +196,14 @@ export const testRcloneRemote = async (name: string) => {
   return apiClient.post<{ ok: boolean; error?: string }>(`/rclone/remotes/${encodeURIComponent(name)}/test`)
 }
 
-export const startRcloneOAuth = async (sessionId: string, providerType: string) => {
-  return apiClient.post<{ url: string }>('/rclone/oauth/start', { sessionId, providerType })
+// Returns the `rclone authorize` command the user runs on a machine that has
+// a browser; the token it prints is pasted back via finishRcloneOAuth.
+export const startRcloneOAuth = async (providerType: string) => {
+  return apiClient.post<{ command: string }>('/rclone/oauth/start', { providerType })
 }
 
-export const pollRcloneOAuthToken = async (sessionId: string) => {
-  return apiClient.get<{ token: string | null }>(`/rclone/oauth/token/${sessionId}`)
-}
-
-export const finishRcloneOAuth = async (sessionId: string, remoteName: string, providerType: string, token: string) => {
-  return apiClient.post<any>('/rclone/oauth/finish', { sessionId, remoteName, providerType, token })
-}
-
-export const cancelRcloneOAuth = async (sessionId: string) => {
-  await apiClient.post<any>('/rclone/oauth/cancel', { sessionId })
+export const finishRcloneOAuth = async (remoteName: string, providerType: string, token: string) => {
+  return apiClient.post<any>('/rclone/oauth/finish', { remoteName, providerType, token })
 }
 
 export const protectStack = async (project: string) => {

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   X, Cloud, Server, HardDrive, Wifi, CheckCircle2, AlertCircle,
-  ExternalLink, Copy, RefreshCw, Loader2, Trash2, Plus
+  ExternalLink, Copy, RefreshCw, Loader2, Trash2, Plus, Terminal
 } from 'lucide-react'
 import {
   getRcloneProviders, getRcloneRemotes,
   createRcloneRemote, deleteRcloneRemote, testRcloneRemote,
-  startRcloneOAuth, pollRcloneOAuthToken, finishRcloneOAuth, cancelRcloneOAuth
+  startRcloneOAuth, finishRcloneOAuth
 } from '../api'
 
 interface Provider {
@@ -45,20 +45,16 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
   const [saving, setSaving] = useState(false)
 
   // OAuth state
-  const [oauthStep, setOauthStep] = useState<'idle' | 'waiting-url' | 'waiting-token' | 'pasting' | 'done'>('idle')
+  const [oauthStep, setOauthStep] = useState<'idle' | 'fetching' | 'paste' | 'done'>('idle')
   const [savingOAuth, setSavingOAuth] = useState(false)
-  const [oauthUrl, setOauthUrl] = useState<string | null>(null)
+  const [oauthCommand, setOauthCommand] = useState<string | null>(null)
   const [oauthToken, setOauthToken] = useState('')
-  const sessionId = useRef(`oauth-${Date.now()}`)
-  const pollTimer = useRef<any>(null)
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     document.body.classList.add('modal-open')
     return () => {
       document.body.classList.remove('modal-open')
-      cancelRcloneOAuth(sessionId.current).catch(() => {})
-      if (pollTimer.current) clearInterval(pollTimer.current)
     }
   }, [])
 
@@ -135,14 +131,12 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
     setRemoteName('')
     setKeyParams({})
     setOauthStep('idle')
-    setOauthUrl(null)
+    setOauthCommand(null)
     setOauthToken('')
     setView('add')
   }
 
   const cancelAdd = () => {
-    cancelRcloneOAuth(sessionId.current).catch(() => {})
-    if (pollTimer.current) clearInterval(pollTimer.current)
     setView('remotes')
     setSelectedProvider(null)
     setOauthStep('idle')
@@ -169,32 +163,13 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
 
   const beginOAuth = async () => {
     if (!remoteName.trim() || !selectedProvider) return
-    sessionId.current = `oauth-${Date.now()}`
-    setOauthStep('waiting-url')
-    setOauthUrl(null)
+    setOauthStep('fetching')
+    setOauthCommand(null)
     setError(null)
     try {
-      const { url } = await startRcloneOAuth(sessionId.current, selectedProvider.id)
-      setOauthUrl(url)
-      setOauthStep('waiting-token')
-
-      // Poll backend for the auto-captured token every 3s
-      pollTimer.current = setInterval(async () => {
-        const { token } = await pollRcloneOAuthToken(sessionId.current)
-        if (token) {
-          clearInterval(pollTimer.current)
-          setOauthToken(token)
-          setOauthStep('pasting')
-        }
-      }, 3000)
-
-      // Timeout after 3 minutes
-      setTimeout(() => {
-        if (oauthStep !== 'done') {
-          clearInterval(pollTimer.current)
-          setOauthStep('pasting')
-        }
-      }, 180_000)
+      const { command } = await startRcloneOAuth(selectedProvider.id)
+      setOauthCommand(command)
+      setOauthStep('paste')
     } catch (e: any) {
       setOauthStep('idle')
       setError(e?.response?.data?.error || e.message)
@@ -206,7 +181,7 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
     setSavingOAuth(true)
     setError(null)
     try {
-      await finishRcloneOAuth(sessionId.current, remoteName.trim(), selectedProvider.id, oauthToken.trim())
+      await finishRcloneOAuth(remoteName.trim(), selectedProvider.id, oauthToken.trim())
       setOauthStep('done')
       await load()
       setTimeout(() => setView('remotes'), 1500)
@@ -217,7 +192,7 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
     }
   }
 
-  const copyUrl = () => { if (oauthUrl) navigator.clipboard.writeText(oauthUrl) }
+  const copyCommand = () => { if (oauthCommand) navigator.clipboard.writeText(oauthCommand) }
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -233,7 +208,7 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
     } else if (selectedProvider.authType === 'oauth' && oauthStep === 'idle' && remoteName.trim()) {
       e.preventDefault()
       beginOAuth()
-    } else if (selectedProvider.authType === 'oauth' && oauthStep === 'pasting' && oauthToken.trim() && !savingOAuth) {
+    } else if (selectedProvider.authType === 'oauth' && oauthStep === 'paste' && oauthToken.trim() && !savingOAuth) {
       e.preventDefault()
       finishOAuth()
     }
@@ -415,71 +390,60 @@ apt install rclone
                   {oauthStep === 'idle' && (
                     <div className="card" style={{ background: 'var(--surface-1)' }}>
                       <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
-                        Click <strong>Authorize</strong> to start the {selectedProvider.name} OAuth flow.
-                        A URL will appear — open it in your browser and sign in. The token will be
-                        captured automatically, or you can paste it manually.
+                        {selectedProvider.name} uses a browser sign-in that must run on a machine
+                        with a web browser (your own desktop). Click <strong>Authorize</strong> and
+                        we'll give you a one-line <span className="font-mono">rclone authorize</span>{' '}
+                        command to run there — then paste the token it prints back here.
                       </p>
                     </div>
                   )}
 
-                  {oauthStep === 'waiting-url' && (
+                  {oauthStep === 'fetching' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 16, background: 'var(--surface-1)', borderRadius: 'var(--r-md)' }}>
                       <Loader2 size={16} className="animate-spin" color="var(--blue-500)" />
-                      <span style={{ fontSize: 13 }}>Starting authorization flow…</span>
+                      <span style={{ fontSize: 13 }}>Preparing authorize command…</span>
                     </div>
                   )}
 
-                  {(oauthStep === 'waiting-token' || oauthStep === 'pasting') && oauthUrl && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {oauthStep === 'paste' && oauthCommand && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div className="card" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue-border)' }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: '#93c5fd' }}>
-                          Step 1 — Authorize in your browser
+                        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: '#93c5fd' }}>
+                          Step 1 — Run this on a machine with a browser
                         </div>
-                        <div className="font-mono" style={{ fontSize: 11, wordBreak: 'break-all', background: 'var(--surface-1)', padding: '8px 10px', borderRadius: 'var(--r-sm)', marginBottom: 8 }}>
-                          {oauthUrl}
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 0, marginBottom: 8 }}>
+                          Requires rclone installed there (<span className="font-mono">rclone.org/downloads</span>).
+                          It opens a browser tab — sign in and approve. rclone then prints a token.
+                        </p>
+                        <div className="font-mono" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, background: 'var(--surface-1)', padding: '8px 10px', borderRadius: 'var(--r-sm)' }}>
+                          <Terminal size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                          <span style={{ flex: 1, wordBreak: 'break-all' }}>{oauthCommand}</span>
                         </div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <a
-                            href={oauthUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-primary"
-                            style={{ fontSize: 12 }}
-                          >
-                            <ExternalLink size={12} /> Open in browser
-                          </a>
-                          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={copyUrl}>
-                            <Copy size={12} /> Copy URL
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={copyCommand}>
+                            <Copy size={12} /> Copy command
                           </button>
                         </div>
                       </div>
 
-                      {oauthStep === 'waiting-token' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
-                          <Loader2 size={14} className="animate-spin" />
-                          Waiting for authorization to complete…
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {oauthStep === 'pasting' && (
-                    <div>
-                      <label className="form-label">
-                        Step 2 — Paste the token from the rclone authorize output
-                      </label>
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        After signing in, rclone will output a JSON token starting with <span className="font-mono">{`{"access_token":`}</span>.
-                        Paste the entire token here, or it will be filled automatically.
-                      </p>
-                      <textarea
-                        className="form-input font-mono"
-                        rows={4}
-                        placeholder={`{"access_token":"..."}`}
-                        value={oauthToken}
-                        onChange={e => setOauthToken(e.target.value)}
-                        style={{ resize: 'vertical' }}
-                      />
+                      <div>
+                        <label className="form-label">
+                          Step 2 — Paste the token rclone printed
+                        </label>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                          Copy everything between <span className="font-mono">{'--->'}</span> and{' '}
+                          <span className="font-mono">{'<---End paste'}</span> — a JSON object starting
+                          with <span className="font-mono">{`{"access_token":`}</span>.
+                        </p>
+                        <textarea
+                          className="form-input font-mono"
+                          rows={4}
+                          placeholder={`{"access_token":"..."}`}
+                          value={oauthToken}
+                          onChange={e => setOauthToken(e.target.value)}
+                          style={{ resize: 'vertical' }}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -518,7 +482,7 @@ apt install rclone
                   <ExternalLink size={14} /> Authorize with {selectedProvider.name}
                 </button>
               )}
-              {selectedProvider.authType === 'oauth' && oauthStep === 'pasting' && (
+              {selectedProvider.authType === 'oauth' && oauthStep === 'paste' && (
                 <button
                   className="btn btn-primary"
                   disabled={!oauthToken.trim() || savingOAuth}

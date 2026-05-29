@@ -95,9 +95,6 @@ export class RcloneService extends EventEmitter {
   private rcloneBin: string
   private configPath: string
 
-  /** Active OAuth authorize processes keyed by session ID. */
-  private oauthSessions = new Map<string, { proc: any; url: string | null; token: string | null }>()
-
   constructor(dataDir: string) {
     super()
     this.rcloneBin = process.env.RCLONE_BIN || 'rclone'
@@ -155,85 +152,41 @@ export class RcloneService extends EventEmitter {
   // ── OAuth flow ────────────────────────────────────────────────────────
 
   /**
-   * Start an OAuth authorization flow for a provider that requires browser
-   * consent (Google Drive, OneDrive, Dropbox). Returns a session ID and the
-   * authorization URL to open in the browser.
+   * Build the `rclone authorize` command the user must run **on a machine that
+   * has both rclone and a web browser** (typically their own desktop), then
+   * paste the resulting token back here via {@link finishOAuth}.
    *
-   * The backend runs `rclone authorize --auth-no-open-browser <type>` as a
-   * background process, parses the authorization URL from its output, and
-   * waits for the user to complete the flow. Once the user pastes the
-   * authorization code back (via authFinish), we write the token to the
-   * config file.
+   * Why we don't run `rclone authorize` inside the container: it starts an
+   * OAuth callback server on 127.0.0.1:53682, and the provider (Google /
+   * Microsoft / Dropbox) only ever redirects back to that fixed loopback
+   * address. Inside this container 127.0.0.1 is a separate network namespace
+   * and port 53682 is never published, so the user's host browser could never
+   * reach the callback and the flow could never complete. This is exactly
+   * rclone's documented "remote / headless setup" pattern: authorize on the
+   * box that has the browser, copy the token it prints, paste it here.
    */
-  public async startOAuth(sessionId: string, providerType: string): Promise<string> {
-    await this.ensureAvailable()
-    this.stopOAuth(sessionId)
-
-    const session: { proc: any; url: string | null; token: string | null } = {
-      proc: null, url: null, token: null
+  public buildAuthorizeCommand(providerType: string): string {
+    const provider = RCLONE_PROVIDERS.find(p => p.id === providerType)
+    if (!provider || provider.authType !== 'oauth') {
+      throw new Error(`'${providerType}' is not an OAuth provider`)
     }
-    this.oauthSessions.set(sessionId, session)
-
-    return new Promise((resolve, reject) => {
-      const proc = spawn(this.rcloneBin, ['authorize', '--auth-no-open-browser', providerType], {
-        env: { ...process.env, RCLONE_CONFIG: this.configPath }
-      })
-      session.proc = proc
-
-      let stdout = ''
-      proc.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString()
-        const urlMatch = stdout.match(/(https?:\/\/accounts\.google\.[^\s]+|https?:\/\/login\.microsoftonline\.[^\s]+|https?:\/\/www\.dropbox\.[^\s]+|https?:\/\/[^\s]+auth[^\s]+)/i)
-        if (urlMatch && !session.url) {
-          session.url = urlMatch[1]
-          this.emit('oauth-url', sessionId, session.url)
-          resolve(session.url)
-        }
-        // Capture the token JSON when it appears
-        const tokenMatch = stdout.match(/Paste the following into your remote machine[\s\S]*?--->\s*([\s\S]+?)\s*<---/)
-        if (tokenMatch) {
-          session.token = tokenMatch[1].trim()
-          this.emit('oauth-token', sessionId, session.token)
-        }
-      })
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        const text = chunk.toString()
-        const urlMatch = text.match(/(https?:\/\/[^\s]+)/i)
-        if (urlMatch && !session.url) {
-          session.url = urlMatch[1]
-          this.emit('oauth-url', sessionId, session.url)
-          resolve(session.url)
-        }
-      })
-
-      proc.on('error', reject)
-      proc.on('close', (code: number) => {
-        if (code !== 0 && !session.url) {
-          reject(new Error(`rclone authorize exited ${code}`))
-        }
-      })
-
-      setTimeout(() => {
-        if (!session.url) {
-          proc.kill()
-          reject(new Error('Timed out waiting for rclone authorization URL (30s)'))
-        }
-      }, 30_000)
-    })
-  }
-
-  /** Check if the OAuth process has produced a token yet. */
-  public getOAuthToken(sessionId: string): string | null {
-    return this.oauthSessions.get(sessionId)?.token ?? null
+    // providerType is a fixed id from our own catalogue (drive / onedrive /
+    // dropbox) — nothing user-controlled, so there is nothing to escape.
+    return `rclone authorize "${providerType}"`
   }
 
   /**
-   * Complete an OAuth flow by taking the token string the user copied from
-   * the browser and configuring the remote.
+   * Complete an OAuth flow by taking the token JSON the user copied from the
+   * `rclone authorize` output on their machine and writing it into a named
+   * remote in this container's rclone config.
    */
-  public async finishOAuth(sessionId: string, remoteName: string, providerType: string, token: string): Promise<void> {
-    this.stopOAuth(sessionId)
+  public async finishOAuth(remoteName: string, providerType: string, token: string): Promise<void> {
+    await this.ensureAvailable()
+    try {
+      JSON.parse(token)
+    } catch {
+      throw new Error('Token must be the JSON printed by `rclone authorize` (it starts with {"access_token":...).')
+    }
     const args = [
       'config', 'create', remoteName, providerType,
       '--config', this.configPath,
@@ -242,14 +195,6 @@ export class RcloneService extends EventEmitter {
     ]
     const r = await this.run(args)
     if (r.code !== 0) throw new Error(`rclone config create (OAuth) failed: ${r.stderr}`)
-  }
-
-  public stopOAuth(sessionId: string): void {
-    const session = this.oauthSessions.get(sessionId)
-    if (session?.proc) {
-      try { session.proc.kill() } catch { /* already dead */ }
-    }
-    this.oauthSessions.delete(sessionId)
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────

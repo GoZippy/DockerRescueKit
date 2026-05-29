@@ -63,12 +63,10 @@ export const RcloneCreateRemoteSchema = z.object({
 })
 
 export const RcloneOAuthStartSchema = z.object({
-  sessionId: z.string().min(1),
   providerType: z.string().min(1)
 })
 
 export const RcloneOAuthFinishSchema = z.object({
-  sessionId: z.string().min(1),
   remoteName: z.string().min(1),
   providerType: z.string().min(1),
   token: z.string().min(1)
@@ -100,10 +98,6 @@ export const nameParamSchema = z.object({
   name: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/)
 })
 
-// `:sessionId` for the rclone OAuth poll endpoint.
-export const sessionIdParamSchema = z.object({
-  sessionId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/)
-})
 
 // `:key` for the settings k/v endpoint — keys are well-known short slugs.
 export const settingKeyParamSchema = z.object({

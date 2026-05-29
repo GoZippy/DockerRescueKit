@@ -20,7 +20,6 @@ import {
   idParamSchema,
   projectParamSchema,
   nameParamSchema,
-  sessionIdParamSchema,
   settingKeyParamSchema,
   fileQuerySchema
 } from './validation/schemas'
@@ -775,34 +774,24 @@ export class BackupService {
       res.json(result)
     }))
 
-    // OAuth flow — returns the authorization URL immediately
+    // OAuth flow — returns the `rclone authorize` command the user runs on a
+    // machine that has a browser. See RcloneService.buildAuthorizeCommand for
+    // why this can't run inside the container (127.0.0.1:53682 is unreachable
+    // from the host browser).
     this.app.post('/api/rclone/oauth/start', validate(RcloneOAuthStartSchema), asyncHandler(async (req, res) => {
-      const { sessionId, providerType } = req.body
-      if (!sessionId || !providerType) {
-        throw new BadRequestError('sessionId and providerType required')
-      }
-      const url = await this.rclone.startOAuth(sessionId, providerType)
-      res.json({ url })
+      const { providerType } = req.body
+      await this.rclone.ensureAvailable()
+      const command = this.rclone.buildAuthorizeCommand(providerType)
+      res.json({ command })
     }))
 
-    // Poll for the OAuth token (client polls until non-null)
-    this.app.get('/api/rclone/oauth/token/:sessionId', validateParams(sessionIdParamSchema), (req, res) => {
-      const token = this.rclone.getOAuthToken(req.params.sessionId)
-      res.json({ token })
-    })
-
-    // Finish OAuth — save the token as a named remote
+    // Finish OAuth — save the pasted token as a named remote
     this.app.post('/api/rclone/oauth/finish', validate(RcloneOAuthFinishSchema), asyncHandler(async (req, res) => {
-      const { sessionId, remoteName, providerType, token } = req.body
-      await this.rclone.finishOAuth(sessionId, remoteName, providerType, token)
+      const { remoteName, providerType, token } = req.body
+      await this.rclone.finishOAuth(remoteName, providerType, token)
       await this.audit.record('rclone.oauth-complete', { remoteName, providerType })
       res.json({ success: true })
     }))
-
-    this.app.post('/api/rclone/oauth/cancel', (req, res) => {
-      this.rclone.stopOAuth(req.body.sessionId)
-      res.json({ success: true })
-    })
 
   }
 
