@@ -94,3 +94,6 @@ THIRD_PARTY_LICENSES.json
 .cursorignore
 .continueignore
 .windsurfignore
+
+# Claude Code worktrees (embedded git repos)
+.claude/worktrees/
