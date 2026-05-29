@@ -7,7 +7,7 @@ split is intended to work. Internal business-plan detail lives in
 
 ---
 
-## Current State (v1.0 / v1.1-dev)
+## Current State (v1.2 — May 2026)
 
 ### What is fully implemented and working
 
@@ -15,35 +15,40 @@ split is intended to work. Internal business-plan detail lives in
 |---|---|
 | **Backup engine** | Containers, volumes, images, and networks captured as a coherent unit |
 | **Pre/post hooks** | `docker exec` hook runner before and after each backup operation |
-| **Database exporters** | PostgreSQL, MySQL, MongoDB, Redis, SQLite dumps before backup |
+| **Database exporters** | PostgreSQL, MySQL, MongoDB, Redis, SQLite, InfluxDB, MSSQL (7 total) |
 | **Storage: Local** | Tarball-based filesystem backup |
-| **Storage: SMB/CIFS** | Windows shares (TrueNAS, Synology, QNAP, Unraid) via Restic |
-| **Storage: SFTP** | SSH file transfer via Restic |
-| **Storage: S3** | AWS S3 and S3-compatible (MinIO, Wasabi, Backblaze B2) via Restic |
+| **Storage: SMB/CIFS** | Windows shares via cifs-utils mount + restic |
+| **Storage: SFTP** | SSH file transfer via restic |
+| **Storage: S3** | AWS S3 and S3-compatible (MinIO, Wasabi, Backblaze B2) via restic |
 | **Storage: Proxmox PBS** | Native Proxmox Backup Server integration |
 | **Storage: Restic** | Generic Restic repository backend |
-| **Storage: Rclone** | ~40 cloud providers (Google Drive, OneDrive, Dropbox, Azure Blob, etc.) |
+| **Storage: Rclone** | ~40 cloud providers; OAuth via host-authorize model (DR-002) |
 | **Scheduler** | `node-cron`-based policies; pause/resume without losing state |
 | **Retention** | Count-based, time-based, or tiered (daily/weekly/monthly) |
 | **Verify** | Restore-test in isolated scratch container; results stored in DB |
+| **Rehearsal workflow** | Sandbox restore + smoke checks with SSE streaming (DR-001) |
 | **Partial restore** | Browse files inside a backup archive; extract individual files |
 | **REST API** | All features reachable via `x-api-key`-authenticated HTTP endpoints |
-| **CLI (`drk`)** | Full CLI wrapping the REST API; policy, backup, connector, rclone subcommands |
-| **Web UI** | React/Vite dashboard: policy editor, backup history, restore wizard, connector setup, settings |
-| **Docker Desktop Extension** | Socket-transport integration (`DRK_TRANSPORT=socket`); published on Docker Hub |
-| **Connectors** | Proxmox, TrueNAS, S3, SFTP, PBS, Rclone discovery + credential management |
-| **Observability** | `/healthz` (unauthenticated), `/metrics` (Prometheus), structured Pino logs, `X-Request-Id` correlation |
-| **Security** | AES-256-GCM credential vault, API-key auth, rate limiting (100 req/15 min), Helmet headers, Zod validation, audit log |
-| **CI/CD** | GitHub Actions: lint → test (Ubuntu + Windows + macOS) → build → Docker build + Trivy scan; Docker push on `v*` tags |
+| **CLI (`drk`)** | Full CLI wrapping the REST API |
+| **Web UI** | React/Vite dashboard: policies, history, restore, connectors, rehearsals, cost analysis |
+| **Docker Desktop Extension** | Socket-transport integration; published on Docker Hub |
+| **Connectors** | 7 connector types (S3, SMB, SFTP, Rclone, Proxmox, TrueNAS, PBS) |
+| **Connector discovery** | Proxmox/TrueNAS/PBS have real discovery; S3/SFTP/Rclone stubs (v1.3) |
+| **SSRF protection** | SsrfGuard blocks loopback/link-local/RFC1918 by default (DR-001) |
+| **Observability** | `/healthz`, `/metrics` (Prometheus), Pino logs, `X-Request-Id` |
+| **Notification delivery** | Slack, ntfy, SMTP email (nodemailer); webhook support |
+| **Import/Export config** | Full config export on boot; import from disk or JSON |
+| **Security** | AES-256-GCM vault, API-key auth, rate limiting, Zod validation, audit log, SSRF guard |
+| **CI/CD** | GitHub Actions: lint → test → build → Docker build + Trivy scan; push on `v*` tags |
 
 ### What is NOT yet implemented (gaps)
 
 | Feature | Notes |
 |---|---|
-| **License key / feature gating** | No tiers enforced in code; every user has full access today |
-| **Per-policy limits** | Free tier is documented as 5 concurrent policies; not enforced |
-| **Stripe / billing integration** | No subscription management; no webhook handling |
-| **Notification delivery** | `NotificationService` exists as a stub; Slack/email/webhook/ntfy not wired |
+| **S3/SFTP/Rclone discovery** | Stubs return []; real discovery needs deps decision (AWS SDK vs raw HTTP, ssh2 vs openssh) |
+| **License key / feature gating** | LicenseService exists (RS256 JWT); 5-policy free gate middleware wired but not enforced |
+| **Per-policy limits** | Free tier is documented as 5 concurrent policies; gate exists but not strict |
+| **Stripe / billing integration** | Square webhooks in LicenseService; Stripe/Lemon Squeezy not integrated |
 | **Managed hosted S3 (Pro backend)** | Architecture documented; no cloud backend deployed |
 | **Docker account OAuth2** | Planned for Pro sign-in; not started |
 | **RBAC / multi-user** | Single API key only; no role-based access |
@@ -51,11 +56,16 @@ split is intended to work. Internal business-plan detail lives in
 | **Clustering / HA** | Single-process SQLite model; no multi-node |
 | **Immutable backups (WORM)** | Documented; not implemented |
 | **Ransomware detection** | Documented; not implemented |
+| **Drift detection** | Designed; not implemented |
 | **Smart tiering / auto-archive** | Documented; not implemented |
 | **Fleet / multi-host inventory** | Documented; not implemented |
 | **Compliance certifications** | HIPAA/SOC2/GDPR roadmap exists; no audits started |
 | **Public website / landing page** | No marketing site exists |
-| **Test coverage** | 21 Jest test suites exist; coverage not yet at CI-gate threshold |
+| **Test coverage CI gate** | 21+ Jest test suites exist; coverage threshold not enforced in CI |
+| **Connector discovery UI** | AddConnectorWizard has no discovery step; needs C-1/C-2 backend first |
+| **Kopia storage engine** | Not implemented; restic-only dedup |
+| **CouchDB exporter** | Not implemented; tiredofit parity gap |
+| **Cross-host federation** | P3; designed but not started |
 
 ---
 
