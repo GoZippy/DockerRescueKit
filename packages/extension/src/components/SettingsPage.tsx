@@ -2,9 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey,
   getSetting, saveSetting,
-  // TODO(v1.2.3): the following functions need to be added to ../api once the
-  // backend endpoints land. Until then the catch() branches degrade each card
-  // gracefully without crashing the page.
   getLicenseStatus, checkVersion, submitFeedback, exportConfig, importConfig,
 } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
@@ -270,7 +267,7 @@ export const SettingsPage: React.FC = () => {
   }
 
   const sendTestEmail = () => {
-    // TODO(v1.2.3): wire to POST /api/notifications/test once endpoint exists.
+    // TODO(N-2): wire to POST /api/notifications/test once claude-code lands the endpoint.
     setSmtpTestNote('Test send will land in v1.2.3 — endpoint not implemented yet.')
     console.log('[SettingsPage] SMTP test requested with config:', {
       host: smtp.host, port: smtp.port, user: smtp.user, secure: smtp.secure, from: smtp.from,

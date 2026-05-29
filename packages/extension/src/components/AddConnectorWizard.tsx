@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react'
-import { getConnectors, testConnector, saveConnectorInstance } from '../api'
+import { X, CheckCircle, AlertTriangle, Loader2, Search } from 'lucide-react'
+import { getConnectors, testConnector, saveConnectorInstance, discoverConnector } from '../api'
 
 export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: string }> = ({ onClose, initialType }) => {
   const [defs, setDefs] = useState<any[]>([])
@@ -9,10 +9,13 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
   const [testing, setTesting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [testResult, setTestResult] = useState<'none' | 'success' | 'failed'>('none')
+  const [discovering, setDiscovering] = useState(false)
+  const [discoverResults, setDiscoverResults] = useState<any[] | null>(null)
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    getConnectors().then(setDefs).catch(console.error)
+    getConnectors().then(setDeps).catch(console.error)
   }, [])
 
   // ESC-to-close + focus trap
@@ -46,6 +49,8 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
   const handleTest = async () => {
     setTesting(true)
     setTestResult('none')
+    setDiscoverResults(null)
+    setDiscoverError(null)
     try {
       const res = await testConnector(selectedType, config)
       setTestResult(res.success ? 'success' : 'failed')
@@ -53,6 +58,20 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
       setTestResult('failed')
     } finally {
       setTesting(false)
+    }
+  }
+
+  const handleDiscover = async () => {
+    setDiscovering(true)
+    setDiscoverResults(null)
+    setDiscoverError(null)
+    try {
+      const res = await discoverConnector(selectedType, config)
+      setDiscoverResults(res.resources || [])
+    } catch (err: any) {
+      setDiscoverError(err?.message || 'Discovery failed')
+    } finally {
+      setDiscovering(false)
     }
   }
 
@@ -161,6 +180,55 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
                     <AlertTriangle size={16} /> Connection failed. Please check credentials.
                   </div>
                 )}
+
+                {/* Discovery step — shown after successful test */}
+                {testResult === 'success' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        <Search size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'text-bottom' }} />
+                        Discover Resources
+                      </span>
+                      <button
+                        onClick={handleDiscover}
+                        disabled={discovering}
+                        className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }}
+                      >
+                        {discovering ? <><Loader2 size={12} className="animate-spin" /> Scanning...</> : 'Scan'}
+                      </button>
+                    </div>
+                    {discoverError && (
+                      <div style={{ fontSize: 12, color: 'var(--amber)' }}>
+                        {discoverError}
+                      </div>
+                    )}
+                    {discoverResults !== null && discoverResults.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {discoverResults.map((r: any, i: number) => (
+                          <div key={i} className="card" style={{
+                            background: 'var(--surface-2)', padding: '6px 10px',
+                            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+                          }}>
+                            <span style={{ fontWeight: 600 }}>{r.name}</span>
+                            {r.type && <span className="badge badge-muted" style={{ fontSize: 10 }}>{r.type}</span>}
+                            {r.path && <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 11 }}>{r.path}</span>}
+                            {r.size != null && <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 11 }}>{(r.size / 1024 / 1024).toFixed(1)} MB</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {discoverResults !== null && discoverResults.length === 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0' }}>
+                        No resources found. You can still save this connector and configure paths manually.
+                      </div>
+                    )}
+                    {discoverResults === null && !discoverError && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        Optional: scan for available resources (buckets, datasets, shares) on this connector.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -176,6 +244,16 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
                 className="px-4 py-2 rounded-lg font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors flex items-center gap-2"
               >
                 {testing ? <Loader2 size={16} className="animate-spin" /> : null} Test Connection
+              </button>
+            )}
+            {selectedType && testResult === 'success' && (
+              <button
+                onClick={handleDiscover}
+                disabled={discovering}
+                className="px-4 py-2 rounded-lg font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors flex items-center gap-2"
+              >
+                {discovering ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                Discover
               </button>
             )}
             {testResult === 'success' && selectedType && (
