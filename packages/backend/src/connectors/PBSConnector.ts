@@ -4,7 +4,7 @@ import { PBSStorageAdapter } from '../storage/adapters/PBSStorageAdapter'
 
 export class PBSConnector implements IConnectorPlugin {
   public readonly definition: ConnectorDefinition = {
-    type: 'pbs' as any,
+    type: 'pbs',
     displayName: 'Proxmox Backup Server',
     description: 'Direct PBS datastore integration via proxmox-backup-client. Provides dedup, compression, and native PBS snapshots. Requires proxmox-backup-client on the host.',
     icon: 'server',

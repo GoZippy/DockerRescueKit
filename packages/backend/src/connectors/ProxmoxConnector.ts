@@ -20,6 +20,7 @@ export class ProxmoxConnector implements IConnectorPlugin {
   private getClient(config: Record<string, any>) {
     return axios.create({
       baseURL: `${config.host}/api2/json`,
+      timeout: 10000,
       headers: {
         'Authorization': `PVEAPIToken=${config.tokenId}=${config.tokenSecret}`
       },

@@ -22,8 +22,7 @@ export class SMBConnector implements IConnectorPlugin {
       const adapter = new SMBStorageAdapter({ type: 'smb', ...config })
       await adapter.test()
       return true
-    } catch (err) {
-      console.error('SMB test failed:', err)
+    } catch {
       return false
     }
   }

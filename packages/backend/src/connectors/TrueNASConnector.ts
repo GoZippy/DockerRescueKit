@@ -19,6 +19,7 @@ export class TrueNASConnector implements IConnectorPlugin {
   private getClient(config: Record<string, any>) {
     return axios.create({
       baseURL: `${config.host}/api/v2.0`,
+      timeout: 10000,
       headers: {
         'Authorization': `Bearer ${config.apiKey}`
       },

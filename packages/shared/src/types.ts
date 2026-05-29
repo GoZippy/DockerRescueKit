@@ -324,7 +324,7 @@ export interface RestoreResult {
   readonly error?: string
 }
 
-export type ConnectorType = 'proxmox' | 'truenas' | 's3' | 'smb' | 'nfs' | 'sftp' | 'rclone'
+export type ConnectorType = 'proxmox' | 'truenas' | 'pbs' | 's3' | 'smb' | 'nfs' | 'sftp' | 'rclone'
 export type ConnectorStatus = 'online' | 'offline' | 'error' | 'untested'
 
 export interface ConnectorField {
