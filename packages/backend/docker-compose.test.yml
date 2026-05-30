@@ -1,14 +1,15 @@
-# Integration-test stack — spins up MinIO so the S3StorageAdapter can exercise
-# a real S3-compatible endpoint instead of relying on mocks. Used by the
-# `test-integration` Makefile target.
+# Integration-test stack — spins up MinIO + openssh-server + a local-only
+# rclone remote so D1/D2/D3 discovery tests can exercise real network protocols
+# instead of mocks.
 #
 #   docker compose -f packages/backend/docker-compose.test.yml up -d
-#   CI_INTEGRATION=1 npx jest src/__tests__/integration/s3Adapter.real.test.ts
+#   CI_INTEGRATION=1 npx jest src/__tests__/integration
 #   docker compose -f packages/backend/docker-compose.test.yml down
 #
-# Credentials are intentionally the upstream defaults (`minioadmin`/`minioadmin`)
-# because this stack is throwaway and never exposed beyond localhost.
+# All credentials are upstream defaults (`minioadmin`/`drk`/etc) because this
+# stack is throwaway and never exposed beyond localhost.
 services:
+  # ─── S3 (D1) ───────────────────────────────────────────────────────────
   minio:
     image: minio/minio:latest
     container_name: drk-test-minio
@@ -26,7 +27,8 @@ services:
       retries: 15
 
   # One-shot sidecar that waits for MinIO to be live, then ensures the test
-  # bucket exists. Using `mc` keeps the bucket-create idempotent across runs.
+  # bucket exists + drops a few keys with a "subfolder/" prefix so
+  # ListObjectsV2 discovery returns a non-empty CommonPrefixes set.
   createbucket:
     image: minio/mc:latest
     container_name: drk-test-minio-bucket-init
@@ -38,5 +40,90 @@ services:
       mc alias set local http://minio:9000 minioadmin minioadmin;
       mc mb --ignore-existing local/drk-test;
       mc anonymous set none local/drk-test;
+      echo 'seed-data' | mc pipe local/drk-test/subfolder/keep.txt;
+      echo 'seed-data' | mc pipe local/drk-test/another/keep.txt;
       echo 'bucket drk-test ready';
       "
+
+  # ─── SFTP (D2) ─────────────────────────────────────────────────────────
+  # openssh-server (linuxserver/openssh-server) exposes SFTP for D2 tests.
+  # The seed directory gets a couple of subdirs the discovery test asserts.
+  sftp:
+    image: linuxserver/openssh-server:latest
+    container_name: drk-test-sftp
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "Etc/UTC"
+      PASSWORD_ACCESS: "true"
+      USER_NAME: "drk"
+      USER_PASSWORD: "drk-test-password"
+      SUDO_ACCESS: "false"
+    ports:
+      - "2222:2222"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 2222"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # Seeds a couple of subdirectories under the SFTP user's home so
+  # discoverDestinations() returns >0 entries.
+  sftp-seed:
+    image: alpine:latest
+    container_name: drk-test-sftp-seed
+    depends_on:
+      sftp:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      apk add --no-cache openssh-client sshpass &&
+      sshpass -p drk-test-password ssh -p 2222 -o StrictHostKeyChecking=no drk@sftp 'mkdir -p backups/daily backups/weekly && echo ok' &&
+      echo 'sftp seed complete'
+      "
+
+  # ─── Rclone (D3) ───────────────────────────────────────────────────────
+  # rclone with a "local" remote backed by a known directory. The connector
+  # calls `rclone lsjson local-test:/`; the discovery test asserts the two
+  # seeded subdirs appear.
+  rclone:
+    image: rclone/rclone:latest
+    container_name: drk-test-rclone
+    command: ["serve", "sftp", "--addr=:2022", "--user=drk", "--pass=drk-test-rclone", "local-test:/seed"]
+    environment:
+      RCLONE_CONFIG: /config/rclone.conf
+    volumes:
+      - rclone-seed:/seed
+    configs:
+      - source: rclone-conf
+        target: /config/rclone.conf
+    ports:
+      - "2022:2022"
+    depends_on:
+      rclone-seed-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 2022"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  rclone-seed-init:
+    image: alpine:latest
+    container_name: drk-test-rclone-seed-init
+    volumes:
+      - rclone-seed:/seed
+    entrypoint: >
+      /bin/sh -c "
+      mkdir -p /seed/folder-a /seed/folder-b &&
+      echo 'rclone seed complete'
+      "
+
+configs:
+  rclone-conf:
+    content: |
+      [local-test]
+      type = local
+
+volumes:
+  rclone-seed:
