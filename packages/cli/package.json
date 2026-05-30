@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@docker-rescue-kit/shared": "*",
-    "axios": "^1.6.8"
+    "axios": "^1.16.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

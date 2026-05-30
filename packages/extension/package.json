@@ -13,7 +13,7 @@
   "dependencies": {
     "@docker-rescue-kit/shared": "*",
     "@docker/extension-api-client": "^0.4.0",
-    "axios": "^1.6.8",
+    "axios": "^1.16.1",
     "chart.js": "^4.4.2",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.372.0",
@@ -22,7 +22,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.2",
+    "@tailwindcss/vite": "^4.3.0",
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.25",
     "@vitejs/plugin-react": "^4.2.1",
