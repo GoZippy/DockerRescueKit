@@ -52,7 +52,18 @@ export class PBSConnector implements IConnectorPlugin {
     }
   }
 
-  public async discoverResources(config: Record<string, any>): Promise<ConnectorResource[]> {
+  /**
+   * Per DR-001: PBS *contents* are existing snapshots in the datastore.
+   * There is no separate "destinations" enumeration — the datastore is
+   * already encoded in the repo URL (the user types it in the form), and
+   * proxmox-backup-client provides no API to list peer datastores from a
+   * single credential.
+   *
+   * The wizard skips the discovery step for PBS because discoverDestinations()
+   * is intentionally not implemented. listContents() is exposed for the
+   * future restore-browser / drift dashboard.
+   */
+  public async listContents(config: Record<string, any>): Promise<ConnectorResource[]> {
     try {
       const adapter = new PBSStorageAdapter({ type: 'proxmox-backup-server', ...config })
       const snapshots = await adapter.list()

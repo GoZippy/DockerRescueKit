@@ -1,5 +1,5 @@
 import { IConnectorPlugin } from './base'
-import { ConnectorDefinition, ConnectorResource, ConnectorTestResult } from '@docker-rescue-kit/shared'
+import { ConnectorDefinition, ConnectorTestResult } from '@docker-rescue-kit/shared'
 import { SMBStorageAdapter } from '../storage/adapters/SMBStorageAdapter'
 
 export class SMBConnector implements IConnectorPlugin {
@@ -28,7 +28,9 @@ export class SMBConnector implements IConnectorPlugin {
     }
   }
 
-  public async discoverResources(_config: Record<string, any>): Promise<ConnectorResource[]> {
-    return []
-  }
+  // Per DR-001: SMB discovery is intentionally not implemented.
+  // Enumerating shares requires a mount (cifs-utils + SYS_ADMIN) which we
+  // cannot perform before the user has committed to a target. Deferred to
+  // v1.4 when we have a privilege-broker model. The wizard's discovery step
+  // gracefully skips when discoverDestinations is absent.
 }

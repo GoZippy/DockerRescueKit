@@ -40,9 +40,13 @@ describe('SMBConnector', () => {
     expect(plugin).toBe(connector)
   })
 
-  it('discoverResources returns empty array (stub)', async () => {
-    const resources = await connector.discoverResources({})
-    expect(resources).toEqual([])
+  it('does not expose discoverDestinations (intentional — needs SYS_ADMIN, deferred to v1.4)', () => {
+    // Per DR-001 + the SMB migration: SMB has no destinations enumeration
+    // because share discovery requires a mount privilege we cannot assume
+    // before the user commits to a target. resolveDiscovery() in
+    // ConnectorManager returns [] for connectors without the method.
+    expect((connector as any).discoverDestinations).toBeUndefined()
+    expect((connector as any).discoverResources).toBeUndefined()
   })
 
   it('testConnection returns success:false for unreachable host', async () => {

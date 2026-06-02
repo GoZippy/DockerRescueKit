@@ -54,14 +54,17 @@ export class TrueNASConnector implements IConnectorPlugin {
     }
   }
 
-  public async discoverResources(config: Record<string, any>): Promise<ConnectorResource[]> {
+  /**
+   * Per DR-001: ZFS datasets are *backup destinations*. Renamed from the
+   * v1.2 discoverResources(); behavior unchanged.
+   */
+  public async discoverDestinations(config: Record<string, any>): Promise<ConnectorResource[]> {
     try {
       const client = this.getClient(config)
       const res = await client.get('/pool/dataset')
       const resources: ConnectorResource[] = []
 
       for (const dataset of res.data) {
-        // Skip hidden datasets or system datasets if desired, but for now map everything
         resources.push({
           id: `zfs-dataset-${dataset.id}`,
           connectorId: '',

@@ -56,19 +56,23 @@ export class ProxmoxConnector implements IConnectorPlugin {
     }
   }
 
-  public async discoverResources(config: Record<string, any>): Promise<ConnectorResource[]> {
+  /**
+   * Per DR-001: PVE storage pools are *backup destinations* (the user picks
+   * one when configuring the connector). Returned shape is unchanged from
+   * the v1.2 discoverResources() so existing UIs keep working.
+   */
+  public async discoverDestinations(config: Record<string, any>): Promise<ConnectorResource[]> {
     try {
       const client = this.getClient(config)
       const nodesRes = await client.get('/nodes')
       const resources: ConnectorResource[] = []
 
       for (const node of nodesRes.data.data) {
-        // Get storage on this node
         const storageRes = await client.get(`/nodes/${node.node}/storage`)
         for (const storage of storageRes.data.data) {
           resources.push({
             id: `pve-storage-${node.node}-${storage.storage}`,
-            connectorId: '', // Filled by the manager later
+            connectorId: '',
             name: `${node.node} / ${storage.storage}`,
             type: 'pve-storage',
             path: storage.storage,
