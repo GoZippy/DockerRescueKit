@@ -4,7 +4,11 @@
 #   docker build -f packages/backend/Dockerfile .
 
 # ─── Stage 1: builder ────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+# Pinned to multi-arch index digest so a base republish under the same tag
+# cannot silently change what we build. Dependabot updates the tag+digest
+# together. Re-resolve manually via:
+#   docker buildx imagetools inspect node:20-alpine
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 WORKDIR /workspace
 
@@ -45,7 +49,7 @@ RUN npm prune --omit=dev
 # -39832..39834 fix versions), but the binary at downloads.rclone.org was
 # compiled before that bump and still bundles the vulnerable libs. Building
 # from the git tag picks up the fixed deps.
-FROM golang:1.25-alpine AS rclone-build
+FROM golang:1.25-alpine@sha256:8d22e29d960bc50cd025d93d5b7c7d220b1ee9aa7a239b3c8f55a57e987e8d45 AS rclone-build
 RUN apk add --no-cache git
 ARG RCLONE_VERSION=1.74.2
 WORKDIR /src
@@ -58,7 +62,7 @@ RUN go build -trimpath -ldflags="-s -w" -tags noselfupdate -o /rclone .
 # BELOW CVE fix versions). We `go get` newer versions before build to cut
 # the bundled-Go CVEs. The crypto APIs restic uses (SCrypt, Poly1305,
 # Salsa20) are stable across these versions.
-FROM golang:1.25-alpine AS restic-build
+FROM golang:1.25-alpine@sha256:8d22e29d960bc50cd025d93d5b7c7d220b1ee9aa7a239b3c8f55a57e987e8d45 AS restic-build
 RUN apk add --no-cache git
 ARG RESTIC_VERSION=0.18.1
 WORKDIR /src
@@ -69,7 +73,7 @@ ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags="-s -w" -o /restic ./cmd/restic
 
 # ─── Stage 2: final ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS final
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS final
 
 LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
       org.opencontainers.image.description="Backup and restore service for Docker containers, volumes, and stacks" \
