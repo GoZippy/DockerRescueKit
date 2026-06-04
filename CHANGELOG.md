@@ -11,6 +11,188 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.3.1] - 2026-06-04
+
+The post-v1.3.0 polish + supply-chain hardening sprint. No new user-facing
+features; the focus is on closing the still-open items flagged in the
+v1.3.0 wrap-up and tightening the release pipeline so a CRITICAL CVE can
+never reach Docker Hub.
+
+### Added
+
+**Connector reference docs (`docs/CONNECTORS.md`).** Full reference for
+all seven connectors — purpose, field-by-field schema, discovery semantics
+per [DR-001], SSRF posture per [DR-003], credential-at-rest model, and an
+"adding a new connector" checklist for future contributors. Cross-links
+DR-001 through DR-004.
+
+**Dependabot weekly cadence (`.github/dependabot.yml`).** Tracks npm,
+GitHub Actions, and Docker (root + backend Dockerfile) ecosystems. PRs
+group typescript-tooling (TS / ESLint / Jest / Prettier / @types) into
+one PR and runtime minor/patch into another so the review surface stays
+low. Security advisories trigger out-of-band PRs regardless of schedule.
+
+**`npm-audit` CI gate.** New job in `ci-cd.yml` runs
+`npm audit --audit-level=high --omit=dev` on every push and PR. A
+vulnerable transitive dependency in production deps now blocks the
+build. Dev advisories (jest, eslint, etc.) are surfaced via the
+weekly Dependabot PRs and do not gate.
+
+### Changed
+
+**Trivy now gates on CRITICAL pre-publish.** The release workflow
+(`docker.yml`) was rebuilt: it now (1) builds a single-arch local image,
+(2) Trivy-scans it with `exit-code: '1'` so any unfixed CRITICAL fails
+the workflow, (3) emits a CRITICAL+HIGH SARIF report for the Security
+tab (non-gating), and only then (4) multi-arch buildx-pushes to Docker
+Hub + Amazon ECR. The prior workflow scanned *after* push, so a
+vulnerable image could reach the registry even on a "successful" run.
+The PR pipeline (`ci-cd.yml`) got the same CRITICAL gate.
+
+**Connector contract migration.** Proxmox, TrueNAS, PBS, and SMB
+connectors now implement the [DR-001] split semantics directly. Proxmox
+storage pools and TrueNAS ZFS datasets are `discoverDestinations()`; PBS
+snapshots are `listContents()` (datastore is encoded in the repo URL, so
+no destinations to enumerate); SMB drops discovery entirely (share
+enumeration needs `cifs-utils` mount + `SYS_ADMIN`, deferred to v1.4).
+S3, SFTP, and Rclone keep their deprecated `discoverResources()` shims
+for the v1.4 deprecation window.
+
+### Security
+
+**Base images pinned to multi-arch index digests.** Both Dockerfiles
+(root + `packages/backend`) now pin `node:20-alpine` and
+`golang:1.25-alpine` to specific `sha256:...` digests. A base-image
+republish under the same floating tag can no longer change what we build
+between two CI runs of the same commit. Dependabot rotates the
+tag+digest weekly. Manual re-resolution:
+`docker buildx imagetools inspect <ref>`.
+
+[DR-001]: docs/decisions/DR-001-connector-discovery-semantic.md
+[DR-003]: docs/decisions/DR-003-ssrf-posture-default.md
+
+---
+
+## [1.3.0] - 2026-05-29
+
+The connector-hardening + storage-discovery sprint. Closes the original
+v1.3 "stubs are not real connectors" complaint by giving every storage
+connector a real discovery implementation and a structured test-result
+contract.
+
+### Added
+
+**Real storage discovery for S3, SFTP, and Rclone connectors.** Each
+adapter now enumerates real destinations against the configured remote
+so the wizard can present a picker instead of asking the user to memorize
+bucket names and remote paths.
+
+- **S3 (`D1`):** `ListBuckets` (no bucket configured) or `ListObjectsV2`
+  with `delimiter=/` (bucket configured) via path-style URLs for MinIO
+  compatibility. SigV4 is hand-rolled — no `@aws-sdk/client-s3` (~840
+  KB) or `aws4` (~6 KB) added; see [DR-004].
+- **SFTP (`D2`):** `ssh2.readdir(config.path)` with 15s connect / 30s
+  total timeouts. Auth priority: `privateKeyPath` → `sshPassword` →
+  ssh-agent fallback.
+- **Rclone (`D3`):** `child_process.execFile rclone lsjson
+  --max-depth 1 --dirs-only ${remote}:${path}`. argv array (never
+  shell), shell-injection-safe.
+
+**`AddConnectorWizard` discovery step.** New step lands between Test
+Connection success and Save: surfaces `ConnectorResource[]` as a picker,
+writes the selected resource back into the connector config (e.g.
+bucket name), and gracefully skips for connectors that don't implement
+discovery.
+
+**`SsrfGuard` for connector endpoints (`F1`).** New
+`packages/backend/src/security/SsrfGuard.ts` guards
+`ConnectorManager.testInstance` and `discoverResources` against
+server-side request forgery. Default posture (per [DR-003]) is
+**homelab-first**: always denies AWS cloud-metadata IPs
+(`169.254.169.254`, `fd00:ec2::254`), allows loopback/RFC1918/link-local
+/ULA so first-run Test Connection against a NAS at `192.168.1.x` works
+out of the box. Operators of multi-tenant deployments opt into the
+strict deny-list via `DRK_SSRF_STRICT=1`. Allowlist override via
+`DRK_SSRF_ALLOWLIST` (CSV of CIDRs).
+
+**`SMBConnector`.** Closes the UI marketplace promise that SMB shares
+were already supported. Wires `cifs-utils` mounts through
+`SMBStorageAdapter`. Discovery is intentionally deferred to v1.4 (share
+enumeration needs `SYS_ADMIN`).
+
+**Structured `ConnectorTestResult` (`F2`).** `testConnection()` no longer
+returns a bare `boolean`. The new shape is
+`{ success: boolean; error?: string; latencyMs?: number; serverInfo?: Record<string, unknown> }`,
+forwarded by `ConnectorManager.testInstance` so the UI can surface the
+exact failure reason and round-trip latency.
+
+**Test-infra docker-compose stack (`T0`).** New
+`docker-compose.test.yml` boots MinIO, openssh-server, and a rclone
+serve container so `CI_INTEGRATION=1` tests can run against real
+protocols instead of mocks. Seeded with `subfolder/` keys in the MinIO
+bucket for discovery test fixtures.
+
+**Decision records.**
+- [DR-001](docs/decisions/DR-001-connector-discovery-semantic.md):
+  split `discoverResources()` into `discoverDestinations()` +
+  `listContents()`. Old method kept as a deprecation shim for v1.3;
+  removed in v1.4.
+- [DR-002](docs/decisions/DR-002-rclone-oauth-host-authorize.md): move
+  rclone OAuth to the host. A container in a Docker Desktop extension
+  cannot bind an OAuth redirect URI, so DRK now asks the user to run
+  `rclone authorize` on their host and paste the token blob into the
+  wizard.
+- [DR-003](docs/decisions/DR-003-ssrf-posture-default.md): homelab-first
+  SSRF posture as the default; strict via `DRK_SSRF_STRICT=1`.
+- [DR-004](docs/decisions/DR-004-s3-client-choice.md): hand-rolled SigV4
+  instead of `aws-sdk` or `aws4`. Zero new deps; consistent with DRK's
+  "lighter than alternatives" positioning.
+
+### Changed
+
+**Rclone OAuth flow rewritten to host-authorize model.** The previous
+in-container `sessionId`-polling flow was unreachable from a Docker
+Desktop extension (no port binding for the redirect URI). The new flow
+displays the exact `rclone authorize` command, the user runs it on
+their host, and pastes the resulting token blob into a single textarea.
+Token blob is encrypted at rest by `VaultService`. See [DR-002].
+
+**SFTP connector custom-port fix.** Non-22 ports are now passed through
+to restic via `-o sftp.command='ssh -p <port>'`. `ResticRepoConfig`
+gained `options?: Record<string, string>` so other restic `-o` flags
+can be plumbed without further interface churn.
+
+**`/api/connectors/discover` accepts an optional `mode` parameter.**
+`mode: 'destinations' | 'contents'` routes the request through
+`resolveDiscovery()`, which falls through
+`discoverDestinations → listContents → discoverResources → []`.
+Connectors that haven't implemented a given mode degrade gracefully.
+
+**`IConnectorPlugin.discoverResources` is now optional.** Migrated
+connectors (D1/D2/D3) can drop the deprecated method. The route layer
+back-compat is preserved by `resolveDiscovery()`.
+
+### Fixed
+
+**`THIRD_PARTY_LICENSES.json` is now generated from the real dependency
+tree** instead of being hand-curated and out of date. `tools/gen_licenses.js`
+regenerates both `THIRD_PARTY_LICENSES.json` and `.md`; committed under
+the build artifacts and updated by the release commit.
+
+**Audit-log "tamper-evident" wording corrected.** The append-only SQLite
+table is not hash-chained. Docs now say "append-only" rather than
+"tamper-evident" so we stop overclaiming. Hash-chained audit log is a
+separate feature, queued.
+
+### Security
+
+**`SsrfGuard` is the new perimeter for every connector that takes a
+host/endpoint field.** See [DR-003] for the posture decision.
+
+[DR-004]: docs/decisions/DR-004-s3-client-choice.md
+
+---
+
 ## [1.2.5] - 2026-05-28
 
 ### Hotfix (re-pushed within 1 hour of initial 1.2.5 push)
