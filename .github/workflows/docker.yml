@@ -1,25 +1,29 @@
 # Release workflow — fires on any v* tag.
 #
-# Builds two products in parallel, both multi-arch (amd64+arm64), both
-# pushed to Docker Hub AND Amazon ECR:
+# Builds two products in parallel, both multi-arch (amd64+arm64). Always
+# pushes to Docker Hub; pushes to Amazon ECR ONLY when AWS_ROLE_TO_ASSUME
+# is set as a repo secret (ECR is optional bonus, not a release blocker).
 #
 #   - Standalone backend → gozippy/dockerrescuekit:standalone-<tag>
 #                          gozippy/dockerrescuekit:standalone-latest
-#                          <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:<tag>
-#                          <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:latest
+#                          [optional] <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit-standalone:<tag>
 #   - Marketplace extension → gozippy/dockerrescuekit:<tag-without-v>
 #                             gozippy/dockerrescuekit:latest
-#                             <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:<tag>
-#                             <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:latest
+#                             [optional] <account>.dkr.ecr.<region>.amazonaws.com/dockerrescuekit:<tag>
 #
 # Then runs Trivy on each pushed image and uploads SARIF to the Security tab.
 #
 # Required repo secrets:
 #   DOCKERHUB_USERNAME  — Docker Hub login
 #   DOCKERHUB_TOKEN     — Docker Hub access token (NOT the password)
+#
+# Optional repo secrets (ECR mirror):
 #   AWS_ACCOUNT_ID      — 12-digit AWS account ID
 #   AWS_REGION          — e.g. us-east-1
 #   AWS_ROLE_TO_ASSUME  — ARN of the IAM role for GitHub OIDC (with ecr:* permissions)
+#
+# Without the AWS secrets the ECR steps are SKIPPED (not failed) and the
+# workflow still ships to Docker Hub.
 name: Release Docker Image
 
 on:
@@ -53,6 +57,12 @@ jobs:
             ecr_repo: dockerrescuekit
     outputs:
       ref: ${{ github.ref_name }}
+    # ECR publishing is gated on the AWS role secret being present. Without
+    # it, the AWS/ECR steps below are SKIPPED (not failed) and the workflow
+    # still ships to Docker Hub. This prevents missing AWS secrets from
+    # cascading into "Trivy can't find the image" symptoms downstream.
+    env:
+      ENABLE_ECR: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,6 +79,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Configure AWS credentials (GitHub OIDC)
+        if: env.ENABLE_ECR == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -76,6 +87,7 @@ jobs:
 
       - name: Login to Amazon ECR
         id: ecr-login
+        if: env.ENABLE_ECR == 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Compute image tags
@@ -91,26 +103,23 @@ jobs:
           DH_LATEST="${{ matrix.tag_latest }}"
           DH_REGISTRY="gozippy/dockerrescuekit"
 
-          # ECR tags — same versioning scheme, different registry
-          ECR_REGISTRY="${{ steps.ecr-login.outputs.registry }}"
-          ECR_REPO="${{ matrix.ecr_repo }}"
-
-          # For ECR, extension also strips v; standalone keeps the v in the
-          # tag for backwards compatibility.
-          if [ "${{ matrix.product }}" = "extension" ]; then
-            ECR_VERSIONED="$DH_VERSIONED"
-          else
-            ECR_VERSIONED="$DH_VERSIONED"
-          fi
-          ECR_LATEST="$DH_LATEST"
-
-          # Output all 4 registry/repo:tag combos
           echo "dh_versioned=${DH_REGISTRY}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
           echo "dh_latest=${DH_REGISTRY}:${DH_LATEST}" >> "$GITHUB_OUTPUT"
-          echo "ecr_versioned=${ECR_REGISTRY}/${ECR_REPO}:${ECR_VERSIONED}" >> "$GITHUB_OUTPUT"
-          echo "ecr_latest=${ECR_REGISTRY}/${ECR_REPO}:${ECR_LATEST}" >> "$GITHUB_OUTPUT"
 
-          # Trivy scans the Docker Hub versioned tag
+          # ECR tags — only emitted when ECR is enabled. The multi-arch push
+          # step interpolates these on conditional newlines, so empty strings
+          # here become no-ops in the tag list.
+          if [ "${ENABLE_ECR}" = "true" ]; then
+            ECR_REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+            ECR_REPO="${{ matrix.ecr_repo }}"
+            echo "ecr_versioned=${ECR_REGISTRY}/${ECR_REPO}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
+            echo "ecr_latest=${ECR_REGISTRY}/${ECR_REPO}:${DH_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ecr_versioned=" >> "$GITHUB_OUTPUT"
+            echo "ecr_latest=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Trivy scans the local pre-push image — see Build step below
           echo "image-ref=${DH_REGISTRY}:${DH_VERSIONED}" >> "$GITHUB_OUTPUT"
 
       # Build a local single-arch image FIRST so Trivy can gate on it before
@@ -161,7 +170,9 @@ jobs:
           category: trivy-${{ matrix.product }}-${{ github.ref_name }}
 
       # Trivy passed → safe to multi-arch publish. Buildx reuses the cache
-      # from the previous build step so this is cheap.
+      # from the previous build step so this is cheap. The ECR tags are
+      # empty strings when ECR is disabled — build-push-action ignores
+      # blank lines in the tags list, so the same step works in both modes.
       - name: Build and push (multi-arch) to Docker Hub + Amazon ECR
         uses: docker/build-push-action@v5
         with:
