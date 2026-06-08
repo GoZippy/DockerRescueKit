@@ -1,8 +1,17 @@
 # Docker Hub / Docker Desktop Marketplace Listing
 
-**Status:** READY TO PUBLISH (SWOT merge complete, 2026-05-25).
-Tag to publish from: `v1.2.0` (built from branch `v1.2-rc`, commit `4ea9623`
-once tagged). Last reviewer pass before posting to Docker Hub: operator.
+**Status:** SHIPPED to Docker Hub on 2026-06-08 as `gozippy/dockerrescuekit:1.3.1`
+(`+ :latest, :standalone-v1.3.1, :standalone-latest`). v1.3 sprint added
+real storage discovery (S3 ListBuckets/ListObjectsV2, SFTP readdir, Rclone
+lsjson) so the AddConnectorWizard now shows a "Discover destinations"
+picker after Test Connection succeeds, instead of asking users to type
+bucket names blind. Marketplace listing copy still to be pasted into the
+Docker Hub overview editor + verified-publisher form.
+
+Earlier publish history: v1.2.0 was the SWOT-merge-complete draft; v1.3.0
+was tagged but never published to Docker Hub (CI workflow failures in
+`d296d18`-pre + standalone Dockerfile postinstall trap fixed in `211b9b7`).
+v1.3.1 supersedes both.
 
 **License compliance:** All copy below uses §11.3-allowed phrasing. Do
 not edit to say "open source", "MIT", "Apache", "permissively licensed",
@@ -80,21 +89,24 @@ What you get that the bundled Volumes tab does not:
 - **Scheduled, policy-driven backups** — cron + tiered retention (count, time, daily/weekly/monthly)
 - **Multi-target snapshots** — back up a whole Compose stack as one unit, not one volume at a time
 - **7 storage backends** — including Proxmox Backup Server (unique among Docker-backup tools) and ~40 cloud providers via Rclone
+- **Browse-to-pick destinations** — once a connector tests OK, DRK shows the actual buckets, prefixes, SFTP directories, or rclone remotes available to that credential. No more typing a bucket name blind and finding out later you misspelled it.
 - **Backup verification** — every snapshot can be restore-tested in a scratch container before you trust it (not just an integrity hash)
 - **Partial restore browser** — browse archives and extract individual files, or restore the full stack
 - **7 typed database exporters** — Postgres, MySQL, MongoDB, Redis, SQLite, InfluxDB, and MSSQL — consistent dumps without pre-quiescing by hand
 - **Pre/post hooks** — quiesce apps via `docker exec` before and after each backup
+- **SSRF guard on remote endpoints** — cloud instance-metadata (169.254.169.254, IMDSv6) is denied by default; `DRK_SSRF_STRICT=1` extends to the full private/internal set for hosted deployments.
 
 ## Features
 
 - 7 storage backends: Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, Rclone (40+ cloud providers)
+- Storage discovery: connector wizard enumerates buckets/prefixes (S3), directories (SFTP), and remote folders (Rclone) post-credentials. See [docs/CONNECTORS.md](CONNECTORS.md).
 - Safe upgrades: auto-export of database and config on every backend start, plus one-click export and import-from-disk for portable migrations. See [docs/UPGRADE.md](UPGRADE.md).
 - Cron-based scheduling with tiered retention
 - Backup verification in scratch container
 - Partial restore down to individual files
 - 7 typed database exporters
 - Pre/post hooks via `docker exec`
-- AES-256-GCM encrypted credential vault
+- AES-256-GCM encrypted credential vault, SSRF guard on remote endpoints (cloud-metadata default-deny; `DRK_SSRF_STRICT=1` for full private-range deny)
 - REST API + CLI (`drk`) + embedded React UI
 - Prometheus `/metrics`, audit log, `/healthz` probes
 
@@ -158,10 +170,14 @@ For full analysis, see [docs/COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md).
 ## Open items before publish
 
 1. Operator review of this final draft.
-2. Capture the two remaining Verified Publisher screenshots
-   (`04-restore-browser.png`, `05-storage-vault.png`) from a running app.
-3. Tag `v1.2.0` to trigger the Docker Hub multi-arch build.
-4. Paste the listing copy into the Docker Hub repository overview editor
+2. Capture screenshots from the v1.3.1 image (`gozippy/dockerrescuekit:1.3.1`):
+   - `04-restore-browser.png` — partial-restore file browser
+   - `05-storage-vault.png` — vault list with multiple connectors saved
+   - `06-discover-step.png` — **new for v1.3.1** — the AddConnectorWizard
+     "Discover destinations" step showing a list of buckets/dirs picked
+     from a live connector
+3. ~~Tag `v1.2.0` to trigger Docker Hub build~~ — superseded; `v1.3.1` is live as of 2026-06-08.
+4. Paste this listing copy into the Docker Hub repository overview editor
    and the Docker Desktop Marketplace submission form.
 5. Submit verified-publisher application using the packet documented in
    `.autoclaw/internal/marketplace-submission.md`.
