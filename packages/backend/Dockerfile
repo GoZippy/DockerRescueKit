@@ -19,17 +19,19 @@ RUN apk add --no-cache python3 make g++ \
 # Copy root workspace manifests first (layer-cache friendly)
 COPY package.json package-lock.json* ./
 
-# Copy package manifests for the packages we need to build
-COPY packages/shared/package.json     ./packages/shared/
+# Copy package manifests for the packages we need to build.
+# shared/ is copied as a whole BEFORE `npm ci` because the root
+# package.json declares a postinstall hook that builds it via tsc — that
+# fails if shared/src/ + tsconfig.json aren't on disk when npm ci runs.
+# (The extension Dockerfile at repo root already has this fix — see its
+# line 30; the standalone Dockerfile here was missed in that change.)
+COPY packages/shared/                 ./packages/shared/
 COPY packages/backend/package.json    ./packages/backend/
 COPY packages/extension/package.json  ./packages/extension/
 
-# Install ALL deps (including devDependencies — we need tsc)
+# Install ALL deps (including devDependencies — we need tsc).
+# The postinstall in root package.json compiles shared into dist/ here.
 RUN npm ci --workspaces --include-workspace-root
-
-# shared/ is type-only (main → src/types.ts, no runtime exports), so we just
-# copy sources for tsc to resolve imports — no build step needed.
-COPY packages/shared/    ./packages/shared/
 
 # Build backend (tsc compiles src/ → dist/ per tsconfig outDir)
 COPY packages/backend/   ./packages/backend/
