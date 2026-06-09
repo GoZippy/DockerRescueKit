@@ -89,7 +89,7 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit" \
       com.docker.extension.detailed-description="Docker Rescue Kit is the active backup, scheduled-snapshot, and one-click restore extension for Docker volumes, containers, images, networks, and databases. It captures point-in-time snapshots of containers, named volumes, and full compose stacks, with policy-driven scheduling, tiered retention, and restore-test verification in scratch containers. 7 storage backends ship out of the box: Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, and Rclone (40+ cloud providers including Google Drive, OneDrive, Backblaze, Dropbox). The AddConnector wizard browses real destinations after Test Connection succeeds — no more typing bucket names blind. AES-256-GCM credential vault, SSRF guard against cloud instance-metadata, and Prometheus metrics + audit log. Built for homelab and small-team operators who need reliable rollback without leaving Docker Desktop." \
       com.docker.extension.publisher-url="https://github.com/gozippy/DockerRescueKit" \
       com.docker.extension.additional-urls='[{"title":"Changelog","url":"https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md"},{"title":"Documentation","url":"https://github.com/gozippy/DockerRescueKit/blob/main/README.md"}]' \
-      com.docker.extension.categories="backup,utility-tools" \
+      com.docker.extension.categories="volumes,database,utility-tools" \
       com.docker.extension.changelog="https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md"
 
 # tini + ca-certificates + fuse3 are the only runtime deps we still take
