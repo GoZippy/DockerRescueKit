@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
-## [1.3.1] - 2026-06-04
+## [1.3.1] - 2026-06-08
 
 The post-v1.3.0 polish + supply-chain hardening sprint. No new user-facing
 features; the focus is on closing the still-open items flagged in the
@@ -57,6 +57,29 @@ no destinations to enumerate); SMB drops discovery entirely (share
 enumeration needs `cifs-utils` mount + `SYS_ADMIN`, deferred to v1.4).
 S3, SFTP, and Rclone keep their deprecated `discoverResources()` shims
 for the v1.4 deprecation window.
+
+### Fixed
+
+**ECR steps no longer cascade Trivy failures when AWS secrets are absent**
+(`d296d18`). The release workflow's AWS-OIDC and ECR-login steps now gate
+on `secrets.AWS_ROLE_TO_ASSUME != ''` via an `ENABLE_ECR` job-level env
+flag, and the tag-compute step emits empty strings for the ECR tag lines
+when the flag is off (build-push-action ignores blank tag lines). Without
+the AWS secrets the ECR steps are SKIPPED — not failed — and the build
+still ships to Docker Hub; with them, both registries are populated as
+before. Prior behavior surfaced as a Trivy "can't find the image" error
+because the un-pushed ECR image-ref had nothing to scan.
+
+**Standalone Dockerfile now copies `packages/shared/` before `npm ci`**
+(`211b9b7`). The backend's `package.json` declares `@drk/shared` as a
+workspace dependency, so `npm ci` failed in the standalone image when the
+shared package wasn't on disk yet. The Dockerfile now copies
+`packages/shared/` alongside `packages/backend/` before installation.
+
+**Version test fixtures pinned to `v99.x.x`** (`097ceb7`). The fixture
+suite referenced literal `1.3.1` strings that broke each time the package
+version bumped. Pinning to `v99.x.x` makes the fixtures
+version-agnostic, removing a recurring source of post-bump CI churn.
 
 ### Security
 
