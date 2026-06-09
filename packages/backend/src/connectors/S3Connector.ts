@@ -107,10 +107,23 @@ function signGetRequest(input: SigV4Input): { url: string; headers: Record<strin
   const now = new Date()
   const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}/, '')  // 20260529T192500Z
   const dateStamp = amzDate.slice(0, 8)                                            // 20260529
-  const emptyPayloadHash = sha256Hex('')
+  // GET has an empty body. The hash is precomputed and constant; documented
+  // so that any future move to PUT/POST is an explicit edit, not a silent
+  // signing mismatch.
+  const emptyPayloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 
-  // Canonical request
+  // Canonical request. Path is normalized first so the signer's view matches
+  // what S3 will see — S3 normalizes per RFC 3986 (collapses //, resolves
+  // .., etc.) and a mismatch becomes SignatureDoesNotMatch. We use the
+  // WHATWG URL parser with a stand-in origin to drive normalization, then
+  // strip the origin back off.
   const [rawPath, rawQuery = ''] = path.split('?')
+  let normalizedPath: string
+  try {
+    normalizedPath = new URL(rawPath, 'http://drk-s3-signer.invalid').pathname
+  } catch {
+    normalizedPath = rawPath
+  }
   const canonicalQuery = rawQuery
     .split('&')
     .filter(Boolean)
@@ -126,7 +139,7 @@ function signGetRequest(input: SigV4Input): { url: string; headers: Record<strin
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date'
   const canonicalRequest = [
     'GET',
-    rawPath,
+    normalizedPath,
     canonicalQuery,
     canonicalHeaders,
     signedHeaders,
@@ -151,8 +164,11 @@ function signGetRequest(input: SigV4Input): { url: string; headers: Record<strin
     `SignedHeaders=${signedHeaders}, Signature=${signature}`
 
   const protocol = input.protocol ?? 'https'
+  // Send the request to the normalized path (matching what we signed); the
+  // query string is sent verbatim. fetch() preserves whatever we give it.
+  const finalPath = canonicalQuery ? `${normalizedPath}?${rawQuery}` : normalizedPath
   return {
-    url: `${protocol}://${host}${path}`,
+    url: `${protocol}://${host}${finalPath}`,
     headers: {
       Host: host,
       'x-amz-content-sha256': emptyPayloadHash,

@@ -103,18 +103,28 @@ describe('RcloneConnector.discoverDestinations', () => {
     expect(opts.env.RCLONE_CONFIG).toBe('/etc/rclone.conf')
   })
 
-  it('invokes rclone with execFile (not exec) — prevents shell injection on config.remote', async () => {
+  it('rejects malformed remote names at the boundary (defense in depth)', async () => {
+    // The regex check is belt-and-braces — execFile already prevents shell
+    // injection, but the regex stops a bogus config at the validation
+    // boundary and protects against any future refactor that switches to
+    // shell:true.
+    await expect(
+      connector.discoverDestinations({ remote: 'evil$(rm -rf /)', path: 'x' })
+    ).rejects.toThrow(/Rclone remote name must match/)
+  })
+
+  it('invokes rclone with execFile (not exec) for a valid remote', async () => {
     mockExecFile('[]')
 
-    await connector.discoverDestinations({ remote: 'evil$(rm -rf /)', path: 'x' })
+    await connector.discoverDestinations({ remote: 'gdrive_backups', path: 'x' })
 
     const callArgs = execFileMock.mock.calls[0]
     const cmd = callArgs[0]
     const args = callArgs[1]
     expect(cmd).toBe('rclone')
     expect(Array.isArray(args)).toBe(true)
-    // The malicious remote name is passed as an argv element — never to a shell.
-    expect(args.join(' ')).toContain('evil$(rm -rf /):x')
+    // The remote name is passed as an argv element — never to a shell.
+    expect(args.join(' ')).toContain('gdrive_backups:x')
   })
 
   it('forwards via deprecated discoverResources() for route-layer back-compat', async () => {

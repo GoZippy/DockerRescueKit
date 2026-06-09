@@ -48,6 +48,13 @@ export class RcloneConnector implements IConnectorPlugin {
     if (!config.remote) {
       throw new Error('Rclone discovery requires config.remote')
     }
+    // Defense-in-depth: rclone remote names per rclone.conf grammar are
+    // [A-Za-z0-9_-]+. We already use execFile (no shell), but rejecting
+    // malformed remotes here protects future refactors that might switch
+    // to shell-true and stops obviously-bogus configs at the boundary.
+    if (!/^[A-Za-z0-9_-]+$/.test(String(config.remote))) {
+      throw new Error('Rclone remote name must match [A-Za-z0-9_-]+')
+    }
 
     // rclone lsjson returns JSON array of {Name,Path,Size,MimeType,ModTime,IsDir,...}
     // --max-depth 1 keeps the call cheap. --dirs-only narrows it to folders the

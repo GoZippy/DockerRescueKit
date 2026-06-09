@@ -608,11 +608,15 @@ export class BackupService {
 
     this.app.post('/api/connectors/discover', validate(ConnectorDiscoverSchema), asyncHandler(async (req, res) => {
       const { type, config, mode } = req.body
+      // Route through ConnectorManager.discoverResources() so the SSRF
+      // guard runs on config.endpoint / config.host BEFORE any network
+      // call. The earlier shape of this route called resolveDiscovery()
+      // directly on the plugin, which bypassed the guard — high-severity
+      // SSRF hole closed here. ConnectorManager itself uses the same
+      // resolveDiscovery() under the hood (see DR-001 contract split).
       const plugin = ConnectorRegistry.getPlugin(type)
       if (!plugin) throw new NotFoundError('Plugin', type)
-      // Route through the DR-001 resolver so discoverDestinations()/listContents()
-      // are reachable; falls back to the deprecated discoverResources() shim.
-      res.json(await resolveDiscovery(plugin, config, mode))
+      res.json(await this.connectorManager.discoverResources(type, config, mode))
     }))
 
     // ---- Settings --------------------------------------------------------

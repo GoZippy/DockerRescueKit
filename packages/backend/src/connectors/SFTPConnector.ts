@@ -89,7 +89,12 @@ export class SFTPConnector implements IConnectorPlugin {
           })
         })
         conn.on('error', (err) => {
+          // Always close the connection on error. ssh2's Client holds a
+          // socket + parser state even when handshake fails; without
+          // .end() the half-open connection lingers until the upstream
+          // timeout, leaking file descriptors under load.
           clearTimeout(totalTimer)
+          conn.end()
           reject(err)
         })
         conn.connect(connectOpts)

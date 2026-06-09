@@ -96,7 +96,14 @@ tag+digest weekly. Manual re-resolution:
 
 ---
 
-## [1.3.0] - 2026-05-29
+## [1.3.0] - 2026-05-29 (TAGGED BUT NOT PUBLISHED — superseded by 1.3.1)
+
+> **Important:** The v1.3.0 source tag exists on GitHub but the Docker Hub
+> image push failed twice (AWS-creds workflow cascade + standalone Dockerfile
+> postinstall trap). Both bugs are fixed and the actual production release is
+> [1.3.1](#131---2026-06-08), which carries the identical product code plus
+> the workflow plumbing needed to publish. **Do not pull `gozippy/dockerrescuekit:1.3.0`
+> from Docker Hub — it does not exist.** Use `:1.3.1` or `:latest`.
 
 The connector-hardening + storage-discovery sprint. Closes the original
 v1.3 "stubs are not real connectors" complaint by giving every storage
