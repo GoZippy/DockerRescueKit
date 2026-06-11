@@ -84,6 +84,20 @@ describe('SecretsService', () => {
     expect(svc.getSecurityWarnings().length).toBe(1)
   })
 
+  it('double-load does not duplicate warnings (idempotent)', () => {
+    const p = path.join(tmp, 'secrets.json')
+    fs.writeJsonSync(p, {
+      apiKey: KNOWN_DEFAULT_API_KEY,
+      encryptionKey: KNOWN_DEFAULT_ENCRYPTION_KEY,
+    })
+    const svc = new SecretsService(p)
+    // Simulate re-entrancy by clearing the cached secrets and calling load() twice
+    svc.load()
+    ;(svc as any).secrets = null
+    svc.load()
+    expect(svc.getSecurityWarnings().length).toBe(2)
+  })
+
   it('no warnings when existing secrets are strong', () => {
     const p = path.join(tmp, 'secrets.json')
     fs.writeJsonSync(p, {

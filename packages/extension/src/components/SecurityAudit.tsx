@@ -9,6 +9,7 @@ interface DeferredCheck { label: string }
 
 export const SecurityAudit: React.FC = () => {
   const [unprotectedVols, setUnprotectedVols] = useState<string[]>([])
+  const [hasIndeterminatePolicies, setHasIndeterminatePolicies] = useState(false)
   const [sysVer, setSysVer] = useState('Unknown')
   const [auditLog, setAuditLog] = useState<Array<{ id: string; timestamp: string; action: string; details?: string }>>([])
   const [realChecks, setRealChecks] = useState<RealCheck[]>([])
@@ -24,15 +25,26 @@ export const SecurityAudit: React.FC = () => {
         getStatus(),
         getAuditLog().catch(() => []),
       ])
-      const protected_ = new Set(
-        policies.filter((p: any) => p.enabled).flatMap((p: any) => p.targets.map((t: any) => t.selector))
+      const enabledPolicies = policies.filter((p: any) => p.enabled)
+      // Only targets of type 'volume' have selectors that are volume names.
+      // Container/image/network targets cannot be resolved to volume names client-side.
+      const directVolSelectors = new Set<string>(
+        enabledPolicies.flatMap((p: any) =>
+          p.targets.filter((t: any) => t.type === 'volume').map((t: any) => t.selector as string)
+        )
+      )
+      const hasIndeterminate = enabledPolicies.some((p: any) =>
+        p.targets.some((t: any) => t.type !== 'volume')
       )
       const activeVols: string[] =
         vols?.Volumes?.map((v: any) => v.Name) ||
         vols?.map?.((v: any) => v.Name) ||
         []
-      const unprotected = activeVols.filter(v => !protected_.has(v))
+      const unprotected = activeVols.filter(v => !directVolSelectors.has(v))
       setUnprotectedVols(unprotected)
+      setHasIndeterminatePolicies(hasIndeterminate)
+      // Keep a stable reference for check detail computation below
+      const indeterminate = hasIndeterminate
       setSysVer(stat?.version || 'Unknown')
       setAuditLog(audit)
 
@@ -40,12 +52,21 @@ export const SecurityAudit: React.FC = () => {
       const checks: RealCheck[] = []
 
       // 1. Volumes covered
+      // unprotected = volumes with no direct 'volume'-type target match.
+      // indeterminate = at least one container/image/network target exists whose
+      //   covered volumes cannot be determined client-side.
+      const directlyCovered = activeVols.length - unprotected.length
       checks.push({
         label: 'All Docker volumes covered by a backup policy',
         ok: unprotected.length === 0,
         detail: unprotected.length > 0
-          ? `${unprotected.length} volume(s) not covered: ${unprotected.slice(0, 3).join(', ')}${unprotected.length > 3 ? '…' : ''}`
-          : 'Every discovered volume has an active policy.',
+          ? `${unprotected.length} volume(s) not directly covered by a volume-type policy` +
+            (indeterminate
+              ? `; ${directlyCovered} covered directly + stack/container policies may cover more`
+              : `: ${unprotected.slice(0, 3).join(', ')}${unprotected.length > 3 ? '…' : ''}`)
+          : indeterminate
+            ? `${directlyCovered} volume(s) directly covered; stack/container policies may cover additional volumes`
+            : 'Every discovered volume has an active policy.',
       })
 
       // 2. Audit log is recording
@@ -206,7 +227,7 @@ export const SecurityAudit: React.FC = () => {
                   {unprotectedVols.length} unprotected volume(s)
                 </div>
                 <div style={{ fontSize: 12, color: 'rgba(251,191,36,0.8)', marginBottom: 6 }}>
-                  Not covered by any active backup policy:
+                  Not directly covered by a volume-type policy{hasIndeterminatePolicies ? '; stack/container policies may cover some:' : ':'}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {unprotectedVols.slice(0, 5).map(v => (
@@ -230,10 +251,12 @@ export const SecurityAudit: React.FC = () => {
                 background: 'var(--emerald-dim)', border: '1px solid rgba(16,185,129,0.2)',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: '#34d399' }}>
-                  <Check size={16} /> All volumes protected
+                  <Check size={16} /> {hasIndeterminatePolicies ? 'Volumes directly covered' : 'All volumes protected'}
                 </div>
                 <div style={{ fontSize: 12, color: 'rgba(52,211,153,0.7)', marginTop: 4 }}>
-                  Every discovered Docker volume is covered by an active policy.
+                  {hasIndeterminatePolicies
+                    ? 'All discovered volumes have a direct volume-type policy; stack/container policies may cover additional volumes.'
+                    : 'Every discovered Docker volume is covered by an active policy.'}
                 </div>
               </div>
             )}

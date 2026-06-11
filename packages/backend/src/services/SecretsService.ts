@@ -112,6 +112,7 @@ export class SecretsService {
    * mutate the secrets — rotation here would orphan existing vault ciphertext.
    */
   private detectWeakDefaults(secrets: Secrets): void {
+    this.warnings = []
     if (secrets.apiKey === KNOWN_DEFAULT_API_KEY) {
       const msg =
         'Your API key is the publicly-known shipped default. Rotate it now via ' +
