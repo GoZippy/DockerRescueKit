@@ -227,7 +227,10 @@ export class RehearsalService {
           await this.finalize(run, 'failed', startMs)
           return
         }
-        const adapter = StorageFactory.create(policy.storage.type, policy.storage)
+        const adapter = StorageFactory.create(
+          policy.storage.type,
+          await policyManager.resolveStorageConfig(policy.storage)
+        )
 
         // manifestRemote is a key passed to the storage adapter (S3 key / rclone
         // remote path), not a local filesystem path. backup.id is sanitized to

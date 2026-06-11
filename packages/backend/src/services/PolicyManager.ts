@@ -55,12 +55,40 @@ export class PolicyManager {
    * (decrypted) connector config and merge it onto the storage config. This
    * lets users stash S3/SFTP/rclone credentials once and point every policy
    * at a single connector instance.
+   *
+   * Public so the other consumers of a policy's storage (verify, rehearsal,
+   * partial-restore) resolve credentials the same way runBackup/restoreBackup
+   * do — without it those flows break for any connector-based policy.
    */
-  private async resolveStorageConfig(storage: any): Promise<any> {
+  public async resolveStorageConfig(storage: any): Promise<any> {
     if (!storage?.connectorId) return storage
     const inst = await this.connectorManager.getInstance(storage.connectorId)
     if (!inst) return storage
     return { ...inst.config, ...storage }
+  }
+
+  /**
+   * Reject storage types the StorageFactory can't actually build an adapter
+   * for. ConnectorManager happily saves `proxmox`/`truenas` connectors (they're
+   * discovery-only today), but a policy that targets one as a *destination*
+   * would only blow up at backup time deep inside StorageFactory.create. We
+   * fail fast at policy create/update with an actionable message instead.
+   *
+   * The supported-type list comes straight from StorageFactory so the two
+   * can never drift.
+   */
+  private assertStorageDestinationSupported(storage: any): void {
+    if (!storage?.type) return
+    const type = String(storage.type).toLowerCase()
+    if (StorageFactory.isSupported(type)) return
+
+    const hint: Record<string, string> = {
+      proxmox: `proxmox connectors are discovery-only in v1.3; for Proxmox Backup Server use storage type 'pbs'.`,
+      truenas: `truenas connectors are discovery-only in v1.3; back up to a TrueNAS share via storage type 'smb' or 'sftp'.`,
+    }
+    const detail = hint[type] ||
+      `Supported destination types: ${StorageFactory.getAvailableTypes().join(', ')}.`
+    throw new Error(`Storage type '${storage.type}' cannot be used as a backup destination. ${detail}`)
   }
 
   // ----- CRUD -------------------------------------------------------------
@@ -93,6 +121,7 @@ export class PolicyManager {
 
   public async createPolicy(policy: Partial<BackupPolicy>): Promise<BackupPolicy> {
     await this.assertPolicyQuotaAvailable()
+    if (policy.storage) this.assertStorageDestinationSupported(policy.storage)
     const newPolicy: BackupPolicy = {
       id: uuidv4(),
       name: policy.name || 'New Policy',
@@ -116,6 +145,7 @@ export class PolicyManager {
   public async updatePolicy(id: string, updates: Partial<BackupPolicy>): Promise<BackupPolicy> {
     const policy = await this.getPolicy(id)
     if (!policy) throw new NotFoundError('Policy', id)
+    if (updates.storage) this.assertStorageDestinationSupported(updates.storage)
     const updatedPolicy: BackupPolicy = { ...policy, ...updates, updatedAt: new Date() }
     await this.db.savePolicy(updatedPolicy)
     return updatedPolicy

@@ -51,7 +51,9 @@ describe('VerifyService (happy path, mocked adapter + docker)', () => {
         targets: [{ type: 'volume', selector: 'demo' }],
         timestamp: new Date(), type: 'full', size: 16, duration: 1000
       }),
-      getPolicy: jest.fn().mockResolvedValue({ id: 'p1', storage: { type: 'local', path: repoDir } })
+      getPolicy: jest.fn().mockResolvedValue({ id: 'p1', storage: { type: 'local', path: repoDir } }),
+      // No connectorId on this policy's storage, so resolution is a pass-through.
+      resolveStorageConfig: jest.fn(async (storage: any) => storage)
     }
 
     const dockerService: any = {
