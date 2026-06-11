@@ -46,23 +46,35 @@ const GROUPS: { label: string; names: string[] }[] = [
   },
   {
     label: 'Policies',
-    names: ['policy:list', 'policy:show', 'policy:run', 'policy:delete', 'policy:history']
+    names: ['policy:list', 'policy:show', 'policy:create', 'policy:update', 'policy:run', 'policy:delete', 'policy:history', 'policy:template']
   },
   {
     label: 'Backups',
     names: ['backup:list', 'backup:show', 'backup:restore', 'backup:verify', 'backup:delete', 'backup:files']
   },
   {
+    label: 'Rehearsals',
+    names: ['rehearsal:start', 'rehearsal:list', 'rehearsal:show', 'rehearsal:abort', 'rehearsal:delete']
+  },
+  {
     label: 'Docker',
-    names: ['stacks', 'volumes', 'images', 'networks', 'stack:protect']
+    names: ['stacks', 'volumes', 'images', 'networks', 'stack:protect', 'health']
   },
   {
     label: 'Connectors',
-    names: ['connectors:list', 'connectors:definitions', 'connectors:test', 'connectors:delete']
+    names: ['connectors:list', 'connectors:definitions', 'connectors:test', 'connector:create', 'connector:discover', 'connectors:delete']
   },
   {
     label: 'Rclone',
     names: ['rclone:providers', 'rclone:list', 'rclone:add', 'rclone:delete', 'rclone:test']
+  },
+  {
+    label: 'Config',
+    names: ['config:export', 'config:import']
+  },
+  {
+    label: 'License',
+    names: ['license:status', 'license:activate']
   },
   {
     label: 'Audit & Settings',
