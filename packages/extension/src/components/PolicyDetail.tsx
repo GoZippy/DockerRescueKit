@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import { BackupPolicy, Backup, DatabaseExporter } from '@docker-rescue-kit/shared'
 import { getPolicyHistory, runPolicy, verifyPolicy, deletePolicy } from '../api'
+import { humanizeCron } from '../utils/cronHumanize'
 import {
   Play, ShieldCheck, CheckCircle2, AlertCircle, Clock, X,
   Pencil, Trash2, Loader2, HardDrive, Layers, Database, Calendar,
@@ -184,8 +185,8 @@ export const PolicyDetail: React.FC<Props> = ({ policy, onClose, onChange }) => 
             <StatTile
               icon={<Calendar size={14} />}
               label="Schedule"
-              value={policy.schedule}
-              mono
+              value={humanizeCron(policy.schedule)}
+              subtitle={humanizeCron(policy.schedule) !== policy.schedule ? policy.schedule : undefined}
             />
           </div>
 
@@ -383,9 +384,10 @@ interface StatTileProps {
   label: string
   value: string
   mono?: boolean
+  subtitle?: string
 }
 
-const StatTile: React.FC<StatTileProps> = ({ icon, label, value, mono }) => (
+const StatTile: React.FC<StatTileProps> = ({ icon, label, value, mono, subtitle }) => (
   <div className="card" style={{ background: 'var(--surface-1)', padding: 12 }}>
     <div style={{
       display: 'flex', alignItems: 'center', gap: 5,
@@ -400,9 +402,14 @@ const StatTile: React.FC<StatTileProps> = ({ icon, label, value, mono }) => (
         fontSize: 13, fontWeight: 600,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}
-      title={value}
+      title={subtitle ?? value}
     >
       {value}
     </div>
+    {subtitle && (
+      <div className="font-mono" style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+        {subtitle}
+      </div>
+    )}
   </div>
 )

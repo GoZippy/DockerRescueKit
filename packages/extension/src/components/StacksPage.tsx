@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { listStacks, protectStack, listAllBackups, getPolicies } from '../api'
+import { humanizeCron } from '../utils/cronHumanize'
 import {
   Layers, ShieldPlus, RefreshCw, Loader2, CheckCircle2, AlertCircle,
   Clock, Shield, Edit2, Calendar,
@@ -190,18 +191,26 @@ export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
                 )}
 
                 {/* Policy schedule info */}
-                {policy && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'var(--surface-1)', borderRadius: 'var(--r-sm)',
-                    padding: '6px 10px', fontSize: 12, color: 'var(--text-muted)',
-                  }}>
-                    <Calendar size={12} color="var(--text-muted)" />
-                    <span style={{ flex: 1 }}>
-                      Schedule: <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 11 }}>{policy.schedule}</span>
-                    </span>
-                  </div>
-                )}
+                {policy && (() => {
+                  const human = humanizeCron(policy.schedule)
+                  const isRaw = human === policy.schedule
+                  return (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'var(--surface-1)', borderRadius: 'var(--r-sm)',
+                      padding: '6px 10px', fontSize: 12, color: 'var(--text-muted)',
+                    }}>
+                      <Calendar size={12} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>
+                        Schedule:{' '}
+                        {isRaw
+                          ? <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 11 }}>{policy.schedule}</span>
+                          : <span style={{ color: 'var(--text-primary)' }} title={policy.schedule}>{human}</span>
+                        }
+                      </span>
+                    </div>
+                  )
+                })()}
 
                 {/* Action buttons */}
                 {protected_ ? (

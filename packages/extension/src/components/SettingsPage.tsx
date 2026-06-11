@@ -141,7 +141,6 @@ export const SettingsPage: React.FC = () => {
   const [smtp, setSmtp] = useState({
     host: '', port: '587', user: '', pass: '', secure: false, from: '',
   })
-  const [smtpTestNote, setSmtpTestNote] = useState<string | null>(null)
 
   // ── Feedback webhook state ──
   const [webhookUrl, setWebhookUrl]     = useState('')
@@ -264,15 +263,6 @@ export const SettingsPage: React.FC = () => {
     } catch (e) {
       console.warn(`Failed to save notifications.smtp.${key}`, e)
     }
-  }
-
-  const sendTestEmail = () => {
-    // TODO(N-2): wire to POST /api/notifications/test once claude-code lands the endpoint.
-    setSmtpTestNote('Test send will land in v1.2.3 — endpoint not implemented yet.')
-    console.log('[SettingsPage] SMTP test requested with config:', {
-      host: smtp.host, port: smtp.port, user: smtp.user, secure: smtp.secure, from: smtp.from,
-    })
-    setTimeout(() => setSmtpTestNote(null), 6000)
   }
 
   const persistWebhook = async () => {
@@ -798,15 +788,6 @@ export const SettingsPage: React.FC = () => {
             </p>
 
             <SmtpForm smtp={smtp} setSmtp={setSmtp} persist={persistSmtp} />
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-              <button className="btn btn-ghost" onClick={sendTestEmail}>
-                <Bell size={14} /> Send test email
-              </button>
-              {smtpTestNote && (
-                <span style={{ fontSize: 11, color: 'var(--amber)' }}>{smtpTestNote}</span>
-              )}
-            </div>
           </>
         )}
       </div>

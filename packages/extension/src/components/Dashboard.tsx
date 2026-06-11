@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Activity, Database, HardDrive, Server,
   Play, Layers, Plus, RefreshCw, CheckCircle2, AlertCircle, Clock,
-  Cpu, TrendingUp, WifiOff, KeyRound,
+  Cpu, TrendingUp, WifiOff, KeyRound, RotateCcw,
 } from 'lucide-react'
 import axios from 'axios'
 import { BackupPolicy, Backup } from '@docker-rescue-kit/shared'
@@ -14,6 +14,7 @@ import {
   LineElement, Title, Tooltip, Filler, Legend
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { SortableGrid, SortableWidget } from './SortableGrid'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Filler, Legend)
 
@@ -38,6 +39,28 @@ interface DashboardProps {
 
 type ErrorKind = 'auth' | 'docker-offline' | 'unknown' | null
 
+// ── Draggable widget layout ──────────────────────────────────
+// Order is persisted per browser so a user's arrangement survives reloads.
+const DASH_ORDER_KEY = 'drk.dashboard.order'
+const DEFAULT_ORDER = ['stats', 'trends', 'controls', 'recent']
+
+function loadOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(DASH_ORDER_KEY)
+    if (!raw) return DEFAULT_ORDER
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return DEFAULT_ORDER
+    // Keep only known ids, then append any new widgets not yet in the saved order
+    // (forward-compatible if widgets are added/removed in a later version).
+    const kept = parsed.filter((id: unknown): id is string =>
+      typeof id === 'string' && DEFAULT_ORDER.includes(id))
+    for (const id of DEFAULT_ORDER) if (!kept.includes(id)) kept.push(id)
+    return kept.length ? kept : DEFAULT_ORDER
+  } catch {
+    return DEFAULT_ORDER
+  }
+}
+
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [policies, setPolicies] = useState<BackupPolicy[]>([])
   const [backups, setBackups] = useState<Backup[]>([])
@@ -47,6 +70,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true)
   const [errorKind, setErrorKind] = useState<ErrorKind>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
+  const [order, setOrder] = useState<string[]>(loadOrder)
+
+  const applyOrder = (next: string[]) => {
+    setOrder(next)
+    try { localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(next)) } catch { /* private mode */ }
+  }
+  const isCustomOrder = order.join('|') !== DEFAULT_ORDER.join('|')
 
   const load = async () => {
     setLoading(true)
@@ -264,137 +294,136 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     )
   }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-      {/* ── Row 1: Stat cards ─────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-
-        <div className="stat-card">
-          <div className="stat-card-icon" style={{ background: 'var(--blue-dim)' }}>
-            <Database size={20} color="var(--blue-500)" />
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{activeCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Active Policies</div>
-          </div>
+  // ── Widget definitions (rendered through the draggable grid) ──
+  const statsNode = (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+      <div className="stat-card">
+        <div className="stat-card-icon" style={{ background: 'var(--blue-dim)' }}>
+          <Database size={20} color="var(--blue-500)" />
         </div>
-
-        <div className="stat-card">
-          <div className="stat-card-icon" style={{ background: 'var(--emerald-dim)' }}>
-            <HardDrive size={20} color="var(--emerald)" />
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{protectedCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Protected Targets</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-card-icon" style={{ background: 'var(--indigo-dim)' }}>
-            <TrendingUp size={20} color="var(--indigo)" />
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{fmt(totalBytes)}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Total Backup Size</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-card-icon" style={{
-            background: sysStatus === null ? 'var(--surface-3)' : sysStatus?.docker ? 'var(--emerald-dim)' : 'var(--rose-dim)'
-          }}>
-            <Server size={20} color={sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? 'var(--emerald)' : 'var(--rose)'} />
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? '#34d399' : '#fb7185' }}>
-              {sysStatus === null ? '—' : sysStatus.docker ? 'Online' : 'Offline'}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Docker Status · {containerCount}c</div>
-          </div>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{activeCount}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Active Policies</div>
         </div>
       </div>
 
-      {/* ── Row 2: Chart + Quick Actions ──────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: 12 }}>
-
-        {/* Chart */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 240 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Activity size={16} color="var(--indigo)" />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Backup Trends — 7 days</span>
-          </div>
-          <div style={{ flex: 1, position: 'relative', minHeight: 180 }}>
-            <Line options={chartOpts} data={chartData} />
-          </div>
+      <div className="stat-card">
+        <div className="stat-card-icon" style={{ background: 'var(--emerald-dim)' }}>
+          <HardDrive size={20} color="var(--emerald)" />
         </div>
-
-        {/* Quick Actions + Telemetry */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Quick Actions</span>
-            <button
-              className="btn btn-primary"
-              style={{ justifyContent: 'flex-start' }}
-              onClick={handleRunAll}
-              disabled={!!runningId || activeCount === 0}
-            >
-              <Play size={14} />
-              {runningId ? 'Running…' : 'Run All Policies'}
-            </button>
-            <button
-              className="btn btn-ghost"
-              style={{ justifyContent: 'flex-start' }}
-              onClick={() => onNavigate?.('stacks')}
-            >
-              <Layers size={14} /> Protect a Stack
-            </button>
-            <button
-              className="btn btn-ghost"
-              style={{ justifyContent: 'flex-start' }}
-              onClick={() => onNavigate?.('policies')}
-            >
-              <Plus size={14} /> New Policy Wizard
-            </button>
-          </div>
-
-          {/* Telemetry mini-card */}
-          {telemetry && (
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <Cpu size={14} color="var(--text-muted)" />
-                <span style={{ fontWeight: 700, fontSize: 12 }}>Node Telemetry</span>
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Memory</span>
-                  <span className="font-mono" style={{ color: '#34d399', fontSize: 11 }}>
-                    {telemetry.memory?.percent ?? 0}%
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div className="progress-bar-fill" style={{ width: `${telemetry.memory?.percent ?? 0}%`, background: 'var(--emerald)' }} />
-                </div>
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>CPU</span>
-                  <span className="font-mono" style={{ color: '#fbbf24', fontSize: 11 }}>
-                    {telemetry.cpu?.loadPercent ?? 0}%
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div className="progress-bar-fill" style={{ width: `${telemetry.cpu?.loadPercent ?? 0}%`, background: 'linear-gradient(to right, var(--amber), var(--rose))' }} />
-                </div>
-              </div>
-            </div>
-          )}
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{protectedCount}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Protected Targets</div>
         </div>
       </div>
 
-      {/* ── Row 3: Recent runs table ───────────────────── */}
+      <div className="stat-card">
+        <div className="stat-card-icon" style={{ background: 'var(--indigo-dim)' }}>
+          <TrendingUp size={20} color="var(--indigo)" />
+        </div>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1 }}>{fmt(totalBytes)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Total Backup Size</div>
+        </div>
+      </div>
+
+      <div className="stat-card">
+        <div className="stat-card-icon" style={{
+          background: sysStatus === null ? 'var(--surface-3)' : sysStatus?.docker ? 'var(--emerald-dim)' : 'var(--rose-dim)'
+        }}>
+          <Server size={20} color={sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? 'var(--emerald)' : 'var(--rose)'} />
+        </div>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: sysStatus === null ? 'var(--text-muted)' : sysStatus?.docker ? '#34d399' : '#fb7185' }}>
+            {sysStatus === null ? '—' : sysStatus.docker ? 'Online' : 'Offline'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+            Docker · {containerCount} {containerCount === 1 ? 'container' : 'containers'}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const trendsNode = (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 240, height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingRight: 32 }}>
+        <Activity size={16} color="var(--indigo)" />
+        <span style={{ fontWeight: 700, fontSize: 13 }}>Backup Trends — 7 days</span>
+      </div>
+      <div style={{ flex: 1, position: 'relative', minHeight: 180 }}>
+        <Line options={chartOpts} data={chartData} />
+      </div>
+    </div>
+  )
+
+  const controlsNode = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, paddingRight: 28 }}>Quick Actions</span>
+        <button
+          className="btn btn-primary"
+          style={{ justifyContent: 'flex-start' }}
+          onClick={handleRunAll}
+          disabled={!!runningId || activeCount === 0}
+        >
+          <Play size={14} />
+          {runningId ? 'Running…' : 'Run All Policies'}
+        </button>
+        <button
+          className="btn btn-ghost"
+          style={{ justifyContent: 'flex-start' }}
+          onClick={() => onNavigate?.('stacks')}
+        >
+          <Layers size={14} /> Protect a Stack
+        </button>
+        <button
+          className="btn btn-ghost"
+          style={{ justifyContent: 'flex-start' }}
+          onClick={() => onNavigate?.('policies')}
+        >
+          <Plus size={14} /> New Policy Wizard
+        </button>
+      </div>
+
+      {/* Telemetry mini-card */}
+      {telemetry && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Cpu size={14} color="var(--text-muted)" />
+            <span style={{ fontWeight: 700, fontSize: 12 }}>Node Telemetry</span>
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Memory</span>
+              <span className="font-mono" style={{ color: '#34d399', fontSize: 11 }}>
+                {telemetry.memory?.percent ?? 0}%
+              </span>
+            </div>
+            <div className="progress-bar">
+              <div className="progress-bar-fill" style={{ width: `${telemetry.memory?.percent ?? 0}%`, background: 'var(--emerald)' }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>CPU</span>
+              <span className="font-mono" style={{ color: '#fbbf24', fontSize: 11 }}>
+                {telemetry.cpu?.loadPercent ?? 0}%
+              </span>
+            </div>
+            <div className="progress-bar">
+              <div className="progress-bar-fill" style={{ width: `${telemetry.cpu?.loadPercent ?? 0}%`, background: 'linear-gradient(to right, var(--amber), var(--rose))' }} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  const recentNode = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card" style={{ padding: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--surface-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 48px 12px 16px', borderBottom: '1px solid var(--surface-4)' }}>
           <Clock size={15} color="var(--text-muted)" />
           <span style={{ fontWeight: 700, fontSize: 13 }}>Recent Backup Runs</span>
           <span className="badge badge-muted" style={{ marginLeft: 'auto' }}>Last 5</span>
@@ -402,45 +431,47 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         {recentRuns.length === 0 ? (
           <div className="empty-state">No backup runs yet. Create a policy and run it.</div>
         ) : (
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Backup ID</th>
-                <th>Policy</th>
-                <th>When</th>
-                <th>Size</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentRuns.map(b => (
-                <tr key={b.id}>
-                  <td>
-                    {b.status === 'success' ? (
-                      <CheckCircle2 size={15} color="var(--emerald)" />
-                    ) : b.status === 'failed' ? (
-                      <AlertCircle size={15} color="var(--rose)" />
-                    ) : (
-                      <Clock size={15} color="var(--amber)" />
-                    )}
-                  </td>
-                  <td><span className="font-mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{b.id.slice(0, 8)}</span></td>
-                  <td><span style={{ fontSize: 12 }}>{b.policyId?.slice(0, 12)}</span></td>
-                  <td><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{ago(b.timestamp)}</span></td>
-                  <td><span style={{ fontSize: 12 }}>{fmt(b.size)}</span></td>
-                  <td><span style={{ fontSize: 12 }}>{(b.duration / 1000).toFixed(1)}s</span></td>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Backup ID</th>
+                  <th>Policy</th>
+                  <th>When</th>
+                  <th>Size</th>
+                  <th>Duration</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentRuns.map(b => (
+                  <tr key={b.id}>
+                    <td>
+                      {b.status === 'success' ? (
+                        <CheckCircle2 size={15} color="var(--emerald)" />
+                      ) : b.status === 'failed' ? (
+                        <AlertCircle size={15} color="var(--rose)" />
+                      ) : (
+                        <Clock size={15} color="var(--amber)" />
+                      )}
+                    </td>
+                    <td><span className="font-mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{b.id.slice(0, 8)}</span></td>
+                    <td><span style={{ fontSize: 12 }}>{b.policyId?.slice(0, 12)}</span></td>
+                    <td><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{ago(b.timestamp)}</span></td>
+                    <td><span style={{ fontSize: 12 }}>{fmt(b.size)}</span></td>
+                    <td><span style={{ fontSize: 12 }}>{(b.duration / 1000).toFixed(1)}s</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {/* Last backup notice */}
       {lastBackup && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           background: 'var(--surface-2)', border: '1px solid var(--surface-4)',
           borderRadius: 'var(--r-md)', padding: '10px 14px', fontSize: 12,
         }}>
@@ -453,6 +484,67 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           <span>{fmt(lastBackup.size)}</span>
         </div>
       )}
+    </div>
+  )
+
+  const widgetMap: Record<string, SortableWidget> = {
+    stats:    { id: 'stats',    span: 12, label: 'summary stats',               node: statsNode },
+    trends:   { id: 'trends',   span: 8,  label: 'backup trends chart',         node: trendsNode },
+    controls: { id: 'controls', span: 4,  label: 'quick actions and telemetry', node: controlsNode },
+    recent:   { id: 'recent',   span: 12, label: 'recent backup runs',          node: recentNode },
+  }
+  const orderedWidgets = order.map(id => widgetMap[id]).filter(Boolean) as SortableWidget[]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* ── Zero-state CTA: shown when no active policies (not draggable) ── */}
+      {activeCount === 0 && (
+        <div className="card" style={{
+          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+          padding: 20,
+          background: 'var(--blue-dim)',
+          border: '1px solid var(--blue-border)',
+        }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+            background: 'var(--blue-500)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Database size={22} color="#fff" />
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>No active backup policies</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Start protecting your containers and volumes — it only takes a minute.
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+            onClick={() => onNavigate?.('stacks')}
+          >
+            <Layers size={14} /> Protect your first stack
+          </button>
+        </div>
+      )}
+
+      {/* Reset arrangement — only when the user has customized it */}
+      {isCustomOrder && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => applyOrder(DEFAULT_ORDER)}
+            style={{ fontSize: 12, padding: '5px 10px' }}
+            title="Restore the default panel arrangement"
+          >
+            <RotateCcw size={13} /> Reset layout
+          </button>
+        </div>
+      )}
+
+      {/* Draggable, responsive widget grid */}
+      <SortableGrid widgets={orderedWidgets} onReorder={applyOrder} columns={12} narrowBelow={720} />
     </div>
   )
 }

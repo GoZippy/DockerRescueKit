@@ -84,13 +84,40 @@ const TcpSetupScreen: React.FC = () => {
               Connect to Docker Rescue Kit
             </h1>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-              Enter your API key to connect. Find it in the backend logs on
-              first start, or in{' '}
-              <span className="font-mono" style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                $DRK_DATA_DIR/secrets.json
-              </span>.
+              You need an API key to connect this browser app to your
+              Docker Rescue Kit backend. The key is generated automatically
+              when the backend first starts.
             </p>
           </div>
+        </div>
+
+        {/* How to find the key — shown BEFORE the input so users know what to paste */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Where is my API key?
+          </span>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+            Run this on the host where the Docker Rescue Kit container is running:
+          </p>
+          <div style={{
+            background: 'var(--surface-0)',
+            border: '1px solid var(--surface-4)',
+            borderRadius: 'var(--r-md)',
+            padding: '10px 14px',
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: 13,
+            color: 'var(--emerald)',
+          }}>
+            docker logs drk | grep 'API key'
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+            Copy the key from that output and paste it below.
+            You can also find it in the{' '}
+            <span className="font-mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>apiKey</span>
+            {' '}field inside{' '}
+            <span className="font-mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>data/secrets.json</span>
+            {' '}in your data directory.
+          </p>
         </div>
 
         {/* Input card */}
@@ -168,38 +195,6 @@ const TcpSetupScreen: React.FC = () => {
               'Connect'
             )}
           </button>
-        </div>
-
-        {/* How to find the key */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            How to find your API key
-          </span>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-            Run the following command on the host where Docker Rescue Kit is running:
-          </p>
-          <div style={{
-            background: 'var(--surface-0)',
-            border: '1px solid var(--surface-4)',
-            borderRadius: 'var(--r-md)',
-            padding: '10px 14px',
-            fontFamily: 'ui-monospace, monospace',
-            fontSize: 13,
-            color: 'var(--emerald)',
-          }}>
-            cat data/secrets.json | grep apiKey
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-            Or run{' '}
-            <span className="font-mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>
-              docker logs drk | grep 'API key'
-            </span>{' '}
-            to retrieve it from the container's startup output.
-          </p>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-            Or check the backend startup logs for a line starting with{' '}
-            <span className="font-mono" style={{ fontSize: 12 }}>API key:</span>.
-          </p>
         </div>
 
         {/* Docker Desktop note */}
