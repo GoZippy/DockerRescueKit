@@ -61,6 +61,23 @@ export const FREE_TIER_POLICY_LIMIT = 5
 export const FREE_TIER_AUDIT_RETENTION_DAYS = 14
 export const OFFLINE_GRACE_DAYS = 30
 
+/**
+ * Audit-log retention window (in days) implied by a feature set.
+ * `null` means UNLIMITED — never trim. Free tier (no audit_log_* feature)
+ * falls back to FREE_TIER_AUDIT_RETENTION_DAYS.
+ *
+ * Derived from the audit_log_* features in FEATURES_BY_TIER so the two stay
+ * coupled: personal-pro → 90d, commercial-pro → 365d, enterprise → unlimited.
+ */
+export function auditRetentionDaysForFeatures(
+  features: readonly LicenseFeature[]
+): number | null {
+  if (features.includes('audit_log_unlimited')) return null
+  if (features.includes('audit_log_365d')) return 365
+  if (features.includes('audit_log_90d')) return 90
+  return FREE_TIER_AUDIT_RETENTION_DAYS
+}
+
 // ---------------------------------------------------------------------------
 // JWT claim shape — what the license server signs
 // ---------------------------------------------------------------------------

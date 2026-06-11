@@ -8,6 +8,17 @@ export interface Secrets {
 }
 
 /**
+ * Hardcoded literals that shipped as defaults in pre-1.4 builds. If an
+ * EXISTING secrets.json still contains either of these, the vault was
+ * encrypted with a guessable key — but we must NOT rotate it, because the
+ * stored ciphertext would become undecryptable. Instead we flag it loudly
+ * (boot warning + GET /api/status `securityWarnings`) so the operator can
+ * rotate deliberately via a migration that re-encrypts existing data.
+ */
+const KNOWN_DEFAULT_API_KEY = 'rescue-kit-secret-key-2026'
+const KNOWN_DEFAULT_ENCRYPTION_KEY = 'super-secret-vault-key-32-chars!!'
+
+/**
  * Manages long-lived local secrets (API key + encryption key).
  *
  * Why: previous versions shipped a hardcoded API key and a hardcoded
@@ -17,8 +28,21 @@ export interface Secrets {
  */
 export class SecretsService {
   private secrets: Secrets | null = null
+  private warnings: string[] = []
 
   constructor(private secretsPath: string) {}
+
+  /**
+   * Security warnings surfaced after load(). Empty on a healthy fresh
+   * install. Populated when an existing secrets.json still holds a known
+   * shipped-default value (see KNOWN_DEFAULT_* above). Read-exposed via
+   * GET /api/status so the UI can nag the operator to rotate.
+   */
+  public getSecurityWarnings(): string[] {
+    // Ensure load() has run so warnings are populated.
+    this.load()
+    return [...this.warnings]
+  }
 
   public load(): Secrets {
     if (this.secrets) return this.secrets
@@ -30,6 +54,9 @@ export class SecretsService {
       const parsed = JSON.parse(raw) as Partial<Secrets>
       if (parsed.apiKey && parsed.encryptionKey) {
         this.secrets = { apiKey: parsed.apiKey, encryptionKey: parsed.encryptionKey }
+        // DATA SAFETY: do NOT rotate an existing weak key — vault data already
+        // encrypted with it would become unreadable. Warn instead.
+        this.detectWeakDefaults(this.secrets)
         return this.secrets
       }
     }
@@ -77,6 +104,30 @@ export class SecretsService {
     } catch { /* Windows: ignore */ }
     console.log(`\x1b[33m[Secrets]\x1b[0m API key regenerated`)
     return next.apiKey
+  }
+
+  /**
+   * Flag a loaded secrets set that still carries a shipped default value.
+   * Populates `this.warnings` and prints a prominent boot warning. Does not
+   * mutate the secrets — rotation here would orphan existing vault ciphertext.
+   */
+  private detectWeakDefaults(secrets: Secrets): void {
+    if (secrets.apiKey === KNOWN_DEFAULT_API_KEY) {
+      const msg =
+        'Your API key is the publicly-known shipped default. Rotate it now via ' +
+        'Settings → Regenerate API Key (or POST /api/settings/regenerate-api-key).'
+      this.warnings.push(msg)
+      console.warn(`\x1b[31m[Secrets] SECURITY WARNING:\x1b[0m ${msg}`)
+    }
+    if (secrets.encryptionKey === KNOWN_DEFAULT_ENCRYPTION_KEY) {
+      const msg =
+        'Your vault encryption key is the publicly-known shipped default. Existing ' +
+        'vault data is at risk. It cannot be rotated automatically without making ' +
+        'current vault entries unreadable — re-create connectors/secrets after ' +
+        'manually replacing encryptionKey in secrets.json to migrate.'
+      this.warnings.push(msg)
+      console.warn(`\x1b[31m[Secrets] SECURITY WARNING:\x1b[0m ${msg}`)
+    }
   }
 
   private generate(byteLen: number): string {

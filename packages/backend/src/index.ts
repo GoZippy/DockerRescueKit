@@ -58,6 +58,7 @@ import { ExportService } from './services/ExportService'
 import { ImportService } from './services/ImportService'
 import { RcloneService } from './services/RcloneService'
 import { LicenseService } from './services/LicenseService'
+import { requireFeature } from './middleware/licenseGate'
 import { EncryptionUtility } from './utils/Encryption'
 import { Server } from 'http'
 
@@ -141,6 +142,41 @@ export function getDefaultCostConfig(): StorageCostConfig[] {
       notes: 'Google Drive, OneDrive, Dropbox, B2, etc. Pricing varies — shown as S3 equivalent estimate.',
     },
   ]
+}
+
+// ---- CORS allowlist helpers ------------------------------------------------
+// Exported for unit testing. The Express cors() middleware calls
+// isOriginAllowed() per request via its `origin` callback.
+
+/** Parse the comma-separated DRK_CORS_ORIGINS env var into a trimmed list. */
+export function parseCorsOrigins(raw?: string): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Decide whether a browser Origin may make a cross-origin request.
+ *  - No Origin header (CLI/curl, same-origin XHR, socket transport) → allow.
+ *  - Any localhost / 127.0.0.1 / [::1] origin on any port → allow.
+ *  - Anything explicitly listed in DRK_CORS_ORIGINS → allow.
+ *  - Everything else → deny.
+ */
+export function isOriginAllowed(origin: string | undefined, allowlist: string[]): boolean {
+  if (!origin) return true
+  if (allowlist.includes(origin)) return true
+  try {
+    const host = new URL(origin).hostname
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+      return true
+    }
+  } catch {
+    // Malformed Origin header — deny.
+    return false
+  }
+  return false
 }
 
 // Backend version is resolved once at module load in utils/appVersion.ts —
@@ -292,6 +328,28 @@ export class BackupService {
     }, 24 * 60 * 60 * 1000) // Every 24 hours
     notificationCleanupInterval.unref() // Don't keep process alive just for this timer
 
+    // Schedule daily cleanup of audit log rows beyond the license tier's
+    // retention window (free=14d, personal-pro=90d, commercial-pro=365d,
+    // enterprise=unlimited → no trim). AuditService.pruneByRetention resolves
+    // the window from the active tier and fails closed to "keep everything"
+    // when the tier can't be resolved (DATA SAFETY).
+    const auditCleanupInterval = setInterval(async () => {
+      try {
+        await this.audit.pruneByRetention(this.license)
+      } catch (err) {
+        logger.error({ err }, 'Audit log TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    auditCleanupInterval.unref() // Don't keep process alive just for this timer
+    // Run once shortly after boot so a long-idle install doesn't wait 24h for
+    // its first trim. Deferred + unref'd so it never delays readiness.
+    const auditInitialPrune = setTimeout(() => {
+      this.audit.pruneByRetention(this.license).catch(err =>
+        logger.error({ err }, 'Initial audit log TTL cleanup failed')
+      )
+    }, 10_000)
+    auditInitialPrune.unref()
+
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
@@ -302,6 +360,17 @@ export class BackupService {
       throw err
     }
     mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
+    // PAYWALL: the notification-management route group (preferences / log /
+    // acknowledge) is the `notifications` paid feature surfaced over HTTP.
+    // requireFeature() returns 402 for Free tier and is the canonical, reusable
+    // gate — attach it to any future paid route group the same way. Note the
+    // related in-service gates that pre-date this middleware and stay where
+    // they are (they protect the scheduler/notify path, not an HTTP route):
+    //   - NotificationService.notify() skips delivery unless `notifications` is
+    //     granted (services/NotificationService.ts:55-57)
+    //   - PolicyManager enforces the Free 5-policy cap
+    //     (services/PolicyManager.assertPolicyQuotaAvailable)
+    this.app.use('/api/notifications', requireFeature(this.license, 'notifications'))
     mountNotificationRoutes(this.app, { db: this.db })
     // v1.2.2 in-product feedback + update-check. FeedbackService fans out to
     // local file / email / GitHub / webhook sinks; the version route compares
@@ -358,7 +427,19 @@ export class BackupService {
       },
       crossOriginEmbedderPolicy: false               // Docker Desktop extension compat
     }))
-    this.app.use(cors())
+    // CORS: by default only same-origin (no Origin header) and any
+    // localhost/127.0.0.1/[::1] origin (any port) are allowed. Operators can
+    // add trusted browser origins via DRK_CORS_ORIGINS (comma-separated).
+    // Requests with no Origin header (CLI/curl/same-origin XHR, and the Docker
+    // Desktop extension socket transport) always pass — `origin` is undefined
+    // there and we callback(null, true).
+    const corsAllowlist = parseCorsOrigins(process.env.DRK_CORS_ORIGINS)
+    this.app.use(cors({
+      origin: (origin, callback) => {
+        if (isOriginAllowed(origin, corsAllowlist)) return callback(null, true)
+        callback(new Error('Not allowed by CORS'))
+      },
+    }))
     this.app.use(express.json({ limit: '5mb' }))
 
     // Public liveness probe — registered BEFORE auth so Docker healthchecks
@@ -401,8 +482,20 @@ export class BackupService {
       // the socket transport; /healthz + /metrics remain public as today.
       if (TRANSPORT === 'socket') return next()
       // Resolve on each request so API-key rotation takes effect without
-      // restarting the server. Accept via header (preferred) or ?apiKey=.
-      const presented = req.headers['x-api-key'] || req.query.apiKey
+      // restarting the server.
+      //
+      // Auth via the x-api-key header is preferred. We still accept ?apiKey=
+      // ONLY on the two header-less browser contexts that genuinely need it:
+      //   GET /api/backups/:id/files/extract  (download via <a> / window.open)
+      //   GET /api/rehearsals/:id/stream      (EventSource SSE — can't set headers)
+      // Both are referenced from packages/extension/src/api.ts (102, 306).
+      // Restricting the query param to GET keeps it off state-mutating POSTs
+      // where it would leak via Referer/access logs. The query value is
+      // redacted in request logs (see utils/logger.ts).
+      const allowQueryKey = req.method === 'GET' && (
+        /\/files\/extract$/.test(req.path) || /\/stream$/.test(req.path)
+      )
+      const presented = req.headers['x-api-key'] || (allowQueryKey ? req.query.apiKey : undefined)
       const current = this.secrets.getApiKey()
       if (!presented || presented !== current) {
         // Only failed-auth requests pass through the brute-force limiter,
@@ -437,7 +530,10 @@ export class BackupService {
         docker: dockerOk,
         paused: this.scheduler.isPaused(),
         inFlight: this.scheduler.runningPolicyIds(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        // Non-empty only when an existing secrets.json still holds a known
+        // shipped-default API/encryption key — see SecretsService.detectWeakDefaults.
+        securityWarnings: this.secrets.getSecurityWarnings(),
       })
     })
 

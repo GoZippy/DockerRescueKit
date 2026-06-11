@@ -648,6 +648,21 @@ export class Database {
     return result.changes
   }
 
+  /**
+   * Trim audit_logs rows older than `olderThanDays`. Mirrors the other TTL
+   * cleanup helpers. The audit retention window is tier-dependent — the caller
+   * (index.ts) resolves the number of days from the active license tier via
+   * auditRetentionDaysForFeatures(). `timestamp` is stored as an ISO-8601
+   * string (AuditService.record), so a lexical `<` comparison against an ISO
+   * cutoff is chronologically correct.
+   */
+  public async deleteOldAuditEntries(olderThanDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM audit_logs WHERE timestamp < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
+  }
+
   // Volume Manifest Operations
   public async insertVolumeManifest(entry: {
     id: string
