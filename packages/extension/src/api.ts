@@ -408,17 +408,13 @@ export interface ConfigExportBundle {
 }
 
 export const exportConfig = async (): Promise<ConfigExportBundle> => {
-  // The backend sets Content-Disposition: attachment, so we need to fetch
-  // as blob and trigger a download manually.
-  const resp = await fetch('/api/config/export', {
-    headers: { 'x-api-key': getApiKey() },
-  })
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ detail: 'Export failed' }))
-    throw new Error(err.detail || 'Export failed')
-  }
-  // Parse as JSON (the backend returns JSON with download headers)
-  return resp.json()
+  // Route through the shared apiClient so both transport modes work correctly:
+  // - TCP mode: axios with x-api-key header injected automatically.
+  // - Extension mode: ddClient.extension.vm.service (no API key needed;
+  //   Docker Desktop guarantees the channel).
+  // The backend returns JSON (Content-Disposition: attachment is advisory only).
+  // SettingsPage constructs the browser download Blob from the returned object.
+  return apiClient.get<ConfigExportBundle>('/config/export')
 }
 
 export const importConfig = async (bundle: ConfigExportBundle): Promise<{ ok: boolean; policiesImported: number }> => {

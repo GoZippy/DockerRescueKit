@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Shield, Check, ShieldAlert, Cpu, AlertTriangle, Loader2, Clock, RefreshCw } from 'lucide-react'
+import { Shield, Check, ShieldAlert, Cpu, AlertTriangle, Loader2, Clock, RefreshCw, Minus, Lock } from 'lucide-react'
 import { getPolicies, getVolumes, getStatus, getAuditLog } from '../api'
+
+// A check that was actually evaluated against real data.
+interface RealCheck { label: string; ok: boolean; detail?: string }
+// A check we cannot evaluate without additional backend endpoints.
+interface DeferredCheck { label: string }
 
 export const SecurityAudit: React.FC = () => {
   const [unprotectedVols, setUnprotectedVols] = useState<string[]>([])
   const [sysVer, setSysVer] = useState('Unknown')
   const [auditLog, setAuditLog] = useState<Array<{ id: string; timestamp: string; action: string; details?: string }>>([])
+  const [realChecks, setRealChecks] = useState<RealCheck[]>([])
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
 
@@ -19,15 +25,58 @@ export const SecurityAudit: React.FC = () => {
         getAuditLog().catch(() => []),
       ])
       const protected_ = new Set(
-        policies.filter(p => p.enabled).flatMap(p => p.targets.map(t => t.selector))
+        policies.filter((p: any) => p.enabled).flatMap((p: any) => p.targets.map((t: any) => t.selector))
       )
       const activeVols: string[] =
         vols?.Volumes?.map((v: any) => v.Name) ||
         vols?.map?.((v: any) => v.Name) ||
         []
-      setUnprotectedVols(activeVols.filter(v => !protected_.has(v)))
-      setSysVer(stat?.version || '1.0.0')
+      const unprotected = activeVols.filter(v => !protected_.has(v))
+      setUnprotectedVols(unprotected)
+      setSysVer(stat?.version || 'Unknown')
       setAuditLog(audit)
+
+      // ── Checks we can actually evaluate from fetched data ──────────────────
+      const checks: RealCheck[] = []
+
+      // 1. Volumes covered
+      checks.push({
+        label: 'All Docker volumes covered by a backup policy',
+        ok: unprotected.length === 0,
+        detail: unprotected.length > 0
+          ? `${unprotected.length} volume(s) not covered: ${unprotected.slice(0, 3).join(', ')}${unprotected.length > 3 ? '…' : ''}`
+          : 'Every discovered volume has an active policy.',
+      })
+
+      // 2. Audit log is recording
+      checks.push({
+        label: 'Audit log is active',
+        ok: Array.isArray(audit) && audit.length > 0,
+        detail: Array.isArray(audit) && audit.length > 0
+          ? `${audit.length} event(s) recorded.`
+          : 'No audit entries yet — actions will appear here once recorded.',
+      })
+
+      // 3. Default credentials (status.securityWarnings from SecretsService)
+      const secWarnings: string[] = (stat as any)?.securityWarnings ?? []
+      checks.push({
+        label: 'No default credentials detected',
+        ok: secWarnings.length === 0,
+        detail: secWarnings.length > 0
+          ? 'Shipped default API or encryption key still in use — replace via Settings.'
+          : 'API and encryption keys have been changed from factory defaults.',
+      })
+
+      // 4. Policies exist
+      checks.push({
+        label: 'At least one active backup policy configured',
+        ok: policies.filter((p: any) => p.enabled).length > 0,
+        detail: policies.filter((p: any) => p.enabled).length > 0
+          ? `${policies.filter((p: any) => p.enabled).length} active policy/policies.`
+          : 'No active policies — your data is not being backed up.',
+      })
+
+      setRealChecks(checks)
     } catch (e) {
       console.error(e)
     } finally {
@@ -38,22 +87,24 @@ export const SecurityAudit: React.FC = () => {
 
   useEffect(() => { performScan() }, [])
 
+  // Grade is driven only by real, computable checks.
+  const failedCount = realChecks.filter(c => !c.ok).length
   const grade =
-    unprotectedVols.length === 0 ? 'A — Secure'
-    : unprotectedVols.length <= 2 ? 'A- — Minor risks'
+    loading ? '…'
+    : failedCount === 0 ? 'A — Secure'
+    : failedCount === 1 ? 'A- — Minor issues'
     : 'B — Action needed'
 
   const gradeColor =
-    unprotectedVols.length === 0 ? 'var(--emerald)'
-    : unprotectedVols.length <= 2 ? 'var(--blue-500)'
+    loading ? 'var(--text-muted)'
+    : failedCount === 0 ? 'var(--emerald)'
+    : failedCount === 1 ? 'var(--blue-500)'
     : 'var(--amber)'
 
-  const CHECKS = [
-    'Backend API key authentication enforced',
-    'Database credentials AES-256 encrypted',
-    'Docker socket permissions restricted',
-    'No root privileged containers detected',
-    'Extension token isolation active',
+  // Checks that require deeper Docker inspection — not yet implemented.
+  const DEFERRED_CHECKS: DeferredCheck[] = [
+    { label: 'No root-privileged containers running' },
+    { label: 'Docker socket not exposed to untrusted processes' },
   ]
 
   return (
@@ -74,7 +125,7 @@ export const SecurityAudit: React.FC = () => {
             {loading && <Loader2 size={14} className="animate-spin" style={{ marginLeft: 8, display: 'inline' }} />}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
-            {unprotectedVols.length} unprotected volume(s) detected.
+            {loading ? 'Scanning…' : `${failedCount} issue(s) found · ${unprotectedVols.length} unprotected volume(s)`}
           </div>
         </div>
         <button
@@ -91,30 +142,55 @@ export const SecurityAudit: React.FC = () => {
       {/* Checks grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 
-        {/* Passed */}
+        {/* Real checks */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 12 }}>
-            <Check size={16} color="var(--emerald)" /> Passed checks
+            <Check size={16} color="var(--emerald)" /> Verified checks
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {CHECKS.map((c, i) => (
+            {realChecks.length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>
+                {loading ? 'Scanning…' : 'No checks run yet.'}
+              </div>
+            )}
+            {realChecks.map((c, i) => (
               <div
                 key={i}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
                   padding: '8px 10px', borderRadius: 'var(--r-sm)',
-                  background: 'var(--emerald-dim)', border: '1px solid rgba(16,185,129,0.15)',
+                  background: c.ok ? 'var(--emerald-dim)' : 'var(--amber-dim)',
+                  border: c.ok ? '1px solid rgba(16,185,129,0.15)' : '1px solid rgba(245,158,11,0.25)',
                   fontSize: 13,
                 }}
               >
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--emerald)', flexShrink: 0 }} />
-                {c}
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.ok ? 'var(--emerald)' : 'var(--amber)', flexShrink: 0, marginTop: 4 }} />
+                <div>
+                  <div style={{ color: c.ok ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500 }}>{c.label}</div>
+                  {c.detail && <div style={{ fontSize: 11, color: c.ok ? 'rgba(52,211,153,0.75)' : 'rgba(251,191,36,0.8)', marginTop: 2 }}>{c.detail}</div>}
+                </div>
               </div>
             ))}
+
+            {/* Informational note — always true by design */}
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '8px 10px', borderRadius: 'var(--r-sm)',
+              background: 'var(--emerald-dim)', border: '1px solid rgba(16,185,129,0.15)',
+              fontSize: 13,
+            }}>
+              <Lock size={12} color="var(--emerald)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontWeight: 500 }}>Credentials encrypted at rest</div>
+                <div style={{ fontSize: 11, color: 'rgba(52,211,153,0.75)', marginTop: 2 }}>
+                  All saved connector passwords and keys are stored with AES-256-GCM encryption.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Warnings */}
+        {/* Warnings + not-checked */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 12, color: 'var(--amber)' }}>
             <AlertTriangle size={16} /> Warnings
@@ -148,7 +224,7 @@ export const SecurityAudit: React.FC = () => {
                   )}
                 </div>
               </div>
-            ) : (
+            ) : !loading && (
               <div style={{
                 padding: '10px 12px', borderRadius: 'var(--r-md)',
                 background: 'var(--emerald-dim)', border: '1px solid rgba(16,185,129,0.2)',
@@ -164,13 +240,36 @@ export const SecurityAudit: React.FC = () => {
 
             <div style={{
               padding: '10px 12px', borderRadius: 'var(--r-md)',
-              background: 'var(--amber-dim)', border: '1px solid rgba(245,158,11,0.25)',
+              background: 'var(--surface-3)', border: '1px solid var(--surface-4)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: '#fbbf24', marginBottom: 4 }}>
-                <Cpu size={16} /> System info
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                <Cpu size={16} /> System
               </div>
-              <div style={{ fontSize: 12, color: 'rgba(251,191,36,0.8)' }}>
-                Version {sysVer || 'Unknown'}.
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Docker Rescue Kit v{sysVer}
+              </div>
+            </div>
+
+            {/* Deferred checks — clearly labeled as not yet verified */}
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Not checked — coming in a future release
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {DEFERRED_CHECKS.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '6px 10px', borderRadius: 'var(--r-sm)',
+                      background: 'var(--surface-1)', border: '1px solid var(--surface-4)',
+                      fontSize: 12, color: 'var(--text-muted)',
+                    }}
+                  >
+                    <Minus size={12} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    {c.label}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
