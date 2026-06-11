@@ -574,3 +574,61 @@ export interface UnmanagedVolumesResponse {
   readonly unmanagedVolumes: readonly string[]
   readonly total: number
 }
+
+// ===========================================================================
+// PG-1 Prune Guard (v1.4-B) — see docs/design/PRUNE_GUARD.md §8.1
+// ===========================================================================
+
+export type GuardOpKind =
+  | 'volume_rm'
+  | 'volume_prune'
+  | 'container_rm_v'        // container rm -v (anonymous volume reaping)
+  | 'system_prune'
+  | 'image_prune'          // only when it cascades to volumes
+  | 'compose_down_v'
+  | 'container_die'        // event-reactive opportunistic
+  | 'periodic_floor'       // scheduled last-known-good
+
+export type GuardSnapshotStatus =
+  | 'snapshotting'
+  | 'saved'
+  | 'skipped_too_large'
+  | 'skipped_unchanged'
+  | 'failed'
+  | 'too_late'            // op already destroyed the data before we could snapshot
+
+export interface GuardVolumeSnapshot {
+  volume: string
+  status: GuardSnapshotStatus
+  sizeBytes: number
+  sha256?: string
+  fingerprint?: string     // size+mtime+path manifest hash for dedup (§6.5)
+  tarPath?: string         // relative to guard-cache/<eventId>/
+  detail?: string
+}
+
+export interface GuardEvent {
+  id: string                       // uuid v4 — also the helper-container label seed
+  kind: GuardOpKind
+  trigger: 'mcp' | 'proxy' | 'event' | 'periodic'
+  scope: GuardScope                // resolved scope at capture time
+  volumes: GuardVolumeSnapshot[]
+  totalBytes: number
+  createdAt: string                // ISO
+  ttlAt: string                    // ISO — when the daily sweep will evict
+  pinned: boolean                  // promoted to "keep"; never auto-evicted
+  restoredAt?: string              // set when the user clicked Undo
+  status: 'saved' | 'partial' | 'failed' | 'expired' | 'restored'
+}
+
+export type GuardScope = 'protected' | 'named' | 'all-named-under-cap' | 'off'
+
+export interface GuardSettings {
+  enabled: boolean                 // default true
+  scope: GuardScope                // default 'named'
+  diskBudgetMb: number             // default 2048
+  perVolumeCapMb: number           // default 512
+  ttlHours: number                 // default 72
+  periodicCron: string             // default '0 */6 * * *'
+  failClosed: boolean              // default false (proxy only)
+}
