@@ -4,6 +4,10 @@ import type { McpConfig } from './config'
 
 export type PruneScope = 'system' | 'volumes' | 'images' | 'containers'
 
+/** Compose project charset — also blocks a leading `-` so a hostile name can't
+ *  land as an argv flag (e.g. `--help`/`-f…`) when spawned positionally. */
+const COMPOSE_PROJECT_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/
+
 export interface PruneResult {
   scope: PruneScope
   spaceReclaimed: number
@@ -83,6 +87,9 @@ export class DockerOps {
 
   /** `docker compose down [-v]` via the compose CLI (no dockerode equivalent). */
   async composeDown(project: string, removeVolumes: boolean): Promise<{ stdout: string; stderr: string }> {
+    if (!COMPOSE_PROJECT_RE.test(project)) {
+      throw new Error(`invalid compose project name: ${JSON.stringify(project)}`)
+    }
     const args = ['compose', '-p', project, 'down']
     if (removeVolumes) args.push('-v')
     return runDocker(args)

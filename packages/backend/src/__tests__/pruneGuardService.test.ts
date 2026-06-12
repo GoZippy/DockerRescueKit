@@ -252,6 +252,50 @@ describe('PruneGuardService.guard — fail-open', () => {
   })
 })
 
+describe('PruneGuardService.guard — concurrency (W1)', () => {
+  it('two concurrent guard() calls both persist; neither over-evicts the other', async () => {
+    // Budget far exceeds the per-call event-cap reservation (1024MB) plus both
+    // ~1MB events, so the serialized budget→snapshot→persist section must NOT
+    // evict either one.
+    const { svc, db, docker } = await makeService({ scope: 'named', diskBudgetMb: 4096, perVolumeCapMb: 4096 })
+    docker.volumeNames = ['c1', 'c2']
+    docker.sizes.set('c1', 1024 * 1024)
+    docker.sizes.set('c2', 1024 * 1024)
+
+    // Fire both at once — simulates floor-cron + MCP snapshot overlapping.
+    const [a, b] = await Promise.all([
+      svc.guard('volume_rm', 'event', ['c1']),
+      svc.guard('volume_rm', 'event', ['c2']),
+    ])
+
+    expect(a.volumes[0].status).toBe('saved')
+    expect(b.volumes[0].status).toBe('saved')
+    const rowA = await db.getGuardEvent(a.id)
+    const rowB = await db.getGuardEvent(b.id)
+    expect(rowA).not.toBeNull()
+    expect(rowB).not.toBeNull()
+    // Neither event was evicted (both still fit the budget).
+    expect(rowA!.status).not.toBe('expired')
+    expect(rowB!.status).not.toBe('expired')
+  })
+})
+
+describe('PruneGuardService.guard — fail-open settings read (W3)', () => {
+  it('settings.getGuardSettings throwing → guard() resolves, records a failed event, never throws', async () => {
+    const { svc, db } = await makeService({ scope: 'named' })
+    jest
+      .spyOn((svc as any).deps.settings, 'getGuardSettings')
+      .mockRejectedValueOnce(new Error('settings DB down'))
+
+    let ev: any
+    await expect((async () => { ev = await svc.guard('volume_rm', 'event', ['vol-a']) })()).resolves.toBeUndefined()
+    expect(ev.status).toBe('failed')
+    expect(ev.volumes[0].status).toBe('failed')
+    // Persisted so the audit/UI still sees the failed attempt.
+    expect(await db.getGuardEvent(ev.id)).not.toBeNull()
+  })
+})
+
 describe('PruneGuardService.restore — round-trip', () => {
   it('re-imports saved volumes via DockerService.importVolume and marks restored', async () => {
     const { svc, db, docker, audit } = await makeService({ scope: 'named' })

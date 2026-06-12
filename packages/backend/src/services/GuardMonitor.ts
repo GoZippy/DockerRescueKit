@@ -46,6 +46,9 @@ export class GuardMonitor {
   private reconnectAttempt = 0
   private stopped = false
   private currentCron: string | null = null
+  /** Guards against a floor pass outlasting the cron interval and being
+   *  re-entered by the next tick (N8, mirrors SchedulerEngine). */
+  private runningFloor = false
 
   constructor(private readonly deps: GuardMonitorDeps) {}
 
@@ -201,15 +204,26 @@ export class GuardMonitor {
    *  call floorSnapshot(). Re-reading settings means scope/budget apply live;
    *  a changed cron *cadence* still needs a restart (documented caveat). */
   public async runFloorTick(): Promise<void> {
-    const settings = await this.deps.settings.getGuardSettings()
-    if (!settings.enabled || settings.scope === 'off') return
-    const onHost = await this.deps.docker.listVolumes().catch(() => [] as any[])
-    const named = onHost
-      .map(v => v?.Name)
-      .filter((n: any): n is string => typeof n === 'string' && !isAnonymous(n))
-    if (named.length === 0) return
-    // PruneGuardService.floorSnapshot re-applies the scope filter internally.
-    await this.deps.guard.floorSnapshot(named)
+    // Re-entrancy guard: skip if a prior pass is still in flight so a slow floor
+    // (slower than the cron interval) never overlaps itself mid-write (N8).
+    if (this.runningFloor) {
+      logger.warn('[GuardMonitor] floor tick still running; skipping this tick')
+      return
+    }
+    this.runningFloor = true
+    try {
+      const settings = await this.deps.settings.getGuardSettings()
+      if (!settings.enabled || settings.scope === 'off') return
+      const onHost = await this.deps.docker.listVolumes().catch(() => [] as any[])
+      const named = onHost
+        .map(v => v?.Name)
+        .filter((n: any): n is string => typeof n === 'string' && !isAnonymous(n))
+      if (named.length === 0) return
+      // PruneGuardService.floorSnapshot re-applies the scope filter internally.
+      await this.deps.guard.floorSnapshot(named)
+    } finally {
+      this.runningFloor = false
+    }
   }
 
   // -------------------------------------------------------------------------

@@ -59,10 +59,24 @@ export class PruneGuardService {
   private readonly bus = new EventEmitter()
   private readonly semaphore: { capacity: number; inUse: number; waiters: Array<() => void> }
   private readonly guardCacheDir: string
+  /** Serializes the budget→snapshot→persist critical section so overlapping
+   *  guard()/floorSnapshot() calls (floor cron + MCP) can't over-evict each
+   *  other's not-yet-persisted snapshots (W1). Capacity-1 promise-chain mutex. */
+  private critical: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly deps: PruneGuardServiceDeps) {
     this.semaphore = { capacity: Math.max(1, DEFAULT_CONCURRENCY), inUse: 0, waiters: [] }
     this.guardCacheDir = path.join(deps.dataDir, 'guard-cache')
+  }
+
+  /** Run `fn` after all previously-queued critical sections settle. Serializes
+   *  budget→snapshot→persist across concurrent guard()/floorSnapshot() calls. */
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.critical.then(fn, fn)
+    // Keep the chain alive even if `fn` rejects (it shouldn't — guard() is
+    // fail-open) without leaking the rejection to the next waiter.
+    this.critical = run.then(() => undefined, () => undefined)
+    return run
   }
 
   // -------------------------------------------------------------------------
@@ -96,25 +110,30 @@ export class PruneGuardService {
     trigger: GuardEvent['trigger'],
     volumeNames: string[],
   ): Promise<GuardEvent> {
-    const settings = await this.deps.settings.getGuardSettings()
     const id = uuidv4()
     const createdAt = new Date()
-    const ttlAt = new Date(createdAt.getTime() + settings.ttlHours * 3600_000)
 
+    // Initialised with fail-open defaults; the settings read (which can throw)
+    // now happens INSIDE the try so guard() truly never rejects (W3).
     const event: GuardEvent = {
       id,
       kind,
       trigger,
-      scope: settings.scope,
+      scope: 'named',
       volumes: [],
       totalBytes: 0,
       createdAt: createdAt.toISOString(),
-      ttlAt: ttlAt.toISOString(),
+      ttlAt: createdAt.toISOString(),
       pinned: false,
       status: 'saved',
     }
 
     try {
+      // Load settings (fallible: DB/settings read) — formerly outside the try.
+      const settings = await this.deps.settings.getGuardSettings()
+      event.scope = settings.scope
+      event.ttlAt = new Date(createdAt.getTime() + settings.ttlHours * 3600_000).toISOString()
+
       // STEP 1 — resolve in-scope volumes.
       const inScope = await this.resolveInScope(volumeNames, settings)
       if (inScope.length === 0) {
@@ -127,41 +146,63 @@ export class PruneGuardService {
       const eventDir = path.join(this.guardCacheDir, id)
       await fs.ensureDir(eventDir)
 
-      // STEP 2 — make room under the global budget BEFORE snapshotting. Reserve
-      // up to one event-cap of headroom, but never more than the whole budget
-      // (a tiny budget can't reserve a full event cap).
-      const budgetBytes = settings.diskBudgetMb * MB
-      await this.evictForBudget(settings, Math.min(EVENT_CAP_MB * MB, budgetBytes))
+      // STEPS 2-3 run under the critical-section mutex so an overlapping
+      // guard()/floorSnapshot() can't evict a snapshot that isn't persisted
+      // yet, nor have its own budget accounting raced (W1). The per-volume
+      // semaphore inside still bounds intra-event concurrency.
+      await this.runExclusive(async () => {
+        // STEP 2 — make room under the global budget BEFORE snapshotting.
+        // Reserve up to one event-cap of headroom, but never more than the
+        // whole budget (a tiny budget can't reserve a full event cap).
+        const budgetBytes = settings.diskBudgetMb * MB
+        await this.evictForBudget(settings, Math.min(EVENT_CAP_MB * MB, budgetBytes))
 
-      // STEP 3 — snapshot each in-scope volume (semaphore-bounded).
-      let eventBytes = 0
-      const perVolCap = settings.perVolumeCapMb * MB
-      const eventCap = EVENT_CAP_MB * MB
+        // STEP 3 — snapshot each in-scope volume (semaphore-bounded).
+        let eventBytes = 0
+        const perVolCap = settings.perVolumeCapMb * MB
+        const eventCap = EVENT_CAP_MB * MB
 
-      await Promise.all(
-        inScope.map(vol =>
-          this.withSemaphore(async () => {
-            // Budget exhausted for this event already → skip the rest.
-            const snap = await this.snapshotVolume(event, vol, eventDir, perVolCap, () => eventBytes, eventCap, settings)
-            event.volumes.push(snap)
-            if (snap.status === 'saved' && snap.sizeBytes) eventBytes += snap.sizeBytes
-          }),
-        ),
-      )
+        await Promise.all(
+          inScope.map(vol =>
+            this.withSemaphore(async () => {
+              // Budget exhausted for this event already → skip the rest.
+              const snap = await this.snapshotVolume(event, vol, eventDir, perVolCap, () => eventBytes, eventCap, settings)
+              event.volumes.push(snap)
+              if (snap.status === 'saved' && snap.sizeBytes) eventBytes += snap.sizeBytes
+            }),
+          ),
+        )
 
-      event.totalBytes = eventBytes
-      event.status = this.deriveStatus(event.volumes)
+        event.totalBytes = eventBytes
+        event.status = this.deriveStatus(event.volumes)
+        // Persist inside the lock so this event counts toward the budget the
+        // moment the lock is released — the next critical section sees it.
+        await this.persist(event)
+      })
+
+      return await this.recordAndReturn(event, kind, trigger)
     } catch (err: any) {
-      // Belt-and-suspenders: resolution/budget errors must not throw out.
+      // Belt-and-suspenders: settings/resolution/budget errors must not throw out.
       logger.error({ err, eventId: id }, '[Guard] guard() failed unexpectedly')
       if (event.volumes.length === 0) {
         event.volumes.push({ volume: '(resolve)', status: 'failed', sizeBytes: 0, detail: err?.message || String(err) })
       }
       event.status = this.deriveStatus(event.volumes)
+      await this.persist(event).catch(persistErr =>
+        logger.error({ err: persistErr, eventId: id }, '[Guard] failed to persist failed event'),
+      )
+      return await this.recordAndReturn(event, kind, trigger)
     }
+  }
 
-    await this.persist(event)
-
+  /** Audit + emit the toast frame for a finished event, then return it. Shared
+   *  by the happy and fail-open paths so guard() has exactly one record step. */
+  private async recordAndReturn(
+    event: GuardEvent,
+    kind: GuardOpKind,
+    trigger: GuardEvent['trigger'],
+  ): Promise<GuardEvent> {
+    const id = event.id
     // STEP 3 (record) — audit + emit the toast frame.
     const saved = event.volumes.filter(v => v.status === 'saved')
     await this.deps.audit.record(GUARD_AUDIT_EVENTS.snapshot, {

@@ -1,4 +1,4 @@
-import { parseDockerHost, summarizePrune } from '../docker'
+import { parseDockerHost, summarizePrune, DockerOps } from '../docker'
 
 describe('parseDockerHost', () => {
   it('parses unix sockets', () => {
@@ -30,5 +30,16 @@ describe('summarizePrune', () => {
     })
     expect(r.spaceReclaimed).toBe(30)
     expect(r.deleted).toEqual(expect.arrayContaining(['c1', 'img1', 'n1']))
+  })
+})
+
+describe('DockerOps.composeDown — project validation', () => {
+  // Inject a stub dockerode so the constructor doesn't open a real socket.
+  const ops = new DockerOps({} as any, {} as any)
+
+  it('rejects a flag-shaped project name before spawning (argument injection)', async () => {
+    await expect(ops.composeDown('--help', true)).rejects.toThrow(/invalid compose project name/)
+    await expect(ops.composeDown('-f/etc/passwd', false)).rejects.toThrow(/invalid compose project name/)
+    await expect(ops.composeDown('', true)).rejects.toThrow(/invalid compose project name/)
   })
 })

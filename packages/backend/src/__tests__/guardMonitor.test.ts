@@ -191,6 +191,29 @@ describe('GuardMonitor — periodic floor', () => {
     expect(guard.floors.length).toBe(0)
     void monitor
   })
+
+  it('re-entrancy (N8): a tick fired while a prior pass is in flight is skipped', async () => {
+    const { docker, guard, monitor } = build()
+    docker.volumes = [{ Name: 'app-data' }]
+    // Make floorSnapshot block until we release it, so the first pass is still
+    // in flight when we fire the second tick.
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    guard.floorSnapshot = async (volumes: string[]) => {
+      guard.floors.push(volumes)
+      await gate
+      return {} as any
+    }
+
+    const first = monitor.runFloorTick() // starts, blocks on gate
+    await flush()
+    await monitor.runFloorTick()          // second tick — must be skipped
+    expect(guard.floors.length).toBe(1)
+
+    release()
+    await first
+    expect(guard.floors.length).toBe(1)
+  })
 })
 
 // ---------------------------------------------------------------------------
