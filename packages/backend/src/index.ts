@@ -44,6 +44,9 @@ import { LogTriageService } from './services/LogTriageService'
 import { NotificationDispatcher } from './services/NotificationDispatcher'
 import { NotificationService } from './services/NotificationService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
+import { PruneGuardService } from './services/PruneGuardService'
+import { GuardMonitor } from './services/GuardMonitor'
+import { mountGuardRoutes } from './routes/guard'
 import { mountLogsRoutes } from './routes/logs'
 import { mountVolumesRoutes } from './routes/volumes'
 import { mountNotificationRoutes } from './routes/notifications'
@@ -213,6 +216,11 @@ export class BackupService {
   private metrics: MetricsService
   private verify: VerifyService
   private rehearsal: RehearsalService
+  // PG-1.3/1.4 — gated behind the DRK_PRUNE_GUARD kill-switch (§16). Null when
+  // the guard is off: routes are not mounted (frontend sees 404 and hides the
+  // feature) and the monitor never starts.
+  private pruneGuard: PruneGuardService | null = null
+  private guardMonitor: GuardMonitor | null = null
   private health: HealthCheckService
   private logTriage: LogTriageService
   private partial: PartialRestoreService
@@ -283,6 +291,25 @@ export class BackupService {
       db: this.db,
       notificationDispatcher: this.notificationDispatcher,
     })
+    // PG-1.3/1.4 Prune Guard — ships OFF unless DRK_PRUNE_GUARD=1 (§16 rollout).
+    // The env flag is the kill-switch; GuardSettings.enabled is the user switch.
+    // When the kill-switch is off we construct nothing: routes stay unmounted
+    // (frontend 404 → feature hidden) and the monitor never runs.
+    if (process.env.DRK_PRUNE_GUARD === '1') {
+      this.pruneGuard = new PruneGuardService({
+        docker: this.dockerService,
+        policyManager: this.policyManager,
+        audit: this.audit,
+        settings: this.settings,
+        db: this.db,
+        dataDir,
+      })
+      this.guardMonitor = new GuardMonitor({
+        docker: this.dockerService,
+        settings: this.settings,
+        guard: this.pruneGuard,
+      })
+    }
     this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db, this.notificationDispatcher)
     this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
 
@@ -353,6 +380,16 @@ export class BackupService {
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
+    // PG-1.4 — mount the guard surface only when the kill-switch is on (§16).
+    // Off → no routes → frontend 404 on GET /api/guard/settings → feature hidden.
+    if (this.pruneGuard) {
+      mountGuardRoutes(this.app, {
+        guard: this.pruneGuard,
+        settings: this.settings,
+        db: this.db,
+        audit: this.audit,
+      })
+    }
     try {
       mountLogsRoutes(this.app, { triageService: this.logTriage, db: this.db })
     } catch (err) {
@@ -401,6 +438,9 @@ export class BackupService {
     // Best-effort cleanup of any resources left by a previously-crashed run.
     // Doesn't block startup; logs whatever it reaps.
     this.rehearsal.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
+    // PG-1.3 — reap any guard helper containers a crash left labelled
+    // com.gozippy.drk.guard=*. Best-effort; only when the guard is enabled.
+    this.pruneGuard?.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
   }
 
   private setupMiddleware() {
@@ -946,6 +986,14 @@ export class BackupService {
   public async start() {
     await this.scheduler.start()
 
+    // PG-1.3 — start the Prune Guard monitor (events floor + periodic cron +
+    // TTL sweep) when the kill-switch is on. Best-effort; never blocks boot.
+    if (this.guardMonitor) {
+      this.guardMonitor.start().catch(err =>
+        logger.error({ err }, '[GuardMonitor] failed to start'),
+      )
+    }
+
     // Online license revocation check. Fires once on start, then every 24h.
     // No-op if DRK_LICENSE_SERVER_URL isn't set — the install runs in
     // offline-only mode and stays Free until a token is pasted in
@@ -1025,6 +1073,7 @@ export class BackupService {
       console.log(`\x1b[33m[DockerRescueKit]\x1b[0m Received ${signal}, shutting down…`)
       try {
         this.scheduler.stop()
+        this.guardMonitor?.stop()
         if (this.httpServer) {
           await new Promise<void>((resolve) => this.httpServer!.close(() => resolve()))
         }
