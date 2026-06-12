@@ -35,6 +35,22 @@ describe('CLI command registry', () => {
     ]))
   })
 
+  it('includes the day-0 setup commands (v1.4 gap-fill)', () => {
+    const names = commands.map(c => c.name)
+    expect(names).toEqual(expect.arrayContaining([
+      'policy:create',
+      'policy:update',
+      'policy:template',
+      'connector:create',
+      'connector:discover',
+      'config:export',
+      'config:import',
+      'license:status',
+      'license:activate',
+      'health',
+    ]))
+  })
+
   it('findCommand resolves by name', () => {
     expect(findCommand('status')?.name).toBe('status')
     expect(findCommand('does-not-exist')).toBeUndefined()

@@ -127,7 +127,7 @@ export const VaultList: React.FC = () => {
   const orphanedCount = instances.filter(i => policiesReferencing(i.id, policies).length === 0).length
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} className="animate-fade-in">
       {showWizard && (
         <AddConnectorWizard
           onClose={() => { setShowWizard(false); load() }}
@@ -135,129 +135,135 @@ export const VaultList: React.FC = () => {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-card p-6 flex flex-col gap-2">
-          <div className="flex justify-between items-center text-slate-400">
-            <span className="font-bold">Stored Credentials</span>
-            <KeyRound size={20} className="text-blue-400" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Stored Credentials</span>
+            <KeyRound size={18} color="var(--blue-500)" />
           </div>
-          <span className="text-3xl font-bold">{loading ? '—' : instances.length}</span>
-          <span className="text-xs text-slate-500">connector instances saved</span>
+          <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>{loading ? '—' : instances.length}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>connector instances saved</span>
         </div>
-        <div className="glass-card p-6 flex flex-col gap-2">
-          <div className="flex justify-between items-center text-slate-400">
-            <span className="font-bold">Encryption</span>
-            <Lock size={20} className="text-emerald-400" />
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Encryption</span>
+            <Lock size={18} color="var(--emerald)" />
           </div>
-          <span className="text-3xl font-bold text-emerald-400">AES-256-GCM</span>
-          <span className="text-xs text-slate-500">{totalEncryptedFields} encrypted field{totalEncryptedFields === 1 ? '' : 's'} at rest</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--emerald)' }}>AES-256-GCM</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{totalEncryptedFields} encrypted field{totalEncryptedFields === 1 ? '' : 's'} at rest</span>
         </div>
-        <div className="glass-card p-6 flex flex-col gap-2 border-emerald-500/20">
-          <div className="flex justify-between items-center text-slate-400">
-            <span className="font-bold">Unused Credentials</span>
-            <ShieldAlert size={20} className={orphanedCount > 0 ? 'text-amber-400' : 'text-emerald-400'} />
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Unused Credentials</span>
+            <ShieldAlert size={18} color={orphanedCount > 0 ? 'var(--amber)' : 'var(--emerald)'} />
           </div>
-          <span className={`text-3xl font-bold ${orphanedCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+          <span style={{ fontSize: 28, fontWeight: 700, color: orphanedCount > 0 ? 'var(--amber)' : 'var(--emerald)' }}>
             {loading ? '—' : orphanedCount}
           </span>
-          <span className="text-xs text-slate-500">not referenced by any policy</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>not referenced by any policy</span>
         </div>
       </div>
 
       {/* List */}
-      <div className="glass-card p-6">
-        <div className="flex justify-between items-center mb-2">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <KeyRound className="text-indigo-400" size={20} />
+      <div className="card" style={{ padding: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid var(--surface-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 15 }}>
+            <KeyRound size={18} color="var(--indigo)" />
             Encrypted Credentials
-          </h2>
+          </div>
           <button
-            className="glow-btn py-2 px-4 text-sm flex items-center gap-2"
+            className="btn btn-primary"
             onClick={() => setShowWizard(true)}
           >
             <Plus size={14} /> Add Credential
           </button>
         </div>
-        <p className="text-sm text-slate-500 mb-6">
-          Saved credential sets for cloud and network storage backends. Sensitive fields are encrypted at rest with AES-256-GCM and never decrypted on disk.
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '10px 16px 0' }}>
+          Saved credential sets for cloud and network storage. Sensitive fields are encrypted at rest with AES-256-GCM.
         </p>
 
         {loading ? (
-          <div className="flex justify-center items-center py-8 text-slate-500">
-            <Loader2 className="animate-spin mr-2" /> Scanning vault…
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px 0', gap: 8, color: 'var(--text-muted)' }}>
+            <Loader2 size={16} className="animate-spin" /> Scanning vault…
           </div>
         ) : instances.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
-            <KeyRound size={28} className="mx-auto text-slate-600 mb-3" />
-            <p className="text-slate-400 mb-1">No encrypted credentials yet.</p>
-            <p className="text-sm text-slate-500 mb-4">
-              Add a connector to vault credentials for S3, SFTP, SMB, Proxmox, TrueNAS, or Rclone.
+          <div style={{
+            margin: 16, padding: 32,
+            border: '2px dashed var(--surface-4)',
+            borderRadius: 'var(--r-lg)',
+            textAlign: 'center',
+          }}>
+            <KeyRound size={28} color="var(--text-muted)" style={{ margin: '0 auto 12px' }} />
+            <p style={{ color: 'var(--text-secondary)', marginBottom: 4 }}>No encrypted credentials yet.</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+              Add a connector to save credentials for S3, SFTP, SMB, Proxmox, TrueNAS, or Rclone.
             </p>
-            <button className="glow-btn py-2 px-4 text-sm inline-flex items-center gap-2" onClick={() => setShowWizard(true)}>
+            <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
               <Plus size={14} /> Add your first credential
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12, padding: 16 }}>
             {instances.map(inst => {
               const refs = policiesReferencing(inst.id, policies)
               const secretCount = countSensitive(inst.config)
               return (
                 <div
                   key={inst.id}
-                  className="p-4 rounded-xl bg-white/5 border border-white/10 flex flex-col gap-3 group hover:border-blue-500/40 transition-all"
+                  className="card card-hover"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-3 bg-slate-800 rounded-lg text-indigo-300 group-hover:text-blue-300 transition-colors shrink-0">
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <div style={{
+                        padding: 10, background: 'var(--surface-3)',
+                        borderRadius: 'var(--r-md)', color: 'var(--indigo)', flexShrink: 0,
+                      }}>
                         {typeIcon(inst.type)}
                       </div>
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-slate-200 truncate" title={inst.name}>{inst.name}</h3>
-                        <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">{inst.type}</p>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }} title={inst.name}>
+                          {inst.name}
+                        </div>
+                        <div className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {inst.type}
+                        </div>
                       </div>
                     </div>
                     <button
                       onClick={() => handleDelete(inst)}
-                      className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors shrink-0"
+                      className="btn-icon"
+                      style={{ color: 'var(--text-muted)', flexShrink: 0 }}
                       title="Delete credential"
                     >
-                      <X size={16} />
+                      <X size={15} />
                     </button>
                   </div>
 
-                  <div className="text-sm text-slate-400 font-mono truncate" title={summarizeTarget(inst)}>
+                  <div className="font-mono" style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={summarizeTarget(inst)}>
                     {summarizeTarget(inst)}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     <span
-                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded border"
+                      className="badge"
                       style={{
                         color: statusColor(inst.status),
-                        borderColor: `${statusColor(inst.status)}33`,
-                        background: `${statusColor(inst.status)}10`,
+                        borderColor: `${statusColor(inst.status)}44`,
+                        background: `${statusColor(inst.status)}18`,
                       }}
                     >
-                      <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ background: statusColor(inst.status) }}
-                      />
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor(inst.status), display: 'inline-block' }} />
                       {inst.status}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
-                      <Lock size={11} />
+                    <span className="badge badge-success">
+                      <Lock size={10} />
                       {secretCount} encrypted field{secretCount === 1 ? '' : 's'}
                     </span>
                     {refs.length === 0 ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-amber-500/20 bg-amber-500/10 text-amber-400">
-                        Unused
-                      </span>
+                      <span className="badge badge-warning">Unused</span>
                     ) : (
-                      <span
-                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-slate-700 bg-slate-800/50 text-slate-300"
-                        title={refs.map(p => p.name).join(', ')}
-                      >
+                      <span className="badge badge-muted" title={refs.map(p => p.name).join(', ')}>
                         Used by {refs.length} polic{refs.length === 1 ? 'y' : 'ies'}
                       </span>
                     )}
@@ -269,10 +275,11 @@ export const VaultList: React.FC = () => {
         )}
 
         {!loading && instances.length > 0 && (
-          <div className="mt-4 flex justify-end">
+          <div style={{ padding: '8px 16px 14px', display: 'flex', justifyContent: 'flex-end' }}>
             <button
               onClick={load}
-              className="text-xs text-slate-500 hover:text-slate-300 inline-flex items-center gap-1"
+              className="btn btn-ghost"
+              style={{ fontSize: 12, padding: '4px 10px' }}
             >
               <RefreshCw size={12} /> Refresh
             </button>

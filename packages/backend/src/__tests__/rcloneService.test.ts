@@ -36,4 +36,31 @@ describe('RcloneService', () => {
     const ids = keyProviders.map(p => p.id)
     expect(ids).toEqual(expect.arrayContaining(['b2', 's3', 'sftp', 'webdav']))
   })
+
+  it('checkInstall returns a well-formed result regardless of rclone presence', async () => {
+    const result = await svc.checkInstall()
+    expect(typeof result.installed).toBe('boolean')
+    // version is the parsed string when present, otherwise null
+    expect(result.version === null || typeof result.version === 'string').toBe(true)
+    expect(result.configPath).toBe(svc.getConfigPath())
+    // When rclone is missing we must report installed=false with a null version,
+    // never throw — the UI relies on this to render the install helper.
+    if (!result.installed) {
+      expect(result.version).toBeNull()
+    }
+  })
+
+  it('checkInstall points at a configured but missing rclone binary safely', async () => {
+    const prev = process.env.RCLONE_BIN
+    process.env.RCLONE_BIN = path.join(tmpDir, 'definitely-not-rclone')
+    try {
+      const probe = new RcloneService(tmpDir)
+      const result = await probe.checkInstall()
+      expect(result.installed).toBe(false)
+      expect(result.version).toBeNull()
+    } finally {
+      if (prev === undefined) delete process.env.RCLONE_BIN
+      else process.env.RCLONE_BIN = prev
+    }
+  })
 })

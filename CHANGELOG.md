@@ -11,6 +11,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.4.0] - Unreleased
+
+The safety-net + hardening sprint. Headline features: **Prune Guard** (experimental,
+behind `DRK_PRUNE_GUARD=1`), **CouchDB exporter**, **CLI day-0 setup commands**,
+**connector-credential fix**, **destination guard**, and a round of UX polish
+including responsive layout and cron humanization. Several licence-gate and audit
+TTL gaps partially closed.
+
+### Added
+
+**Prune Guard MVP (`DRK_PRUNE_GUARD=1` — experimental).** Two-layer safety net
+against runaway destructive Docker operations (AI agents, `docker system prune`,
+`compose down -v`):
+- **PG-1.1** — shared `GuardEvent`/`GuardSettings` types, `guard_events` SQLite
+  table, audit-event constants.
+- **PG-1.2** — `PruneGuardService` core: guard-cache snapshot engine
+  (`exportVolume` reuse), LRU disk-budget eviction, per-volume size cap, dedup
+  fingerprint (skip unchanged volumes), TTL sweep, concurrency semaphore, boot-time
+  orphan reaper.
+- **PG-1.3** (landing in parallel with this sync) — event-reactive floor:
+  `dockerode.getEvents()` subscription, `container die` opportunistic snapshot,
+  `volume destroy` → `too_late` recording, periodic last-known-good cron (default
+  every 6 hours).
+- **PG-1.4** (landing in parallel) — `mountGuardRoutes` REST surface: `GET/PUT
+  /api/guard/settings`, `GET /api/guard/events`, `GET/POST /api/guard/events/:id`,
+  `POST /api/guard/events/:id/restore|pin`, `DELETE /api/guard/events/:id`, `GET
+  /api/guard/stream` (SSE), `POST /api/guard/test`.
+- **PG-1.5** — UI: undo toast on `guard:snapshot` SSE frame, "Recently saved"
+  Dashboard strip, Prune Guard settings card (scope, disk budget, cron picker).
+- **PG-1.6** — `packages/mcp` (`drk-mcp` server): MCP tools `snapshot_volumes`,
+  `safe_prune`, `safe_compose_down`, `undo_last`, `list_guard_snapshots` —
+  snapshot-then-act for cooperative agents (Claude, Cursor, etc.).
+
+Guard-cache layout: `data/guard-cache/<event-id>/manifest.json + <vol>.tar.gz`.
+Default disk budget: 2 GB. Default TTL: 72 h. Default scope: all named volumes.
+`DRK_PRUNE_GUARD` defaults **off** in v1.4.0; `GuardSettings.enabled` is the
+in-app toggle. See `docs/PRUNE_GUARD_GUIDE.md` and §7 of the spec for honest
+coverage limits.
+
+**CouchDB exporter.** Full DB parity with `tiredofit/docker-db-backup` — closes the
+last tiredofit gap. DB exporter count is now **8** (PostgreSQL, MySQL, MongoDB,
+Redis, SQLite, InfluxDB, MSSQL, CouchDB).
+
+**CLI day-0 setup commands.** `drk` now ships first-run commands covering the
+most common "I just installed this, what do I do?" path.
+
+**`docs/SWITCHING.md`.** Migration guide from offen, Backrest, zerobyte, and
+Nautical to DRK.
+
+**Connector discovery wiring.** The `AddConnectorWizard` discovery step now wires
+all connectors that implement `discoverDestinations` or `listContents` through the
+`/api/connectors/discover` route, surfacing real bucket/prefix/directory pickers
+in the UI (not just S3/SFTP/Rclone — all discovery-capable connectors).
+
+**UX quick wins + responsive layout.** Dashboard widgets and Prune Guard UI polish;
+responsive layout for narrow Docker Desktop panes; cron humanization (cron
+expressions rendered as plain-English descriptions throughout the UI).
+
+**`securityWarnings` field on `/api/status`.** Backend surfaces any detected
+configuration warnings (e.g. secrets file permissions, default key in use) in the
+status response for the UI to display.
+
+### Changed
+
+**Audit TTL partially enforced by tier.** Free tier now receives a shorter audit
+log retention window; Pro and Enterprise tiers receive longer retention. The exact
+boundaries are enforced in this release; residual unenforced tiers are noted in
+`docs/ROADMAP.md`.
+
+**License gate partially enforced.** The notifications route is now gated on the
+license tier. The policy-count cap and additional per-feature gates remain in the
+licence code but are not yet fully enforced; see `docs/ROADMAP.md` for the honest
+status.
+
+### Fixed
+
+**Connector credentials resolved in verify/rehearsal/partial-restore.** Previously,
+`testInstance`, rehearsal, and partial-restore paths could fail for connectors whose
+credential fields required vault resolution before use. Credentials are now fully
+resolved before the connector is handed to these code paths.
+
+**VaultList design-system port; honest `SecurityAudit`; `exportConfig` auth.**
+Several v1.3.1 review follow-ups: VaultList migrated to the shared design system,
+`SecurityAudit` component now reflects actual audit findings rather than a static
+placeholder, `exportConfig` endpoint properly requires auth.
+
+**Secrets warnings idempotent.** On-startup secrets-warning logic no longer emits
+duplicate log lines on repeated health checks.
+
+**Disk-pressure metric returns zeros (documented as planned for v1.5).** The
+`/metrics` disk-pressure gauge was returning non-zero stale values from an
+unreliable heuristic; it now returns zeros until a reliable implementation ships
+in v1.5.
+
+### Security
+
+**CORS allowlist enforced.** The backend now validates the `Origin` header against a
+configurable allowlist (`DRK_CORS_ORIGINS`). Requests from unlisted origins are
+rejected at the CORS layer rather than allowed through.
+
+**`?apiKey=` query-parameter auth restricted.** The fallback `?apiKey=` auth path
+is now disabled by default; only the `x-api-key` header is accepted unless the
+operator explicitly re-enables the query-param path (`DRK_ALLOW_APIKEY_PARAM=1`).
+
+**Secrets hardening.** On-disk secrets file permissions and content are validated on
+startup; actionable warnings are surfaced in logs and via the new `securityWarnings`
+field on `/api/status`.
+
+**License gates on protected routes.** The notifications route now requires a valid
+Pro/Enterprise license token. Unauthenticated or Free-tier callers receive `403
+Forbidden` with a structured error body.
+
+**SSRF bypass on `/connectors/discover` closed.** A path that could bypass
+`SsrfGuard` via the `mode` parameter on the discovery route was identified and
+closed (follow-up to the v1.3.0 `SsrfGuard` introduction).
+
+---
+
 ## [1.3.1] - 2026-06-08
 
 The post-v1.3.0 polish + supply-chain hardening sprint. No new user-facing

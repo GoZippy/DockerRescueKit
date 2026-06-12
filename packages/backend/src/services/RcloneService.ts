@@ -199,9 +199,29 @@ export class RcloneService extends EventEmitter {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  public async ensureAvailable(): Promise<void> {
+  /**
+   * Probe the rclone binary this backend uses (the one bundled in the
+   * container image, or whatever `RCLONE_BIN` points at). Returns a structured
+   * result instead of throwing so the UI can render a friendly health badge.
+   *
+   * Note: this only reflects the rclone *inside DRK*, which handles the actual
+   * backup I/O. The OAuth sign-in step still needs rclone on the user's own
+   * desktop — a different machine we can't probe from here (see
+   * {@link buildAuthorizeCommand}).
+   */
+  public async checkInstall(): Promise<{ installed: boolean; version: string | null; configPath: string }> {
     const r = await this.run(['version']).catch(() => ({ code: -1, stdout: '', stderr: '' }))
     if (r.code !== 0) {
+      return { installed: false, version: null, configPath: this.configPath }
+    }
+    // First line of `rclone version` is e.g. "rclone v1.65.0".
+    const m = r.stdout.match(/rclone\s+(v[\w.\-+]+)/i)
+    return { installed: true, version: m ? m[1] : null, configPath: this.configPath }
+  }
+
+  public async ensureAvailable(): Promise<void> {
+    const { installed } = await this.checkInstall()
+    if (!installed) {
       throw new Error('rclone is not installed or not on PATH. Install from https://rclone.org/downloads/ or set RCLONE_BIN.')
     }
   }

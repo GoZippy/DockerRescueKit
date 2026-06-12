@@ -7,7 +7,8 @@ import {
   BackupPolicy,
   StorageConfig,
   Backup,
-  BackupStatus
+  BackupStatus,
+  GuardEvent
 } from '@docker-rescue-kit/shared'
 import type { TriagedEvent } from '../services/LogTriageService'
 
@@ -115,6 +116,24 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_rehearsals_policy ON rehearsals(policyId);
       CREATE INDEX IF NOT EXISTS idx_rehearsals_started ON rehearsals(startedAt DESC);
+
+      CREATE TABLE IF NOT EXISTS guard_events (
+        id          TEXT PRIMARY KEY,
+        kind        TEXT NOT NULL,
+        trigger     TEXT NOT NULL,
+        scope       TEXT NOT NULL,
+        event       TEXT NOT NULL,        -- full GuardEvent JSON
+        totalBytes  INTEGER NOT NULL,
+        status      TEXT NOT NULL,
+        pinned      INTEGER NOT NULL DEFAULT 0,
+        createdAt   TEXT NOT NULL,
+        ttlAt       TEXT NOT NULL,
+        restoredAt  TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_guard_created ON guard_events(createdAt DESC);
+      CREATE INDEX IF NOT EXISTS idx_guard_ttl     ON guard_events(ttlAt);
+      CREATE INDEX IF NOT EXISTS idx_guard_status  ON guard_events(status);
 
       CREATE TABLE IF NOT EXISTS log_events (
         id TEXT PRIMARY KEY,
@@ -538,6 +557,137 @@ export class Database {
     this.db.prepare('DELETE FROM rehearsals WHERE id = ?').run(id)
   }
 
+  // Guard Event Operations (PG-1.1 — Prune Guard)
+  // The full GuardEvent is stored as JSON in `event`; the denormalised
+  // columns (kind/trigger/scope/totalBytes/status/pinned/createdAt/ttlAt/
+  // restoredAt) drive the indexed list/filter/TTL/sum queries without parsing
+  // every row.
+  public async insertGuardEvent(event: GuardEvent): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT INTO guard_events (
+        id, kind, trigger, scope, event, totalBytes, status, pinned,
+        createdAt, ttlAt, restoredAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        kind       = excluded.kind,
+        trigger    = excluded.trigger,
+        scope      = excluded.scope,
+        event      = excluded.event,
+        totalBytes = excluded.totalBytes,
+        status     = excluded.status,
+        pinned     = excluded.pinned,
+        ttlAt      = excluded.ttlAt,
+        restoredAt = excluded.restoredAt
+    `)
+    stmt.run(
+      event.id,
+      event.kind,
+      event.trigger,
+      event.scope,
+      JSON.stringify(event),
+      event.totalBytes,
+      event.status,
+      event.pinned ? 1 : 0,
+      event.createdAt,
+      event.ttlAt,
+      event.restoredAt || null
+    )
+  }
+
+  public async getGuardEvent(id: string): Promise<GuardEvent | null> {
+    const row = this.db.prepare('SELECT event FROM guard_events WHERE id = ?').get(id) as any
+    return row ? this.parseGuardEvent(row) : null
+  }
+
+  public async listGuardEvents(opts?: {
+    limit?: number
+    status?: string
+    before?: string
+  }): Promise<GuardEvent[]> {
+    const limit = Math.max(1, Math.min(500, opts?.limit ?? 50))
+    let query = 'SELECT event FROM guard_events WHERE 1=1'
+    const params: any[] = []
+
+    if (opts?.status) {
+      query += ' AND status = ?'
+      params.push(opts.status)
+    }
+
+    if (opts?.before) {
+      query += ' AND createdAt < ?'
+      params.push(opts.before)
+    }
+
+    query += ' ORDER BY createdAt DESC LIMIT ?'
+    params.push(limit)
+
+    const rows = this.db.prepare(query).all(...params) as any[]
+    return rows.map(r => this.parseGuardEvent(r))
+  }
+
+  public async updateGuardEventStatus(id: string, status: GuardEvent['status']): Promise<void> {
+    const row = this.db.prepare('SELECT event FROM guard_events WHERE id = ?').get(id) as any
+    if (!row) return
+    const event = this.parseGuardEvent(row)
+    event.status = status
+    await this.insertGuardEvent(event)
+  }
+
+  public async setGuardEventPinned(id: string, pinned: boolean): Promise<void> {
+    const row = this.db.prepare('SELECT event FROM guard_events WHERE id = ?').get(id) as any
+    if (!row) return
+    const event = this.parseGuardEvent(row)
+    event.pinned = pinned
+    await this.insertGuardEvent(event)
+  }
+
+  public async setGuardEventRestoredAt(id: string, restoredAt: string): Promise<void> {
+    const row = this.db.prepare('SELECT event FROM guard_events WHERE id = ?').get(id) as any
+    if (!row) return
+    const event = this.parseGuardEvent(row)
+    event.restoredAt = restoredAt
+    await this.insertGuardEvent(event)
+  }
+
+  public async deleteGuardEvent(id: string): Promise<void> {
+    this.db.prepare('DELETE FROM guard_events WHERE id = ?').run(id)
+  }
+
+  /**
+   * Events whose TTL has elapsed (ttlAt <= now) and which are not pinned.
+   * `ttlAt` is an ISO-8601 string so a lexical `<=` against an ISO `now`
+   * is chronologically correct (mirrors deleteOldAuditEntries' assumption).
+   * The daily sweep marks these 'expired' and reclaims their tarballs.
+   *
+   * Already-'expired' rows are excluded: sweepExpired() updates status in place
+   * (it does not delete the row), so without this predicate the same rows would
+   * be re-selected on every daily sweep and re-audited forever.
+   */
+  public async listExpiredGuardEvents(nowIso: string): Promise<GuardEvent[]> {
+    const rows = this.db.prepare(
+      "SELECT event FROM guard_events WHERE ttlAt <= ? AND pinned = 0 AND status != 'expired' ORDER BY createdAt ASC"
+    ).all(nowIso) as any[]
+    return rows.map(r => this.parseGuardEvent(r))
+  }
+
+  /**
+   * Total guard-cache bytes accounted across stored events. Used by the disk
+   * budget / LRU eviction path (PG-1.2). Excludes already-evicted 'expired'
+   * events; optionally excludes pinned events from the budget calculation.
+   */
+  public async sumGuardBytes(opts?: { excludePinned?: boolean }): Promise<number> {
+    let query = "SELECT COALESCE(SUM(totalBytes), 0) as total FROM guard_events WHERE status != 'expired'"
+    if (opts?.excludePinned) {
+      query += ' AND pinned = 0'
+    }
+    const row = this.db.prepare(query).get() as any
+    return row?.total ?? 0
+  }
+
+  private parseGuardEvent(row: any): GuardEvent {
+    return JSON.parse(row.event) as GuardEvent
+  }
+
   private parseBackup(r: any): Backup {
     let targets: any[] = []
     try { targets = JSON.parse(r.targets) } catch { /* malformed — return empty */ }
@@ -644,6 +794,21 @@ export class Database {
   public async deleteOldLogEvents(olderThanDays: number = 7): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
     const stmt = this.db.prepare('DELETE FROM log_events WHERE detectedAt < ?')
+    const result = stmt.run(cutoff)
+    return result.changes
+  }
+
+  /**
+   * Trim audit_logs rows older than `olderThanDays`. Mirrors the other TTL
+   * cleanup helpers. The audit retention window is tier-dependent — the caller
+   * (index.ts) resolves the number of days from the active license tier via
+   * auditRetentionDaysForFeatures(). `timestamp` is stored as an ISO-8601
+   * string (AuditService.record), so a lexical `<` comparison against an ISO
+   * cutoff is chronologically correct.
+   */
+  public async deleteOldAuditEntries(olderThanDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+    const stmt = this.db.prepare('DELETE FROM audit_logs WHERE timestamp < ?')
     const result = stmt.run(cutoff)
     return result.changes
   }

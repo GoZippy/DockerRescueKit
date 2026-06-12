@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import {
   Plus, Clock, PlayCircle, MoreVertical,
   Loader2, CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react'
-import { getPolicies, runPolicy } from '../api'
+import { getPolicies, runPolicy, deletePolicy } from '../api'
 import { BackupPolicy } from '@docker-rescue-kit/shared'
 import { PolicyWizard } from './PolicyWizard'
 import { PolicyDetail } from './PolicyDetail'
 import { PageError, PageErrorKind } from './PageError'
 import { useToast } from '../hooks/useToast'
+import { humanizeCron } from '../utils/cronHumanize'
 
 interface PolicyListProps {
   initialPolicyId?: string
@@ -22,6 +23,10 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set())
   const [showWizard, setShowWizard] = useState(false)
   const [selected, setSelected] = useState<BackupPolicy | null>(null)
+  const [editPolicy, setEditPolicy] = useState<BackupPolicy | null>(null)
+  const [kebabOpenId, setKebabOpenId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const toast = useToast()
 
   const load = async () => {
@@ -68,9 +73,33 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
 
   const onWizardSuccess = () => {
     setShowWizard(false)
+    setEditPolicy(null)
     setLoading(true)
     load()
   }
+
+  const handleDelete = async (id: string) => {
+    setDeleting(true)
+    try {
+      await deletePolicy(id)
+      toast.push('success', 'Policy deleted')
+      setConfirmDeleteId(null)
+      await load()
+    } catch (err: any) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : (err?.message || 'Unknown error')
+      toast.push('error', `Delete failed: ${msg}`)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Close kebab dropdown on Escape
+  useEffect(() => {
+    if (!kebabOpenId) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setKebabOpenId(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [kebabOpenId])
 
   if (loading) {
     return (
@@ -120,6 +149,11 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
             running={runningIds.has(policy.id)}
             onRun={e => handleRun(e, policy.id)}
             onClick={() => setSelected(policy)}
+            kebabOpen={kebabOpenId === policy.id}
+            onKebabToggle={e => { e.stopPropagation(); setKebabOpenId(prev => prev === policy.id ? null : policy.id) }}
+            onKebabClose={() => setKebabOpenId(null)}
+            onEdit={() => { setKebabOpenId(null); setEditPolicy(policy) }}
+            onDelete={() => { setKebabOpenId(null); setConfirmDeleteId(policy.id) }}
           />
         ))}
 
@@ -168,6 +202,13 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
       {showWizard && (
         <PolicyWizard onClose={() => setShowWizard(false)} onSuccess={onWizardSuccess} />
       )}
+      {editPolicy && (
+        <PolicyWizard
+          initialPolicy={editPolicy}
+          onClose={() => setEditPolicy(null)}
+          onSuccess={onWizardSuccess}
+        />
+      )}
       {selected && (
         <PolicyDetail
           policy={selected}
@@ -175,6 +216,43 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
           onChange={load}
         />
       )}
+
+      {/* Confirm delete dialog */}
+      {confirmDeleteId && (() => {
+        const p = policies.find(x => x.id === confirmDeleteId)
+        return (
+          <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+            <div
+              className="modal-panel"
+              style={{ maxWidth: 440 }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="confirm-delete-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <h3 id="confirm-delete-title" style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
+                  Delete policy?
+                </h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                  <strong>"{p?.name}"</strong> will be removed. Existing backup files in storage are kept.
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-ghost" onClick={() => setConfirmDeleteId(null)} disabled={deleting}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger" onClick={() => handleDelete(confirmDeleteId)} disabled={deleting}>
+                  {deleting ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -185,9 +263,35 @@ interface CardProps {
   running: boolean
   onRun: (e: React.MouseEvent) => void
   onClick: () => void
+  kebabOpen: boolean
+  onKebabToggle: (e: React.MouseEvent) => void
+  onKebabClose: () => void
+  onEdit: () => void
+  onDelete: () => void
 }
 
-const PolicyCard: React.FC<CardProps> = ({ policy, running, onRun, onClick }) => (
+const PolicyCard: React.FC<CardProps> = ({
+  policy, running, onRun, onClick,
+  kebabOpen, onKebabToggle, onKebabClose, onEdit, onDelete,
+}) => {
+  const kebabRef = useRef<HTMLDivElement>(null)
+
+  // Close on outside click
+  useEffect(() => {
+    if (!kebabOpen) return
+    const handler = (e: MouseEvent) => {
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        onKebabClose()
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [kebabOpen, onKebabClose])
+
+  const humanLabel = humanizeCron(policy.schedule)
+  const isRaw = humanLabel === policy.schedule
+
+  return (
   <div
     className="card card-hover"
     onClick={onClick}
@@ -246,9 +350,66 @@ const PolicyCard: React.FC<CardProps> = ({ policy, running, onRun, onClick }) =>
               ? <Loader2 size={16} className="animate-spin" />
               : <PlayCircle size={16} />}
           </button>
-          <button className="btn-icon" title="More options">
-            <MoreVertical size={16} />
-          </button>
+
+          {/* Kebab menu */}
+          <div ref={kebabRef} style={{ position: 'relative' }}>
+            <button
+              className="btn-icon"
+              title="More options"
+              aria-label="More options"
+              aria-haspopup="true"
+              aria-expanded={kebabOpen}
+              onClick={onKebabToggle}
+            >
+              <MoreVertical size={16} />
+            </button>
+            {kebabOpen && (
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                background: 'var(--surface-2)',
+                border: '1px solid var(--surface-4)',
+                borderRadius: 'var(--r-md)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                zIndex: 100,
+                minWidth: 140,
+                overflow: 'hidden',
+              }}>
+                {[
+                  { label: 'Edit', action: onEdit },
+                  { label: 'Run now', action: (e: React.MouseEvent) => { onKebabClose(); onRun(e) } },
+                ].map(item => (
+                  <button
+                    key={item.label}
+                    onClick={item.action as any}
+                    style={{
+                      display: 'block', width: '100%', padding: '9px 14px',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      textAlign: 'left', fontSize: 13, color: 'var(--text-primary)',
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <div style={{ height: 1, background: 'var(--surface-4)' }} />
+                <button
+                  onClick={onDelete}
+                  style={{
+                    display: 'block', width: '100%', padding: '9px 14px',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    textAlign: 'left', fontSize: 13, color: 'var(--rose)',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -275,13 +436,21 @@ const PolicyCard: React.FC<CardProps> = ({ policy, running, onRun, onClick }) =>
       background: 'var(--surface-1)',
       borderRadius: '0 0 var(--r-lg) var(--r-lg)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 12 }}>
-        <Clock size={12} />
-        <span className="font-mono" style={{ fontSize: 11 }}>{policy.schedule}</span>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 12, minWidth: 0 }}
+        title={isRaw ? undefined : policy.schedule}
+      >
+        <Clock size={12} style={{ flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {isRaw
+            ? <span className="font-mono" style={{ fontSize: 11 }}>{policy.schedule}</span>
+            : humanLabel}
+        </span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
         Keep {policy.retention.count}
       </div>
     </div>
   </div>
-)
+  )
+}

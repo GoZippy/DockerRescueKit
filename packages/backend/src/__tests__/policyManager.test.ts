@@ -237,3 +237,77 @@ describe('PolicyManager license gating', () => {
     expect((await pm.listPolicies()).length).toBe(6)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Destination guard — reject storage types StorageFactory can't build.
+// ConnectorManager lets users save proxmox/truenas connectors, but they are
+// discovery-only; a policy targeting them used to fail only at backup time.
+// ---------------------------------------------------------------------------
+
+describe('PolicyManager storage-destination guard', () => {
+  it('rejects a policy that targets a discovery-only proxmox connector', async () => {
+    await expect(
+      pm.createPolicy({ name: 'PVE', storage: { id: 's', type: 'proxmox', host: '10.0.0.1' } as any })
+    ).rejects.toThrow(/proxmox connectors are discovery-only/)
+    expect((await pm.listPolicies()).length).toBe(0)
+  })
+
+  it('rejects a truenas destination with a friendly hint', async () => {
+    await expect(
+      pm.createPolicy({ name: 'NAS', storage: { id: 's', type: 'truenas' } as any })
+    ).rejects.toThrow(/truenas connectors are discovery-only/)
+  })
+
+  it('rejects an entirely unknown storage type and lists supported ones', async () => {
+    await expect(
+      pm.createPolicy({ name: 'Weird', storage: { id: 's', type: 'floppy-disk' } as any })
+    ).rejects.toThrow(/Supported destination types: .*local/)
+  })
+
+  it('accepts a supported destination type (local)', async () => {
+    const p = await pm.createPolicy({ name: 'OK', storage: { id: 's', type: 'local', path: 'data/backups' } })
+    expect(p.storage.type).toBe('local')
+  })
+
+  it('also guards updatePolicy against switching to an unsupported type', async () => {
+    const p = await pm.createPolicy({ name: 'Mutate', storage: { id: 's', type: 'local', path: 'data/backups' } })
+    await expect(
+      pm.updatePolicy(p.id, { storage: { id: 's', type: 'proxmox' } as any })
+    ).rejects.toThrow(/cannot be used as a backup destination/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveStorageConfig — public so verify/rehearsal/partial-restore resolve
+// connector creds the same way runBackup/restoreBackup do.
+// ---------------------------------------------------------------------------
+
+describe('PolicyManager.resolveStorageConfig()', () => {
+  it('returns storage unchanged when no connectorId is present', async () => {
+    const storage = { type: 'local', path: 'data/backups' }
+    expect(await pm.resolveStorageConfig(storage)).toBe(storage)
+  })
+
+  it('merges decrypted connector config under the policy storage overrides', async () => {
+    // Inject a fake ConnectorManager that returns a decrypted instance.
+    ;(pm as any).connectorManager = {
+      getInstance: jest.fn().mockResolvedValue({
+        config: { type: 's3', accessKeyId: 'AKIA', secretAccessKey: 'secret', bucket: 'from-connector' }
+      })
+    }
+    const resolved = await pm.resolveStorageConfig({ type: 's3', connectorId: 'c1', bucket: 'from-policy' })
+    // connector creds present, policy fields win on conflict (spread order).
+    expect(resolved).toMatchObject({
+      accessKeyId: 'AKIA',
+      secretAccessKey: 'secret',
+      bucket: 'from-policy',
+      connectorId: 'c1',
+    })
+  })
+
+  it('falls back to raw storage when the connector instance is missing', async () => {
+    ;(pm as any).connectorManager = { getInstance: jest.fn().mockResolvedValue(null) }
+    const storage = { type: 's3', connectorId: 'gone' }
+    expect(await pm.resolveStorageConfig(storage)).toBe(storage)
+  })
+})

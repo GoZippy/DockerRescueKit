@@ -8,8 +8,10 @@ import { getConnectors, getConnectorInstances, deleteConnectorInstance, testConn
 
 import { AddConnectorWizard } from './AddConnectorWizard'
 import { RcloneWizard } from './RcloneWizard'
+import { ConnectorHelp } from './ConnectorHelp'
 import { PageError, PageErrorKind } from './PageError'
 import { useToast } from '../hooks/useToast'
+import { RCLONE_OVERVIEW_HELP } from '../integrationsHelp'
 
 const errorKindFromAxios = (e: unknown): PageErrorKind => {
   if (axios.isAxiosError(e)) {
@@ -214,17 +216,24 @@ export const ConnectorsPage: React.FC = () => {
       )}
 
       {/* Rclone quick-access banner */}
-      <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px' }}>
-        <Cloud size={22} color="var(--blue-500)" style={{ flexShrink: 0 }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Rclone cloud remotes</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Google Drive, OneDrive, Dropbox, Backblaze B2, WebDAV, S3 and more.
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Cloud size={22} color="var(--blue-500)" style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Rclone cloud remotes</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Google Drive, OneDrive, Dropbox, Backblaze B2, WebDAV, S3 and more.
+            </div>
           </div>
+          <button className="btn btn-primary" style={{ flexShrink: 0 }} onClick={() => setShowRclone(true)}>
+            <Cloud size={14} /> Manage remotes
+          </button>
         </div>
-        <button className="btn btn-primary" style={{ flexShrink: 0 }} onClick={() => setShowRclone(true)}>
-          <Cloud size={14} /> Manage remotes
-        </button>
+        <ConnectorHelp
+          help={RCLONE_OVERVIEW_HELP}
+          compact
+          title="New to rclone? What it is & whether you need to install anything"
+        />
       </div>
 
       {/* Available connector types */}
@@ -256,6 +265,11 @@ export const ConnectorsPage: React.FC = () => {
                     {instances.filter(i => i.type === conn.type).length} configured
                   </div>
                 )}
+                {/* Collapsed "what is this" help. stopPropagation so toggling
+                    it doesn't also open the add-connector wizard. */}
+                <div onClick={e => e.stopPropagation()}>
+                  <ConnectorHelp integrationKey={conn.type} compact />
+                </div>
               </div>
             ))}
           </div>

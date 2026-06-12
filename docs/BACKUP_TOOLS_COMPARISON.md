@@ -259,5 +259,11 @@ coverage (7 engines) while also handling volumes, containers, images, and verifi
 
 ---
 
-*Last updated: 2026-05-26. Pricing and features subject to change.
+*Last updated: 2026-06-11. Pricing and features subject to change.
 See [docs/ROADMAP.md](ROADMAP.md) for upcoming features.*
+
+---
+
+Already using one of these tools? See [Switching to DockerRescueKit](SWITCHING.md) for
+concept-mapping tables, a worked offen → DRK policy example, and the safe run-in-parallel
+migration pattern.

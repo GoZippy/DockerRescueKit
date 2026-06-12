@@ -32,6 +32,7 @@ const DB_EXPORTER_META: Record<DbKind, { label: string; desc: string; icon: Reac
   sqlite:    { label: 'SQLite',      desc: '.backup command',                          icon: <Database size={13} /> },
   influxdb:  { label: 'InfluxDB',    desc: 'influx backup (v2) or influxd (v1)',      icon: <Database size={13} /> },
   mssql:     { label: 'MS SQL Server', desc: 'sqlcmd BACKUP DATABASE',                 icon: <Database size={13} /> },
+  couchdb:   { label: 'CouchDB',     desc: 'JSON export of every database',            icon: <Database size={13} /> },
 }
 
 const SCHEDULE_PRESETS = [
@@ -99,6 +100,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   })
 
   const modalRef = useRef<HTMLDivElement>(null)
+  const manualTargetRef = useRef<HTMLInputElement>(null)
 
   // Lock body scroll while wizard is open
   useEffect(() => {
@@ -362,24 +364,26 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                       </p>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <input
-                          id="manual-target-input"
+                          ref={manualTargetRef}
                           className="form-input font-mono"
                           placeholder="volume:my-postgres-data"
                           style={{ flex: 1 }}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
-                              const val = (e.target as HTMLInputElement).value.trim()
+                              const input = manualTargetRef.current
+                              if (!input) return
+                              const val = input.value.trim()
                               const [type, ...rest] = val.split(':')
                               const selector = rest.join(':').trim()
                               if (selector && (type === 'volume' || type === 'container' || type === 'image' || type === 'network')) {
                                 setForm(f => ({ ...f, targets: [...f.targets, { type: type as TargetType, selector }] }))
-                                ;(e.target as HTMLInputElement).value = ''
+                                input.value = ''
                               }
                             }
                           }}
                         />
                         <button className="btn btn-ghost" onClick={() => {
-                          const input = document.getElementById('manual-target-input') as HTMLInputElement
+                          const input = manualTargetRef.current
                           if (!input) return
                           const val = input.value.trim()
                           const [type, ...rest] = val.split(':')
@@ -667,7 +671,13 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                            placeholder="e.g. my-postgres"
                            value={(dbForm as any).container || ''}
                            onChange={e => setDbForm({ ...dbForm!, container: e.target.value })}
+                           list="db-container-list"
                          />
+                         {containers.length > 0 && (
+                           <datalist id="db-container-list">
+                             {containers.map(c => <option key={c} value={c} />)}
+                           </datalist>
+                         )}
                        </div>
 
                        {dbForm.kind === 'postgres' && (

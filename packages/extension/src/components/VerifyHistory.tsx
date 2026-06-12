@@ -76,8 +76,12 @@ export const VerifyHistory: React.FC = () => {
         <div className="empty-state card">
           <ShieldCheck size={32} color="var(--text-muted)" style={{ margin: '0 auto 12px' }} />
           <div style={{ fontWeight: 700, marginBottom: 4 }}>No verifications yet</div>
-          <div style={{ fontSize: 12 }}>
-            Click the shield icon on any backup, or set a <span className="font-mono">verifySchedule</span> on a policy.
+          <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+            Verifications do a real scratch-restore to confirm your backups are usable.
+            You can start one manually: go to <strong>Backup History</strong> and click the
+            shield icon on any successful backup. To run verifications automatically on a
+            schedule, open a policy, click <strong>Edit policy</strong>, and set a
+            verify schedule in the Schedule step.
           </div>
         </div>
       ) : (

@@ -1,3 +1,4 @@
+import fs from 'fs'
 import { createClient } from './client'
 
 export interface CommandDef {
@@ -17,6 +18,27 @@ function must(value: string | undefined, name: string): string {
     process.exit(2)
   }
   return value
+}
+
+/**
+ * Read a JSON file from disk and parse it. On a read/parse error this prints a
+ * concise message to stderr and exits 2 (same convention as `must`), so each
+ * command body can call it without its own try/catch.
+ */
+function readJsonFile(file: string): any {
+  let raw: string
+  try {
+    raw = fs.readFileSync(file, 'utf8')
+  } catch (err: any) {
+    process.stderr.write(`cannot read ${file}: ${err?.message || err}\n`)
+    process.exit(2)
+  }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    process.stderr.write(`${file} is not valid JSON\n`)
+    process.exit(2)
+  }
 }
 
 export const commands: CommandDef[] = [
@@ -376,6 +398,156 @@ export const commands: CommandDef[] = [
       return 0
     }
   },
+  {
+    name: 'policy:create',
+    args: '<file.json>',
+    summary: 'Create a policy from a JSON file (see policy:template).',
+    run: async (pos) => {
+      const file = must(pos[0], 'file.json')
+      const body = readJsonFile(file)
+      const res = await createClient().post('/policies', body)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'policy:update',
+    args: '<policyId> <file.json>',
+    summary: 'Update a policy from a JSON file (partial body allowed).',
+    run: async (pos) => {
+      const id = must(pos[0], 'policyId')
+      const file = must(pos[1], 'file.json')
+      const body = readJsonFile(file)
+      const res = await createClient().put(`/policies/${id}`, body)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'policy:template',
+    args: '',
+    summary: 'Print an example policy JSON to stdout (pipe to a file to edit).',
+    run: async () => {
+      process.stdout.write(POLICY_TEMPLATE + '\n')
+      return 0
+    }
+  },
+
+  // ── Connector setup ──────────────────────────────────────────────────────
+  {
+    name: 'connector:create',
+    args: '<file.json>',
+    summary: 'Save a connector instance from a JSON file ({type,name,config}).',
+    run: async (pos) => {
+      const file = must(pos[0], 'file.json')
+      const body = readJsonFile(file)
+      const res = await createClient().post('/connectors', body)
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'connector:discover',
+    args: '<file.json> [--mode destinations|contents]',
+    summary: 'Discover resources for an inline connector config from a JSON file.',
+    run: async (pos, flags) => {
+      const file = must(pos[0], 'file.json')
+      const body = readJsonFile(file)
+      if (flags.mode) body.mode = flags.mode
+      const res = await createClient().post('/connectors/discover', body)
+      printJson(res.data)
+      return 0
+    }
+  },
+
+  // ── Config export / import (A3) ──────────────────────────────────────────
+  {
+    name: 'config:export',
+    args: '[outfile]',
+    summary: 'Dump settings/policies/vaults to a file (or stdout if omitted).',
+    run: async (pos) => {
+      const res = await createClient().get('/config/export')
+      const json = JSON.stringify(res.data, null, 2)
+      if (pos[0]) {
+        fs.writeFileSync(pos[0], json + '\n')
+        process.stdout.write(`wrote ${pos[0]}\n`)
+      } else {
+        process.stdout.write(json + '\n')
+      }
+      return 0
+    }
+  },
+  {
+    name: 'config:import',
+    args: '<file.json> [--apply]',
+    summary: 'Preview a config import; pass --apply to commit it (destructive).',
+    run: async (pos, flags) => {
+      const file = must(pos[0], 'file.json')
+      const payload = readJsonFile(file)
+      const client = createClient()
+      // Always preview first: previews never mutate and return a
+      // confirmationToken the apply step echoes back. Default (no --apply)
+      // stops here so the caller can inspect counts/warnings.
+      const preview = await client.post('/config/import?mode=preview', { mode: 'json', payload })
+      if (!('apply' in flags)) {
+        printJson(preview.data)
+        return 0
+      }
+      const token = preview.data?.confirmationToken
+      if (!token) {
+        process.stderr.write('preview did not return a confirmationToken; cannot apply\n')
+        printJson(preview.data)
+        return 1
+      }
+      const res = await client.post('/config/import?mode=apply', { token })
+      printJson(res.data)
+      return res.data?.applied ? 0 : 1
+    }
+  },
+
+  // ── License activation ───────────────────────────────────────────────────
+  {
+    name: 'license:status',
+    args: '',
+    summary: 'Show current license tier, features, and expiry.',
+    run: async () => {
+      const res = await createClient().get('/license')
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'license:activate',
+    args: '<key-or-file>',
+    summary: 'Activate a license token (inline string or path to a token file).',
+    run: async (pos) => {
+      const arg = must(pos[0], 'key-or-file')
+      // Accept either a bare token or a path to a file containing one. A real
+      // token is a long opaque string with no path separators, so treat the
+      // argument as a file only when it actually resolves to one on disk.
+      let token = arg
+      try {
+        if (fs.existsSync(arg) && fs.statSync(arg).isFile()) {
+          token = fs.readFileSync(arg, 'utf8').trim()
+        }
+      } catch { /* not a readable file — use the literal arg as the token */ }
+      const res = await createClient().post('/license/activate', { token })
+      printJson(res.data)
+      return 0
+    }
+  },
+
+  // ── Health dashboard ─────────────────────────────────────────────────────
+  {
+    name: 'health',
+    args: '',
+    summary: 'Show the rescue-readiness dashboard score and findings.',
+    run: async () => {
+      const res = await createClient().get('/health/dashboard')
+      printJson(res.data)
+      return 0
+    }
+  },
 
   // ── Rehearsals (R-1) ───────────────────────────────────────────────────────
   // Restore-rehearsal workflow: spin up a sandboxed network, restore selected
@@ -513,6 +685,54 @@ function parseSmokeChecks(raw: string | string[] | undefined): any[] {
     return check
   })
 }
+
+/**
+ * Example policy body for `policy:template`. Valid JSON so it can be piped
+ * straight to a file and fed back through `policy:create` after editing:
+ *
+ *   drk policy:template > my-policy.json
+ *   # edit my-policy.json, then:
+ *   drk policy:create my-policy.json
+ *
+ * Field shape mirrors CreatePolicySchema in
+ * packages/backend/src/validation/schemas.ts. The `_comment` keys are ignored
+ * by the backend (the schema passes through unknown keys on retention/storage
+ * and validates the named fields), so the template stays parseable while still
+ * documenting each field inline.
+ */
+const POLICY_TEMPLATE = JSON.stringify(
+  {
+    _comment: 'Example DRK policy. Edit the values, then: drk policy:create <file>. Required: name, targets, schedule, backupType, retention, storage.',
+    name: 'nightly-app-data',
+    description: 'Daily backup of the app data volume',
+    enabled: true,
+    targets: [
+      {
+        _comment: 'type is the connector/resource kind (e.g. volume, stack); selector names it.',
+        type: 'volume',
+        selector: 'my-app-data'
+      }
+    ],
+    schedule: '0 2 * * *',
+    _comment_schedule: 'Standard 5-field cron. "0 2 * * *" = daily at 02:00.',
+    backupType: 'full',
+    _comment_backupType: 'One of: full | incremental | differential.',
+    retention: {
+      _comment: 'Keep-policy. strategy=count keeps the N most recent backups.',
+      strategy: 'count',
+      count: 7
+    },
+    storage: {
+      _comment: 'Storage vault to write to. id must match a configured vault/connector.',
+      id: 'local-default',
+      type: 'local',
+      path: 'data/backups'
+    },
+    notifications: []
+  },
+  null,
+  2
+)
 
 export function findCommand(name: string): CommandDef | undefined {
   return commands.find(c => c.name === name)

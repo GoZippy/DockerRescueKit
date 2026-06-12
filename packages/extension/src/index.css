@@ -557,6 +557,74 @@
   .status-dot.failed  { background-color: var(--rose); }
   .status-dot.running { background-color: var(--amber); }
   .status-dot.idle    { background-color: var(--text-muted); }
+
+  /* ---------- Draggable dashboard widgets ---------- */
+  .widget {
+    position: relative;
+    min-width: 0;            /* allow grid children to shrink below content size */
+  }
+  .widget-grip {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: var(--r-sm);
+    color: var(--text-muted);
+    background: var(--surface-3);
+    border: 1px solid var(--surface-4);
+    cursor: grab;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+    touch-action: none;      /* let the pointer drag instead of scrolling */
+  }
+  .widget:hover .widget-grip,
+  .widget-grip:focus-visible {
+    opacity: 1;
+  }
+  .widget-grip:hover {
+    color: var(--text-primary);
+    background: var(--surface-4);
+  }
+  .widget-grip:active { cursor: grabbing; }
+  .widget.dragging { cursor: grabbing; }
+  .widget.dragging .widget-grip { opacity: 1; }
+  /* Coarse-pointer (touch) devices have no hover — keep the grip discoverable. */
+  @media (hover: none) {
+    .widget-grip { opacity: 0.55; }
+  }
+
+  /* ---------- Sidebar resize handle ---------- */
+  .resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 35;
+    touch-action: none;
+    background: transparent;
+  }
+  .resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 3px;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background-color 0.15s;
+  }
+  .resize-handle:hover::after,
+  .resize-handle.active::after {
+    background: var(--blue-500);
+  }
 }
 
 /* ============================================================

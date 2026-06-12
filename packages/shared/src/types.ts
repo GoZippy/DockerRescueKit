@@ -127,6 +127,28 @@ export type DatabaseExporter =
       /** Output file path inside the container. Defaults to /var/backups/drk-mssql.bak. */
       outPath?: string
     }
+  | {
+      kind: 'couchdb'
+      container: string
+      /** CouchDB admin username. Defaults to 'admin'. */
+      user?: string
+      /** Name of an env var on the container that holds the admin password.
+       *  Must be a valid POSIX env-var name (^[A-Z_][A-Z0-9_]*$, case-insensitive).
+       *  The value is read via `docker exec env` indirection — never embedded in
+       *  the command string. */
+      passwordEnv: string
+      /** CouchDB HTTP port inside the container. Defaults to 5984. */
+      port?: number
+      /** Explicit list of databases to export. Defaults to all non-system databases
+       *  (skips _replicator and _users). */
+      databases?: string[]
+      /** When true, includes _replicator and _users in the default-all export.
+       *  Ignored when `databases` is explicitly set. Defaults to false. */
+      includeSystemDbs?: boolean
+      /** Output directory inside the container. Defaults to /var/backups/drk-couchdb.
+       *  One <dbname>.json file is written per database. */
+      outPath?: string
+    }
 
 export interface NotificationConfig {
   readonly type: 'slack' | 'email' | 'webhook' | 'ntfy'
@@ -573,4 +595,62 @@ export interface NotificationLogEntry {
 export interface UnmanagedVolumesResponse {
   readonly unmanagedVolumes: readonly string[]
   readonly total: number
+}
+
+// ===========================================================================
+// PG-1 Prune Guard (v1.4-B) — see docs/design/PRUNE_GUARD.md §8.1
+// ===========================================================================
+
+export type GuardOpKind =
+  | 'volume_rm'
+  | 'volume_prune'
+  | 'container_rm_v'        // container rm -v (anonymous volume reaping)
+  | 'system_prune'
+  | 'image_prune'          // only when it cascades to volumes
+  | 'compose_down_v'
+  | 'container_die'        // event-reactive opportunistic
+  | 'periodic_floor'       // scheduled last-known-good
+
+export type GuardSnapshotStatus =
+  | 'snapshotting'
+  | 'saved'
+  | 'skipped_too_large'
+  | 'skipped_unchanged'
+  | 'failed'
+  | 'too_late'            // op already destroyed the data before we could snapshot
+
+export interface GuardVolumeSnapshot {
+  volume: string
+  status: GuardSnapshotStatus
+  sizeBytes: number
+  sha256?: string
+  fingerprint?: string     // size+mtime+path manifest hash for dedup (§6.5)
+  tarPath?: string         // relative to guard-cache/<eventId>/
+  detail?: string
+}
+
+export interface GuardEvent {
+  id: string                       // uuid v4 — also the helper-container label seed
+  kind: GuardOpKind
+  trigger: 'mcp' | 'proxy' | 'event' | 'periodic'
+  scope: GuardScope                // resolved scope at capture time
+  volumes: GuardVolumeSnapshot[]
+  totalBytes: number
+  createdAt: string                // ISO
+  ttlAt: string                    // ISO — when the daily sweep will evict
+  pinned: boolean                  // promoted to "keep"; never auto-evicted
+  restoredAt?: string              // set when the user clicked Undo
+  status: 'saved' | 'partial' | 'failed' | 'expired' | 'restored'
+}
+
+export type GuardScope = 'protected' | 'named' | 'all-named-under-cap' | 'off'
+
+export interface GuardSettings {
+  enabled: boolean                 // default true
+  scope: GuardScope                // default 'named'
+  diskBudgetMb: number             // default 2048
+  perVolumeCapMb: number           // default 512
+  ttlHours: number                 // default 72
+  periodicCron: string             // default '0 */6 * * *'
+  failClosed: boolean              // default false (proxy only)
 }

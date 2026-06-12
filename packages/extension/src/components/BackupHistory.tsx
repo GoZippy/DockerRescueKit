@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Backup } from '@docker-rescue-kit/shared'
-import { listAllBackups, deleteBackup, verifyBackup } from '../api'
+import { Backup, BackupPolicy } from '@docker-rescue-kit/shared'
+import { listAllBackups, deleteBackup, verifyBackup, getPolicies } from '../api'
 import {
   CheckCircle2, AlertCircle, Clock, Play, Trash2,
   RefreshCw, Folder, ShieldCheck, Loader2, X,
@@ -28,6 +28,7 @@ const ago = (ts: Date | string) => {
 
 export const BackupHistory: React.FC = () => {
   const [backups, setBackups] = useState<Backup[]>([])
+  const [policyMap, setPolicyMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<Backup | null>(null)
   const [browsing, setBrowsing] = useState<Backup | null>(null)
@@ -44,7 +45,14 @@ export const BackupHistory: React.FC = () => {
     setLoading(true)
     setErrorKind(null)
     try {
-      setBackups(await listAllBackups())
+      const [bks, policies] = await Promise.all([
+        listAllBackups(),
+        getPolicies().catch(() => [] as BackupPolicy[]),
+      ])
+      setBackups(bks)
+      const map: Record<string, string> = {}
+      policies.forEach(p => { map[p.id] = p.name })
+      setPolicyMap(map)
     } catch (e) {
       console.error('Failed to load backups', e)
       if (axios.isAxiosError(e)) {
@@ -163,7 +171,7 @@ export const BackupHistory: React.FC = () => {
         >
           <option value="">All policies</option>
           {allPolicies.map(p => (
-            <option key={p} value={p}>{p.slice(0, 12)}</option>
+            <option key={p} value={p}>{policyMap[p] ?? p.slice(0, 8)}</option>
           ))}
         </select>
         {allTags.length > 0 && (
@@ -227,8 +235,8 @@ export const BackupHistory: React.FC = () => {
                       )}
                     </td>
                     <td>
-                      <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                        {b.policyId?.slice(0, 10)}
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        {b.policyId ? (policyMap[b.policyId] ?? <span className="font-mono">{b.policyId.slice(0, 8)}</span>) : '—'}
                       </span>
                     </td>
                     <td>

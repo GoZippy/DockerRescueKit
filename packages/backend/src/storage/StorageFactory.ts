@@ -35,11 +35,25 @@ export class StorageFactory {
 
   public static create(type: string, config: StorageConfig): StorageAdapter {
     const factory = StorageFactory.adapters.get(type.toLowerCase())
-    if (!factory) throw new Error(`Unknown storage type: ${type}`)
+    if (!factory) {
+      throw new Error(
+        `Unknown storage type: ${type}. Supported types: ${StorageFactory.getAvailableTypes().join(', ')}`
+      )
+    }
     return factory(config)
   }
 
+  /**
+   * Single source of truth for which storage types can be used as a backup
+   * destination. PolicyManager derives its create/update validation from this
+   * so the two can't drift.
+   */
   public static getAvailableTypes(): string[] {
     return Array.from(StorageFactory.adapters.keys())
+  }
+
+  /** Whether `type` resolves to a registered, usable storage adapter. */
+  public static isSupported(type: string): boolean {
+    return StorageFactory.adapters.has(String(type).toLowerCase())
   }
 }

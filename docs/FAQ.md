@@ -75,19 +75,61 @@ The old key is invalidated immediately. The new key is written to
 
 ## Is there a paid tier?
 
-No. DockerRescueKit is open source under the MIT license. There is
-no paid tier today and no upsell. If a sustainable hosted offering
-ever makes sense, it will be additive — the self-hosted product
-will keep all current features.
+Yes. DockerRescueKit is source-available under the Zippy Technologies
+Source-Available Commercial License. Personal and educational use is free
+within the documented limits (5 policies, 14-day audit log). Pro and
+Enterprise tiers unlock unlimited policies, longer audit retention,
+notifications, and additional features. See
+[docs/ROADMAP.md](ROADMAP.md) for the current tier table.
 
-## Will there be a Docker Desktop extension?
+## Can DRK protect me from an AI agent running docker system prune?
 
-Yes, planned for v1.1. The `packages/extension` directory in the
-monorepo already contains a working React UI that mounts inside the
-Docker Desktop extension shell; we're waiting on Docker Desktop's
-extension marketplace review before shipping it as a one-click
-install. In the meantime you can side-load it via
-`docker extension install gozippy/dockerrescuekit:next`.
+Partially — and honestly, it depends on how the agent is wired up.
+
+**What Prune Guard does (experimental, `DRK_PRUNE_GUARD=1`):**
+
+- **Periodic safety floor (default, zero-config):** DRK snapshots your named
+  volumes on a cron (default every 6 hours). If a prune destroys them, the
+  undo toast points you at the most recent floor snapshot. The floor is
+  always stale by up to one cron interval, but it's non-zero recoverability
+  with nothing to configure.
+- **MCP server (`drk-mcp`):** For AI agents that support MCP (Claude, Cursor,
+  etc.), the `drk-mcp` server exposes a `safe_prune` tool that snapshots
+  target volumes *before* pruning them. A cooperative agent calling
+  `safe_prune` instead of raw `docker system prune` gets a genuine pre-prune
+  snapshot and a one-click undo.
+
+**What it cannot do (§7 of the Prune Guard spec — read this):**
+
+- **A rogue or jailbroken agent calling the Docker socket directly** bypasses
+  MCP entirely. The periodic floor is the only recovery in that scenario.
+- **`docker volume rm` / `volume prune` via the raw API** cannot be intercepted
+  in the v1.4 MVP — by the time the `volume destroy` event fires, the data is
+  already gone. The floor snapshot may be hours old.
+- **Volumes over the per-volume cap** (default 512 MB) are skipped with a
+  warning; very large volumes should be protected by a scheduled DRK backup
+  policy instead.
+- **Bind mounts and host directories** are out of scope — DRK snapshots named
+  Docker volumes only.
+
+**Phase 2 (planned post-v1.4):** a socket proxy (`drk-guard-proxy`) that agents
+and CLI tools are pointed at instead of the real Docker socket, giving genuine
+pre-op intercept for all clients — including raw-API callers. See
+`docs/PRUNE_GUARD_GUIDE.md` for the full picture.
+
+## Is there a Docker Desktop extension?
+
+Yes, and it is live on Docker Hub. Install it from the Docker Desktop
+Marketplace or via:
+
+```bash
+docker extension install gozippy/dockerrescuekit:latest
+```
+
+The extension uses the socket transport to communicate with the DRK
+backend container and gives you the full dashboard, policy editor,
+restore wizard, rehearsals, and (in v1.4+, with `DRK_PRUNE_GUARD=1`)
+the Prune Guard panel.
 
 ## How do I contribute?
 

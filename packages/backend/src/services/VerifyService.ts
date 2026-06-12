@@ -63,7 +63,10 @@ export class VerifyService {
     }
     report.steps.push({ label: 'load policy', ok: true })
 
-    const adapter = StorageFactory.create(policy.storage.type, policy.storage)
+    const adapter = StorageFactory.create(
+      policy.storage.type,
+      await this.policyManager.resolveStorageConfig(policy.storage)
+    )
     const workDir = safeJoin(this.stagingDir, `verify-${safeFilenameFragment(backupId)}`)
     await fs.ensureDir(workDir)
 

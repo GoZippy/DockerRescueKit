@@ -70,7 +70,10 @@ export class PartialRestoreService {
     const policy = await this.policyManager.getPolicy(backup.policyId)
     if (!policy) throw new NotFoundError('Policy (parent)', backup.policyId)
 
-    const adapter = StorageFactory.create(policy.storage.type, policy.storage)
+    const adapter = StorageFactory.create(
+      policy.storage.type,
+      await this.policyManager.resolveStorageConfig(policy.storage)
+    )
 
     const sessionDir = safeJoin(
       this.stagingDir,

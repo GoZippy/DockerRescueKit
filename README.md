@@ -33,9 +33,10 @@ As of mid-2026, DRK is the **only published Docker Desktop Extension** in the ba
 | Proxmox PBS backend | ✅ | — | — | — |
 | Web UI + CLI + REST API | ✅ | Basic | — | ✅ |
 
-> **New here? Two pages to read first:**
+> **New here? Three pages to read first:**
 > - **[Backup Tools Buyer's Guide](docs/BACKUP_TOOLS_COMPARISON.md)** — honest comparison to `offen/docker-volume-backup`, `kopia`, `restic`, `Duplicati`, and `tiredofit/docker-db-backup`.
 > - **[Stack Recipes](docs/STACK_RECIPES.md)** — copy-paste DRK policies for Home Assistant, Plex/Jellyfin, Immich, Nextcloud, Vaultwarden, and n8n.
+> - **[Switching to DRK](docs/SWITCHING.md)** — migrating from offen, Backrest/zerobyte, or Nautical-backup: concept maps, worked examples, and the safe run-in-parallel pattern.
 
 ---
 

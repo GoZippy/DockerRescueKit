@@ -44,6 +44,9 @@ import { LogTriageService } from './services/LogTriageService'
 import { NotificationDispatcher } from './services/NotificationDispatcher'
 import { NotificationService } from './services/NotificationService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
+import { PruneGuardService } from './services/PruneGuardService'
+import { GuardMonitor } from './services/GuardMonitor'
+import { mountGuardRoutes } from './routes/guard'
 import { mountLogsRoutes } from './routes/logs'
 import { mountVolumesRoutes } from './routes/volumes'
 import { mountNotificationRoutes } from './routes/notifications'
@@ -58,6 +61,7 @@ import { ExportService } from './services/ExportService'
 import { ImportService } from './services/ImportService'
 import { RcloneService } from './services/RcloneService'
 import { LicenseService } from './services/LicenseService'
+import { requireFeature } from './middleware/licenseGate'
 import { EncryptionUtility } from './utils/Encryption'
 import { Server } from 'http'
 
@@ -143,6 +147,41 @@ export function getDefaultCostConfig(): StorageCostConfig[] {
   ]
 }
 
+// ---- CORS allowlist helpers ------------------------------------------------
+// Exported for unit testing. The Express cors() middleware calls
+// isOriginAllowed() per request via its `origin` callback.
+
+/** Parse the comma-separated DRK_CORS_ORIGINS env var into a trimmed list. */
+export function parseCorsOrigins(raw?: string): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Decide whether a browser Origin may make a cross-origin request.
+ *  - No Origin header (CLI/curl, same-origin XHR, socket transport) → allow.
+ *  - Any localhost / 127.0.0.1 / [::1] origin on any port → allow.
+ *  - Anything explicitly listed in DRK_CORS_ORIGINS → allow.
+ *  - Everything else → deny.
+ */
+export function isOriginAllowed(origin: string | undefined, allowlist: string[]): boolean {
+  if (!origin) return true
+  if (allowlist.includes(origin)) return true
+  try {
+    const host = new URL(origin).hostname
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+      return true
+    }
+  } catch {
+    // Malformed Origin header — deny.
+    return false
+  }
+  return false
+}
+
 // Backend version is resolved once at module load in utils/appVersion.ts —
 // imported above so both the /api/settings/meta route and the new
 // /api/version/check route reference the same constant.
@@ -177,6 +216,11 @@ export class BackupService {
   private metrics: MetricsService
   private verify: VerifyService
   private rehearsal: RehearsalService
+  // PG-1.3/1.4 — gated behind the DRK_PRUNE_GUARD kill-switch (§16). Null when
+  // the guard is off: routes are not mounted (frontend sees 404 and hides the
+  // feature) and the monitor never starts.
+  private pruneGuard: PruneGuardService | null = null
+  private guardMonitor: GuardMonitor | null = null
   private health: HealthCheckService
   private logTriage: LogTriageService
   private partial: PartialRestoreService
@@ -247,6 +291,25 @@ export class BackupService {
       db: this.db,
       notificationDispatcher: this.notificationDispatcher,
     })
+    // PG-1.3/1.4 Prune Guard — ships OFF unless DRK_PRUNE_GUARD=1 (§16 rollout).
+    // The env flag is the kill-switch; GuardSettings.enabled is the user switch.
+    // When the kill-switch is off we construct nothing: routes stay unmounted
+    // (frontend 404 → feature hidden) and the monitor never runs.
+    if (process.env.DRK_PRUNE_GUARD === '1') {
+      this.pruneGuard = new PruneGuardService({
+        docker: this.dockerService,
+        policyManager: this.policyManager,
+        audit: this.audit,
+        settings: this.settings,
+        db: this.db,
+        dataDir,
+      })
+      this.guardMonitor = new GuardMonitor({
+        docker: this.dockerService,
+        settings: this.settings,
+        guard: this.pruneGuard,
+      })
+    }
     this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db, this.notificationDispatcher)
     this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
 
@@ -292,9 +355,41 @@ export class BackupService {
     }, 24 * 60 * 60 * 1000) // Every 24 hours
     notificationCleanupInterval.unref() // Don't keep process alive just for this timer
 
+    // Schedule daily cleanup of audit log rows beyond the license tier's
+    // retention window (free=14d, personal-pro=90d, commercial-pro=365d,
+    // enterprise=unlimited → no trim). AuditService.pruneByRetention resolves
+    // the window from the active tier and fails closed to "keep everything"
+    // when the tier can't be resolved (DATA SAFETY).
+    const auditCleanupInterval = setInterval(async () => {
+      try {
+        await this.audit.pruneByRetention(this.license)
+      } catch (err) {
+        logger.error({ err }, 'Audit log TTL cleanup failed')
+      }
+    }, 24 * 60 * 60 * 1000) // Every 24 hours
+    auditCleanupInterval.unref() // Don't keep process alive just for this timer
+    // Run once shortly after boot so a long-idle install doesn't wait 24h for
+    // its first trim. Deferred + unref'd so it never delays readiness.
+    const auditInitialPrune = setTimeout(() => {
+      this.audit.pruneByRetention(this.license).catch(err =>
+        logger.error({ err }, 'Initial audit log TTL cleanup failed')
+      )
+    }, 10_000)
+    auditInitialPrune.unref()
+
     this.setupMiddleware()
     this.setupRoutes()
     mountRehearsalRoutes(this.app, { rehearsalService: this.rehearsal, audit: this.audit })
+    // PG-1.4 — mount the guard surface only when the kill-switch is on (§16).
+    // Off → no routes → frontend 404 on GET /api/guard/settings → feature hidden.
+    if (this.pruneGuard) {
+      mountGuardRoutes(this.app, {
+        guard: this.pruneGuard,
+        settings: this.settings,
+        db: this.db,
+        audit: this.audit,
+      })
+    }
     try {
       mountLogsRoutes(this.app, { triageService: this.logTriage, db: this.db })
     } catch (err) {
@@ -302,6 +397,17 @@ export class BackupService {
       throw err
     }
     mountVolumesRoutes(this.app, { db: this.db, docker: this.dockerService })
+    // PAYWALL: the notification-management route group (preferences / log /
+    // acknowledge) is the `notifications` paid feature surfaced over HTTP.
+    // requireFeature() returns 402 for Free tier and is the canonical, reusable
+    // gate — attach it to any future paid route group the same way. Note the
+    // related in-service gates that pre-date this middleware and stay where
+    // they are (they protect the scheduler/notify path, not an HTTP route):
+    //   - NotificationService.notify() skips delivery unless `notifications` is
+    //     granted (services/NotificationService.ts:55-57)
+    //   - PolicyManager enforces the Free 5-policy cap
+    //     (services/PolicyManager.assertPolicyQuotaAvailable)
+    this.app.use('/api/notifications', requireFeature(this.license, 'notifications'))
     mountNotificationRoutes(this.app, { db: this.db })
     // v1.2.2 in-product feedback + update-check. FeedbackService fans out to
     // local file / email / GitHub / webhook sinks; the version route compares
@@ -332,6 +438,9 @@ export class BackupService {
     // Best-effort cleanup of any resources left by a previously-crashed run.
     // Doesn't block startup; logs whatever it reaps.
     this.rehearsal.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
+    // PG-1.3 — reap any guard helper containers a crash left labelled
+    // com.gozippy.drk.guard=*. Best-effort; only when the guard is enabled.
+    this.pruneGuard?.reapOrphans().catch(() => { /* docker may be offline at boot — that's fine */ })
   }
 
   private setupMiddleware() {
@@ -358,7 +467,19 @@ export class BackupService {
       },
       crossOriginEmbedderPolicy: false               // Docker Desktop extension compat
     }))
-    this.app.use(cors())
+    // CORS: by default only same-origin (no Origin header) and any
+    // localhost/127.0.0.1/[::1] origin (any port) are allowed. Operators can
+    // add trusted browser origins via DRK_CORS_ORIGINS (comma-separated).
+    // Requests with no Origin header (CLI/curl/same-origin XHR, and the Docker
+    // Desktop extension socket transport) always pass — `origin` is undefined
+    // there and we callback(null, true).
+    const corsAllowlist = parseCorsOrigins(process.env.DRK_CORS_ORIGINS)
+    this.app.use(cors({
+      origin: (origin, callback) => {
+        if (isOriginAllowed(origin, corsAllowlist)) return callback(null, true)
+        callback(new Error('Not allowed by CORS'))
+      },
+    }))
     this.app.use(express.json({ limit: '5mb' }))
 
     // Public liveness probe — registered BEFORE auth so Docker healthchecks
@@ -401,8 +522,20 @@ export class BackupService {
       // the socket transport; /healthz + /metrics remain public as today.
       if (TRANSPORT === 'socket') return next()
       // Resolve on each request so API-key rotation takes effect without
-      // restarting the server. Accept via header (preferred) or ?apiKey=.
-      const presented = req.headers['x-api-key'] || req.query.apiKey
+      // restarting the server.
+      //
+      // Auth via the x-api-key header is preferred. We still accept ?apiKey=
+      // ONLY on the two header-less browser contexts that genuinely need it:
+      //   GET /api/backups/:id/files/extract  (download via <a> / window.open)
+      //   GET /api/rehearsals/:id/stream      (EventSource SSE — can't set headers)
+      // Both are referenced from packages/extension/src/api.ts (102, 306).
+      // Restricting the query param to GET keeps it off state-mutating POSTs
+      // where it would leak via Referer/access logs. The query value is
+      // redacted in request logs (see utils/logger.ts).
+      const allowQueryKey = req.method === 'GET' && (
+        /\/files\/extract$/.test(req.path) || /\/stream$/.test(req.path)
+      )
+      const presented = req.headers['x-api-key'] || (allowQueryKey ? req.query.apiKey : undefined)
       const current = this.secrets.getApiKey()
       if (!presented || presented !== current) {
         // Only failed-auth requests pass through the brute-force limiter,
@@ -437,7 +570,10 @@ export class BackupService {
         docker: dockerOk,
         paused: this.scheduler.isPaused(),
         inFlight: this.scheduler.runningPolicyIds(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        // Non-empty only when an existing secrets.json still holds a known
+        // shipped-default API/encryption key — see SecretsService.detectWeakDefaults.
+        securityWarnings: this.secrets.getSecurityWarnings(),
       })
     })
 
@@ -762,6 +898,13 @@ export class BackupService {
       res.json(this.rclone.getProviders())
     })
 
+    // Health probe for the rclone the backend uses (bundled in the image).
+    // Powers the "rclone vX ready" badge + install helper in the UI. Returns
+    // { installed, version, configPath } and never throws.
+    this.app.get('/api/rclone/check', asyncHandler(async (_req, res) => {
+      res.json(await this.rclone.checkInstall())
+    }))
+
     this.app.get('/api/rclone/remotes', asyncHandler(async (_req, res) => {
       res.json(await this.rclone.listRemotes())
     }))
@@ -850,6 +993,14 @@ export class BackupService {
   public async start() {
     await this.scheduler.start()
 
+    // PG-1.3 — start the Prune Guard monitor (events floor + periodic cron +
+    // TTL sweep) when the kill-switch is on. Best-effort; never blocks boot.
+    if (this.guardMonitor) {
+      this.guardMonitor.start().catch(err =>
+        logger.error({ err }, '[GuardMonitor] failed to start'),
+      )
+    }
+
     // Online license revocation check. Fires once on start, then every 24h.
     // No-op if DRK_LICENSE_SERVER_URL isn't set — the install runs in
     // offline-only mode and stays Free until a token is pasted in
@@ -929,6 +1080,7 @@ export class BackupService {
       console.log(`\x1b[33m[DockerRescueKit]\x1b[0m Received ${signal}, shutting down…`)
       try {
         this.scheduler.stop()
+        this.guardMonitor?.stop()
         if (this.httpServer) {
           await new Promise<void>((resolve) => this.httpServer!.close(() => resolve()))
         }
