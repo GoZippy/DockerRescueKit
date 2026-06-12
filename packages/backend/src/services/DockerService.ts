@@ -304,6 +304,94 @@ export class DockerService {
     }
   }
 
+  /**
+   * Cheap content fingerprint of a volume for Prune Guard dedup (PG-1.2, §6.5):
+   * a sha256 over a `size mtime path` manifest, NOT a full content hash, so it's
+   * fast on the hot path. Mirrors exportVolume's `:ro` alpine helper pattern.
+   *
+   * The spec's `find -printf` is GNU-only; alpine's busybox `find` lacks it, so
+   * we use busybox-compatible `stat -c` (size + mtime + name), sorted for a
+   * stable order, then sha256sum. Optionally labels the helper container with
+   * `com.gozippy.drk.guard=<label>` so the boot reaper can clean crash debris.
+   */
+  public async fingerprintVolume(volumeName: string, label?: string): Promise<string> {
+    await this.ensureImage('alpine:3.19')
+
+    const container = await this.docker.createContainer({
+      Image: 'alpine:3.19',
+      Cmd: ['sh', '-c', "find /data -exec stat -c '%s %Y %n' {} ';' | sort | sha256sum | cut -d' ' -f1"],
+      Tty: false,
+      AttachStdout: true,
+      AttachStderr: true,
+      HostConfig: {
+        Binds: [`${volumeName}:/data:ro`],
+        AutoRemove: false
+      },
+      ...(label ? { Labels: { 'com.gozippy.drk.guard': label } } : {})
+    } as any)
+
+    try {
+      const stream = await container.attach({ stream: true, stdout: true, stderr: true })
+      const stdoutChunks: Buffer[] = []
+      const stderrChunks: Buffer[] = []
+      const stdoutCollector = new (require('stream').Writable)({
+        write(c: Buffer, _e: string, cb: () => void) { stdoutChunks.push(c); cb() }
+      })
+      const stderrCollector = new (require('stream').Writable)({
+        write(c: Buffer, _e: string, cb: () => void) { stderrChunks.push(c); cb() }
+      })
+      this.docker.modem.demuxStream(stream, stdoutCollector, stderrCollector)
+
+      await container.start()
+      const waitResult = await container.wait()
+      if (waitResult.StatusCode !== 0) {
+        const err = Buffer.concat(stderrChunks).toString('utf-8')
+        throw new Error(`fingerprint exited ${waitResult.StatusCode}: ${err}`)
+      }
+      return Buffer.concat(stdoutChunks).toString('utf-8').trim()
+    } finally {
+      try { await container.remove({ force: true }) } catch { /* already gone */ }
+    }
+  }
+
+  /**
+   * Apparent on-disk size of a volume in bytes, via a `:ro` alpine helper
+   * running busybox `du -s -b`. Used by Prune Guard (PG-1.2) to enforce the
+   * per-volume cap BEFORE taring, so a known-huge volume is skipped cheaply
+   * rather than tarred-then-discarded. Best-effort: returns 0 on any failure
+   * (caller falls back to the post-tar size check).
+   */
+  public async volumeSizeBytes(volumeName: string): Promise<number> {
+    try {
+      await this.ensureImage('alpine:3.19')
+      const container = await this.docker.createContainer({
+        Image: 'alpine:3.19',
+        Cmd: ['sh', '-c', 'du -s -b /data 2>/dev/null | cut -f1'],
+        Tty: false,
+        AttachStdout: true,
+        AttachStderr: true,
+        HostConfig: { Binds: [`${volumeName}:/data:ro`], AutoRemove: false }
+      })
+      try {
+        const stream = await container.attach({ stream: true, stdout: true, stderr: true })
+        const out: Buffer[] = []
+        const collector = new (require('stream').Writable)({
+          write(c: Buffer, _e: string, cb: () => void) { out.push(c); cb() }
+        })
+        const sink = new (require('stream').Writable)({ write(_c: Buffer, _e: string, cb: () => void) { cb() } })
+        this.docker.modem.demuxStream(stream, collector, sink)
+        await container.start()
+        await container.wait()
+        const n = parseInt(Buffer.concat(out).toString('utf-8').trim(), 10)
+        return Number.isFinite(n) ? n : 0
+      } finally {
+        try { await container.remove({ force: true }) } catch { /* already gone */ }
+      }
+    } catch {
+      return 0
+    }
+  }
+
   private async ensureVolume(name: string): Promise<void> {
     try {
       await this.docker.getVolume(name).inspect()
