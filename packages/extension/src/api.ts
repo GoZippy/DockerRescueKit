@@ -1,4 +1,4 @@
-import { BackupPolicy, Backup, ConnectorInstance, ConnectorDefinition } from '@docker-rescue-kit/shared'
+import { BackupPolicy, Backup, ConnectorInstance, ConnectorDefinition, GuardEvent, GuardSettings } from '@docker-rescue-kit/shared'
 import { apiClient, TRANSPORT } from './transport'
 
 // Use import.meta.env directly (rather than the re-exported TRANSPORT const)
@@ -448,3 +448,63 @@ export const importConfigPreview = async (
 export const importConfigApply = async (
   token: string,
 ): Promise<ImportResult> => apiClient.post('/config/import?mode=apply', { token })
+
+// ── Prune Guard (PG-1.5 UI) ───────────────────────────────────────────────
+// All endpoints are gated: if GET /api/guard/settings returns 404 the backend
+// hasn't landed yet (PG-1.4 not yet deployed). All callers must handle the
+// 404 gracefully and hide the guard UI surfaces rather than surfacing an error.
+
+export const getGuardSettings = async (): Promise<GuardSettings> => {
+  return apiClient.get<GuardSettings>('/guard/settings')
+}
+
+export const updateGuardSettings = async (
+  patch: Partial<GuardSettings>,
+): Promise<GuardSettings> => {
+  return apiClient.put<GuardSettings>('/guard/settings', patch)
+}
+
+export const listGuardEvents = async (opts?: {
+  limit?: number
+  status?: string
+  before?: string
+}): Promise<GuardEvent[]> => {
+  const params: Record<string, unknown> = {}
+  if (opts?.limit  != null) params['limit']  = opts.limit
+  if (opts?.status != null) params['status'] = opts.status
+  if (opts?.before != null) params['before'] = opts.before
+  return apiClient.get<GuardEvent[]>('/guard/events', params)
+}
+
+export const getGuardEvent = async (id: string): Promise<GuardEvent> => {
+  return apiClient.get<GuardEvent>(`/guard/events/${id}`)
+}
+
+export const restoreGuardEvent = async (
+  id: string,
+  opts?: { volumes?: string[] },
+): Promise<{ restored: string[] }> => {
+  return apiClient.post<{ restored: string[] }>(`/guard/events/${id}/restore`, opts ?? {})
+}
+
+export const pinGuardEvent = async (id: string): Promise<void> => {
+  await apiClient.post<unknown>(`/guard/events/${id}/pin`)
+}
+
+export const deleteGuardEvent = async (id: string): Promise<void> => {
+  await apiClient.delete<unknown>(`/guard/events/${id}`)
+}
+
+/**
+ * Returns an EventSource URL for GET /api/guard/stream (SSE).
+ * Mirrors the rehearsal stream pattern at api.ts:getRehearsalStreamUrl.
+ * In extension mode the ddClient channel handles auth; no apiKey query param.
+ * In TCP mode ?apiKey= is appended so the server can authenticate the SSE
+ * connection (EventSource does not support custom headers).
+ */
+export const getGuardStreamUrl = (): string => {
+  if (import.meta.env.VITE_TRANSPORT === 'extension') {
+    return `/api/guard/stream`
+  }
+  return `/api/guard/stream?apiKey=${encodeURIComponent(getApiKey())}`
+}

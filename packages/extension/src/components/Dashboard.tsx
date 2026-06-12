@@ -15,6 +15,8 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import { SortableGrid, SortableWidget } from './SortableGrid'
+import { GuardRecentStrip } from './GuardRecentStrip'
+import { GuardSettingsCard } from './GuardSettingsCard'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Filler, Legend)
 
@@ -42,7 +44,7 @@ type ErrorKind = 'auth' | 'docker-offline' | 'unknown' | null
 // ── Draggable widget layout ──────────────────────────────────
 // Order is persisted per browser so a user's arrangement survives reloads.
 const DASH_ORDER_KEY = 'drk.dashboard.order'
-const DEFAULT_ORDER = ['stats', 'trends', 'controls', 'recent']
+const DEFAULT_ORDER = ['stats', 'guard-strip', 'trends', 'controls', 'recent', 'guard-settings']
 
 function loadOrder(): string[] {
   try {
@@ -487,11 +489,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     </div>
   )
 
+  // Guard widgets: these self-hide when the backend isn't deployed (404).
+  // They are pure components (no per-render data needed from Dashboard) so
+  // wrapping them in a stable React element keeps the node reference stable
+  // across re-renders and avoids remounting the underlying fetch effects.
+  const guardStripNode = <GuardRecentStrip />
+  const guardSettingsNode = <GuardSettingsCard />
+
   const widgetMap: Record<string, SortableWidget> = {
-    stats:    { id: 'stats',    span: 12, label: 'summary stats',               node: statsNode },
-    trends:   { id: 'trends',   span: 8,  label: 'backup trends chart',         node: trendsNode },
-    controls: { id: 'controls', span: 4,  label: 'quick actions and telemetry', node: controlsNode },
-    recent:   { id: 'recent',   span: 12, label: 'recent backup runs',          node: recentNode },
+    stats:           { id: 'stats',          span: 12, label: 'summary stats',               node: statsNode },
+    'guard-strip':   { id: 'guard-strip',    span: 12, label: 'recently saved snapshots',    node: guardStripNode },
+    trends:          { id: 'trends',         span: 8,  label: 'backup trends chart',         node: trendsNode },
+    controls:        { id: 'controls',       span: 4,  label: 'quick actions and telemetry', node: controlsNode },
+    recent:          { id: 'recent',         span: 12, label: 'recent backup runs',          node: recentNode },
+    'guard-settings':{ id: 'guard-settings', span: 12, label: 'prune guard settings',        node: guardSettingsNode },
   }
   const orderedWidgets = order.map(id => widgetMap[id]).filter(Boolean) as SortableWidget[]
 

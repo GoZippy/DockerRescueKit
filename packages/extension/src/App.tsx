@@ -16,6 +16,8 @@ import { FeedbackModal } from './components/FeedbackModal'
 import { getApiKey, getStatus, getSettingsMeta } from './api'
 import { ToastProvider } from './hooks/useToast'
 import { useBreakpoint } from './hooks/useBreakpoint'
+import { GuardToastContainer } from './components/GuardToast'
+import { useGuardStream } from './hooks/useGuardStream'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
   Server, Plug, Shield, Settings, Menu, X, ChevronLeft, TrendingUp,
@@ -454,8 +456,24 @@ const MainApp: React.FC = () => {
   )
 }
 
+/**
+ * GuardStreamHost — subscribes to /api/guard/stream (once, app-level) and
+ * renders the action-capable GuardToastContainer.
+ *
+ * Must live INSIDE <ToastProvider> so the GuardBanner actions can push plain
+ * success/error toasts via useToast.
+ *
+ * Silently does nothing when the backend is not yet deployed (404 on the
+ * SSE endpoint degrades to a silent reconnect loop with no UI noise).
+ */
+const GuardStreamHost: React.FC = () => {
+  const { frames, dismiss } = useGuardStream()
+  return <GuardToastContainer frames={frames} onDismiss={dismiss} />
+}
+
 const App: React.FC = () => (
   <ToastProvider>
+    <GuardStreamHost />
     <MainApp />
   </ToastProvider>
 )
