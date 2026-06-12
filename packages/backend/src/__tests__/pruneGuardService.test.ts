@@ -174,6 +174,28 @@ describe('PruneGuardService.guard — dedup fingerprint', () => {
     expect(second.volumes[0].status).toBe('saved')
     expect(second.volumes[0].tarPath).not.toBe(first.volumes[0].tarPath)
   })
+
+  it('reuses a saved volume snapshot carried by a prior PARTIAL event (Qodo #20 bug 2)', async () => {
+    // A 'partial' event still contains a fully-saved volume snapshot for the
+    // volumes that succeeded. Dedup is per-volume, so the next snapshot of that
+    // same volume+fingerprint must reuse it instead of re-taring. (Before the
+    // fix, findPriorSnapshot filtered events to status='saved' and skipped this
+    // partial event entirely.)
+    const { svc, docker } = await makeService({ scope: 'named' })
+    docker.volumeNames = ['good', 'bad']
+    docker.fingerprints.set('good', 'stable-fp')
+    docker.failExport.add('bad') // forces event status -> 'partial'
+
+    const first = await svc.guard('system_prune', 'event', ['good', 'bad'])
+    expect(first.status).toBe('partial')
+    const firstGood = first.volumes.find(v => v.volume === 'good')!
+    expect(firstGood.status).toBe('saved')
+
+    const second = await svc.guard('system_prune', 'event', ['good'])
+    const secondGood = second.volumes.find(v => v.volume === 'good')!
+    expect(secondGood.status).toBe('skipped_unchanged')
+    expect(secondGood.tarPath).toBe(firstGood.tarPath)
+  })
 })
 
 describe('PruneGuardService — budget / LRU eviction', () => {
@@ -229,6 +251,29 @@ describe('PruneGuardService.sweepExpired — TTL', () => {
     expect(await fs.pathExists(tarBefore)).toBe(false)
     expect(audit.has(GUARD_AUDIT_EVENTS.expired)).toBe(true)
     void dir
+  })
+
+  it('is idempotent: a second sweep does not re-expire or re-audit already-expired rows (Qodo #20 bug 1)', async () => {
+    // sweepExpired() updates status to 'expired' in place (it does NOT delete
+    // the row), and the row's ttlAt stays in the past. The daily GuardMonitor
+    // sweep must therefore NOT keep re-selecting it — otherwise each sweep emits
+    // another 'expired' audit entry forever.
+    const { svc, db, docker, audit } = await makeService({ scope: 'named' })
+    docker.volumeNames = ['old']
+    docker.sizes.set('old', 2048)
+    const old = await svc.guard('volume_rm', 'event', ['old'])
+    await bumpTtlAt(db, old.id, '2026-06-01T00:00:00.000Z')
+
+    const first = await svc.sweepExpired(new Date('2026-06-11T00:00:00.000Z'))
+    expect(first.expired).toBe(1)
+    expect((await db.getGuardEvent(old.id))!.status).toBe('expired')
+    expect(audit.count(GUARD_AUDIT_EVENTS.expired)).toBe(1)
+
+    // Second sweep: the already-expired row must be skipped.
+    const second = await svc.sweepExpired(new Date('2026-06-12T00:00:00.000Z'))
+    expect(second.expired).toBe(0)
+    expect(second.reclaimedBytes).toBe(0)
+    expect(audit.count(GUARD_AUDIT_EVENTS.expired)).toBe(1) // not re-audited
   })
 })
 
