@@ -340,10 +340,19 @@ export class PruneGuardService {
   // -------------------------------------------------------------------------
 
   /** Most recent SAVED snapshot of `volume` whose fingerprint matches, with a
-   *  tarball that still exists on disk. */
+   *  tarball that still exists on disk.
+   *
+   *  Dedup is per-volume, so any non-'expired' event may still hold a reusable
+   *  saved snapshot for this volume — including 'partial' events where some
+   *  OTHER volume failed/skipped (deriveStatus() returns 'partial' whenever at
+   *  least one in-scope volume was bad). We therefore scan recent events without
+   *  an event-level status filter and only exclude 'expired' (whose tarballs
+   *  have been reclaimed); the per-volume `v.status === 'saved'` + on-disk check
+   *  below still guarantees we only reuse a tarball that actually exists. */
   private async findPriorSnapshot(volume: string, fingerprint: string): Promise<{ tarPath: string; sizeBytes: number } | undefined> {
-    const recent = await this.deps.db.listGuardEvents({ status: 'saved', limit: 200 })
+    const recent = await this.deps.db.listGuardEvents({ limit: 200 })
     for (const ev of recent) {
+      if (ev.status === 'expired') continue
       const v = ev.volumes.find(x => x.volume === volume && x.fingerprint === fingerprint && x.status === 'saved' && x.tarPath)
       if (v && v.tarPath && (await fs.pathExists(v.tarPath))) {
         return { tarPath: v.tarPath, sizeBytes: v.sizeBytes }

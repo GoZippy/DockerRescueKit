@@ -658,10 +658,14 @@ export class Database {
    * `ttlAt` is an ISO-8601 string so a lexical `<=` against an ISO `now`
    * is chronologically correct (mirrors deleteOldAuditEntries' assumption).
    * The daily sweep marks these 'expired' and reclaims their tarballs.
+   *
+   * Already-'expired' rows are excluded: sweepExpired() updates status in place
+   * (it does not delete the row), so without this predicate the same rows would
+   * be re-selected on every daily sweep and re-audited forever.
    */
   public async listExpiredGuardEvents(nowIso: string): Promise<GuardEvent[]> {
     const rows = this.db.prepare(
-      'SELECT event FROM guard_events WHERE ttlAt <= ? AND pinned = 0 ORDER BY createdAt ASC'
+      "SELECT event FROM guard_events WHERE ttlAt <= ? AND pinned = 0 AND status != 'expired' ORDER BY createdAt ASC"
     ).all(nowIso) as any[]
     return rows.map(r => this.parseGuardEvent(r))
   }
