@@ -33,6 +33,23 @@ export type DatabaseExporter =
       password?: string
       outPath?: string
     }
+  | {
+      kind: 'couchdb'
+      container: string
+      /** CouchDB admin username. Defaults to 'admin'. */
+      user?: string
+      /** Name of an env var on the container holding the admin password.
+       *  Must be a valid POSIX env-var name. Never embedded in the command. */
+      passwordEnv: string
+      /** CouchDB HTTP port inside the container. Defaults to 5984. */
+      port?: number
+      /** Explicit list of databases to export. Defaults to all non-system DBs. */
+      databases?: string[]
+      /** Include _replicator and _users in the default-all export. Defaults to false. */
+      includeSystemDbs?: boolean
+      /** Output directory inside the container. Defaults to /var/backups/drk-couchdb. */
+      outPath?: string
+    }
 
 export class DatabaseExporterService {
   constructor(private docker: DockerService) {}
@@ -142,6 +159,65 @@ export class DatabaseExporterService {
           `sqlcmd -S ${shellEscape(server)} ${authArgs} -Q ${shellEscape(query)}`
         ]
       }
+      case 'couchdb': {
+        // passwordEnv must be a POSIX env-var name — validated here so a bad
+        // config fails fast rather than producing a shell injection vector.
+        if (!isPosixEnvVarName(exporter.passwordEnv)) {
+          throw new Error(
+            `[db-exporter:couchdb] passwordEnv must be a POSIX env-var name ` +
+            `(^[A-Za-z_][A-Za-z0-9_]*$), got ${JSON.stringify(exporter.passwordEnv).slice(0, 40)}`
+          )
+        }
+        const out = exporter.outPath || '/var/backups/drk-couchdb'
+        const user = exporter.user || 'admin'
+        const port = exporter.port || 5984
+        const base = `http://${shellEscape(user)}:"$${exporter.passwordEnv}"@localhost:${port}`
+
+        // Determine which databases to export. If the caller lists them
+        // explicitly we honour that verbatim. Otherwise we fetch /_all_dbs and
+        // filter out the two system databases unless includeSystemDbs is set.
+        //
+        // HONEST LIMIT: this is a logical JSON export produced via
+        // GET /{db}/_all_docs?include_docs=true&attachments=true (base64).
+        // Each database lands as one <db>.json file that can be replayed into
+        // a fresh CouchDB instance with POST /{db}/_bulk_docs. It is NOT a
+        // binary .couch file copy and does not preserve internal sequence
+        // numbers, compaction state, or design-document change history.
+        if (exporter.databases && exporter.databases.length > 0) {
+          // Explicit list — emit a per-db curl for each, joined with &&.
+          const exportLines = exporter.databases.map(db => {
+            const safeDb = shellEscape(db)
+            const outFile = `${shellEscape(out)}/${safeDb}.json`
+            return (
+              `curl -fsSL -H 'Accept: application/json' ` +
+              `"${base}/${safeDb}/_all_docs?include_docs=true&attachments=true" > ${outFile}`
+            )
+          }).join(' && ')
+          return [
+            'sh', '-c',
+            `mkdir -p ${shellEscape(out)} && ` + exportLines
+          ]
+        }
+
+        // Default: discover all databases then filter system ones unless asked.
+        // Shell pipeline:
+        //  1. GET /_all_dbs → JSON array of names
+        //  2. Strip brackets + quotes, split to lines, optionally filter _-prefixed
+        //  3. For each name: GET /_all_docs?include_docs=true&attachments=true → file
+        return [
+          'sh', '-c',
+          `mkdir -p ${shellEscape(out)} && ` +
+          `DBS=$(curl -fsSL -H 'Accept: application/json' "${base}/_all_dbs" | ` +
+          `tr -d '[] ' | tr ',' '\\n'` +
+          (exporter.includeSystemDbs ? '' : ` | grep -v '^"_'`) +
+          ` | tr -d '"') && ` +
+          `for DB in $DBS; do ` +
+          `  curl -fsSL -H 'Accept: application/json' ` +
+          `"${base}/$DB/_all_docs?include_docs=true&attachments=true" ` +
+          `> ${shellEscape(out)}/"$DB".json || exit 1; ` +
+          `done`
+        ]
+      }
     }
   }
 }
@@ -151,4 +227,9 @@ function shellEscape(input: string): string {
   // trusted config.
   if (/^[A-Za-z0-9_./-]+$/.test(input)) return input
   return `'${input.replace(/'/g, `'\\''`)}'`
+}
+
+/** POSIX env-var name validator — identical to the one in SmokeCheckRunners. */
+function isPosixEnvVarName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
 }

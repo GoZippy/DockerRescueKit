@@ -32,6 +32,7 @@ const DB_EXPORTER_META: Record<DbKind, { label: string; desc: string; icon: Reac
   sqlite:    { label: 'SQLite',      desc: '.backup command',                          icon: <Database size={13} /> },
   influxdb:  { label: 'InfluxDB',    desc: 'influx backup (v2) or influxd (v1)',      icon: <Database size={13} /> },
   mssql:     { label: 'MS SQL Server', desc: 'sqlcmd BACKUP DATABASE',                 icon: <Database size={13} /> },
+  couchdb:   { label: 'CouchDB',     desc: 'JSON export of every database',            icon: <Database size={13} /> },
 }
 
 const SCHEDULE_PRESETS = [

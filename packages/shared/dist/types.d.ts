@@ -134,6 +134,27 @@ export type DatabaseExporter = {
     password?: string;
     /** Output file path inside the container. Defaults to /var/backups/drk-mssql.bak. */
     outPath?: string;
+} | {
+    kind: 'couchdb';
+    container: string;
+    /** CouchDB admin username. Defaults to 'admin'. */
+    user?: string;
+    /** Name of an env var on the container that holds the admin password.
+     *  Must be a valid POSIX env-var name (^[A-Z_][A-Z0-9_]*$, case-insensitive).
+     *  The value is read via `docker exec env` indirection — never embedded in
+     *  the command string. */
+    passwordEnv: string;
+    /** CouchDB HTTP port inside the container. Defaults to 5984. */
+    port?: number;
+    /** Explicit list of databases to export. Defaults to all non-system databases
+     *  (skips _replicator and _users). */
+    databases?: string[];
+    /** When true, includes _replicator and _users in the default-all export.
+     *  Ignored when `databases` is explicitly set. Defaults to false. */
+    includeSystemDbs?: boolean;
+    /** Output directory inside the container. Defaults to /var/backups/drk-couchdb.
+     *  One <dbname>.json file is written per database. */
+    outPath?: string;
 };
 export interface NotificationConfig {
     readonly type: 'slack' | 'email' | 'webhook' | 'ntfy';
@@ -518,4 +539,38 @@ export interface NotificationLogEntry {
 export interface UnmanagedVolumesResponse {
     readonly unmanagedVolumes: readonly string[];
     readonly total: number;
+}
+export type GuardOpKind = 'volume_rm' | 'volume_prune' | 'container_rm_v' | 'system_prune' | 'image_prune' | 'compose_down_v' | 'container_die' | 'periodic_floor';
+export type GuardSnapshotStatus = 'snapshotting' | 'saved' | 'skipped_too_large' | 'skipped_unchanged' | 'failed' | 'too_late';
+export interface GuardVolumeSnapshot {
+    volume: string;
+    status: GuardSnapshotStatus;
+    sizeBytes: number;
+    sha256?: string;
+    fingerprint?: string;
+    tarPath?: string;
+    detail?: string;
+}
+export interface GuardEvent {
+    id: string;
+    kind: GuardOpKind;
+    trigger: 'mcp' | 'proxy' | 'event' | 'periodic';
+    scope: GuardScope;
+    volumes: GuardVolumeSnapshot[];
+    totalBytes: number;
+    createdAt: string;
+    ttlAt: string;
+    pinned: boolean;
+    restoredAt?: string;
+    status: 'saved' | 'partial' | 'failed' | 'expired' | 'restored';
+}
+export type GuardScope = 'protected' | 'named' | 'all-named-under-cap' | 'off';
+export interface GuardSettings {
+    enabled: boolean;
+    scope: GuardScope;
+    diskBudgetMb: number;
+    perVolumeCapMb: number;
+    ttlHours: number;
+    periodicCron: string;
+    failClosed: boolean;
 }

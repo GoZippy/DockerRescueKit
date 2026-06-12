@@ -114,4 +114,63 @@ describe('DatabaseExporterService.buildCommand', () => {
       expect(cmd[2]).toContain(`-P 'it'\\''s-fine'`)
     })
   })
+
+  describe('couchdb', () => {
+    it('builds correct curl URL with auth env-var indirection and default port', () => {
+      const cmd = svc.buildCommand({
+        kind: 'couchdb', container: 'couch', passwordEnv: 'COUCHDB_PASSWORD',
+        databases: ['mydb'],
+      })
+      expect(cmd[0]).toBe('sh')
+      // Auth credential comes from $COUCHDB_PASSWORD, never hardcoded.
+      expect(cmd[2]).toContain('"$COUCHDB_PASSWORD"')
+      expect(cmd[2]).toContain('localhost:5984')
+      expect(cmd[2]).toContain('_all_docs?include_docs=true&attachments=true')
+      expect(cmd[2]).toContain('mydb')
+    })
+
+    it('rejects an invalid passwordEnv (injection risk)', () => {
+      expect(() =>
+        svc.buildCommand({
+          kind: 'couchdb', container: 'couch', passwordEnv: 'BAD NAME; rm -rf /',
+        })
+      ).toThrow(/passwordEnv must be a POSIX env-var name/)
+    })
+
+    it('defaults to all non-system databases when databases is omitted', () => {
+      const cmd = svc.buildCommand({
+        kind: 'couchdb', container: 'couch', passwordEnv: 'COUCHDB_PASSWORD',
+      })
+      // Should enumerate via /_all_dbs and strip _-prefixed names by default.
+      expect(cmd[2]).toContain('_all_dbs')
+      expect(cmd[2]).toContain(`grep -v '^"_'`)
+      // Should NOT contain the system-db filter bypass.
+      expect(cmd[2]).not.toContain('includeSystemDbs')
+    })
+
+    it('includes system databases when includeSystemDbs is set', () => {
+      const cmd = svc.buildCommand({
+        kind: 'couchdb', container: 'couch', passwordEnv: 'COUCHDB_PASSWORD',
+        includeSystemDbs: true,
+      })
+      expect(cmd[2]).toContain('_all_dbs')
+      // Filter line must be absent when includeSystemDbs is true.
+      expect(cmd[2]).not.toContain(`grep -v '^"_'`)
+    })
+
+    it('respects explicit database list and custom port/outPath', () => {
+      const cmd = svc.buildCommand({
+        kind: 'couchdb', container: 'couch', passwordEnv: 'COUCHDB_PASS',
+        port: 6984, databases: ['app', 'logs'],
+        outPath: '/data/couch-backups',
+      })
+      expect(cmd[2]).toContain('localhost:6984')
+      expect(cmd[2]).toContain('/data/couch-backups')
+      // Both named databases must appear.
+      expect(cmd[2]).toContain('app')
+      expect(cmd[2]).toContain('logs')
+      // Explicit list must NOT fall back to /_all_dbs enumeration.
+      expect(cmd[2]).not.toContain('_all_dbs')
+    })
+  })
 })

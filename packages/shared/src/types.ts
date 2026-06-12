@@ -127,6 +127,28 @@ export type DatabaseExporter =
       /** Output file path inside the container. Defaults to /var/backups/drk-mssql.bak. */
       outPath?: string
     }
+  | {
+      kind: 'couchdb'
+      container: string
+      /** CouchDB admin username. Defaults to 'admin'. */
+      user?: string
+      /** Name of an env var on the container that holds the admin password.
+       *  Must be a valid POSIX env-var name (^[A-Z_][A-Z0-9_]*$, case-insensitive).
+       *  The value is read via `docker exec env` indirection — never embedded in
+       *  the command string. */
+      passwordEnv: string
+      /** CouchDB HTTP port inside the container. Defaults to 5984. */
+      port?: number
+      /** Explicit list of databases to export. Defaults to all non-system databases
+       *  (skips _replicator and _users). */
+      databases?: string[]
+      /** When true, includes _replicator and _users in the default-all export.
+       *  Ignored when `databases` is explicitly set. Defaults to false. */
+      includeSystemDbs?: boolean
+      /** Output directory inside the container. Defaults to /var/backups/drk-couchdb.
+       *  One <dbname>.json file is written per database. */
+      outPath?: string
+    }
 
 export interface NotificationConfig {
   readonly type: 'slack' | 'email' | 'webhook' | 'ntfy'
