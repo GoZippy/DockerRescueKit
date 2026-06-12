@@ -11,9 +11,10 @@ const StacksPage = React.lazy(() => import('./components/StacksPage').then(m => 
 const SetupScreen = React.lazy(() => import('./components/SetupScreen').then(m => ({ default: m.SetupScreen })))
 const RehearsalsPage = React.lazy(() => import('./components/RehearsalsPage').then(m => ({ default: m.RehearsalsPage })))
 const CostAnalysisPage = React.lazy(() => import('./components/CostAnalysisPage').then(m => ({ default: m.CostAnalysisPage })))
+const NotificationsPage = React.lazy(() => import('./components/NotificationsPage').then(m => ({ default: m.NotificationsPage })))
 import { VersionBadge } from './components/VersionBadge'
 import { FeedbackModal } from './components/FeedbackModal'
-import { getApiKey, getStatus, getSettingsMeta } from './api'
+import { getApiKey, getStatus, getSettingsMeta, getNotificationUnreadCount, isPaymentRequired } from './api'
 import { ToastProvider } from './hooks/useToast'
 import { useBreakpoint } from './hooks/useBreakpoint'
 import { GuardToastContainer } from './components/GuardToast'
@@ -21,7 +22,7 @@ import { useGuardStream } from './hooks/useGuardStream'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
   Server, Plug, Shield, Settings, Menu, X, ChevronLeft, TrendingUp,
-  Loader2,
+  Loader2, Bell,
   type LucideProps,
 } from 'lucide-react'
 
@@ -33,7 +34,7 @@ const PageFallback = () => (
 
 type TabId =
   | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals' | 'costs'
-  | 'storage' | 'connectors' | 'audit' | 'settings'
+  | 'storage' | 'connectors' | 'audit' | 'notifications' | 'settings'
 
 interface NavItem {
   id: TabId
@@ -53,6 +54,7 @@ const NAV: NavItem[] = [
   { id: 'storage',    label: 'Storage Vault',    icon: Server,      bottomNav: false },
   { id: 'connectors', label: 'Integrations',     icon: Plug,        bottomNav: false },
   { id: 'audit',      label: 'Security Audit',   icon: Shield,      bottomNav: false },
+  { id: 'notifications', label: 'Notifications', icon: Bell,        bottomNav: false },
   { id: 'settings',   label: 'Settings',         icon: Settings,    bottomNav: false },
 ]
 
@@ -83,6 +85,18 @@ const MainApp: React.FC = () => {
   const [deepLinkPolicyId, setDeepLinkPolicyId] = useState<string | undefined>()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [installMeta, setInstallMeta] = useState<{ version?: string; dataDir?: string }>({})
+  // Unread-notifications badge. null = unknown / not entitled (Free tier 402 or
+  // backend too old) → we render the bell without a badge and never error.
+  const [unread, setUnread] = useState<number | null>(null)
+  const refreshUnread = React.useCallback(async () => {
+    try {
+      setUnread(await getNotificationUnreadCount())
+    } catch (e) {
+      // 402 (Free tier), 404 (older backend), or offline → no badge, no noise.
+      if (isPaymentRequired(e)) setUnread(null)
+      else setUnread(null)
+    }
+  }, [])
 
   // Sidebar preferences (desktop only) — persisted so they survive reloads.
   const [iconOnly, setIconOnly] = useState<boolean>(() => {
@@ -123,6 +137,14 @@ const MainApp: React.FC = () => {
       .then(m => setInstallMeta({ version: m?.version, dataDir: m?.dataDir }))
       .catch(() => { /* best-effort */ })
   }, [])
+
+  // Poll the unread-notifications badge ~every 60s. Degrades silently on
+  // Free tier (402) / older backends (404) — no badge, no console errors.
+  useEffect(() => {
+    refreshUnread()
+    const interval = setInterval(refreshUnread, 60000)
+    return () => clearInterval(interval)
+  }, [refreshUnread])
 
   // Show setup screen when no API key is configured. Skipped entirely in
   // Docker Desktop extension mode — Desktop's IPC channel handles auth.
@@ -364,6 +386,31 @@ const MainApp: React.FC = () => {
             </h1>
           </div>
 
+          {/* Notifications bell + unread badge. Clicking opens the page;
+              the badge is hidden when count is null (Free tier / older backend)
+              or zero. */}
+          <button
+            className="btn-icon"
+            onClick={() => navigate('notifications')}
+            aria-label={unread ? `Notifications (${unread} unread)` : 'Notifications'}
+            title="Notifications"
+            style={{ position: 'relative', flexShrink: 0 }}
+          >
+            <Bell size={18} />
+            {unread != null && unread > 0 && (
+              <span
+                style={{
+                  position: 'absolute', top: 2, right: 2,
+                  minWidth: 16, height: 16, padding: '0 4px',
+                  borderRadius: 8, background: 'var(--blue-500)', color: '#fff',
+                  fontSize: 10, fontWeight: 700, lineHeight: '16px', textAlign: 'center',
+                }}
+              >
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </button>
+
           {/* Docker status chip */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -413,6 +460,7 @@ const MainApp: React.FC = () => {
             {active === 'storage'    && <VaultList />}
             {active === 'connectors' && <ConnectorsPage />}
             {active === 'audit'      && <SecurityAudit />}
+            {active === 'notifications' && <NotificationsPage onUnreadChange={refreshUnread} />}
             {active === 'settings'   && <SettingsPage />}
           </div>
           </Suspense>

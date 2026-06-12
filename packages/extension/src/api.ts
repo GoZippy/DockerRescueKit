@@ -514,3 +514,105 @@ export const getGuardStreamUrl = (): string => {
   }
   return `/api/guard/stream?apiKey=${encodeURIComponent(getApiKey())}`
 }
+
+// ── Notifications (v1.4) ──────────────────────────────────────────────────
+// The whole /api/notifications group is gated behind the `notifications` paid
+// feature (Personal Pro). On Free tier every call returns HTTP 402; callers
+// use isPaymentRequired(err) below to render an upgrade card instead of an
+// error. The two transports surface the status differently, so we normalise:
+//   - TCP (axios):  err.response.status
+//   - Extension (ddClient): err.statusCode  (some builds nest it differently)
+
+/** True when an error from apiClient represents an HTTP 402 (paywall). */
+export const isPaymentRequired = (err: any): boolean => {
+  if (!err) return false
+  const status =
+    err?.response?.status ??       // axios
+    err?.statusCode ??             // ddClient
+    err?.status ??                 // some ddClient builds
+    err?.response?.statusCode
+  return Number(status) === 402
+}
+
+export type NotificationSink = 'webhook' | 'ntfy' | 'email'
+export type NotificationEventType =
+  | 'unhealthy' | 'restart_loop' | 'no_backup' | 'disk_pressure' | 'restore_failed'
+
+export interface NotificationLogItem {
+  id: string
+  eventType: NotificationEventType
+  resourceId?: string
+  resourceName?: string
+  severity: 'warning' | 'critical'
+  status: 'pending' | 'sent' | 'failed'
+  deliveryChannel?: string
+  payload: { subject?: string; message?: string; actionUrl?: string; [k: string]: any }
+  sentAt?: string
+  acknowledgedAt?: string | null
+  errorMessage?: string
+  createdAt: string
+}
+
+export interface NotificationLogPage {
+  entries: NotificationLogItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface NotificationPreferencesDTO {
+  userId: string
+  unsubscribeToken: string
+  enabled: Record<NotificationEventType, boolean>
+  frequencies: Record<NotificationEventType, 'immediate' | 'daily' | 'weekly'>
+  deliveryChannels: NotificationSink[]
+  webhookUrl?: string
+  ntfyUrl?: string
+  emailTo?: string
+  customThresholds?: { restartCount?: number; diskPercent?: number; backupAgeDays?: number }
+  /** Whether the email sink can actually deliver (SMTP resolvable). */
+  emailAvailable?: boolean
+}
+
+export const getNotificationLog = async (opts?: {
+  eventType?: NotificationEventType
+  acknowledged?: boolean
+  limit?: number
+  offset?: number
+}): Promise<NotificationLogPage> => {
+  const params: Record<string, unknown> = {}
+  if (opts?.eventType) params['eventType'] = opts.eventType
+  if (opts?.acknowledged != null) params['acknowledged'] = opts.acknowledged
+  if (opts?.limit != null) params['limit'] = opts.limit
+  if (opts?.offset != null) params['offset'] = opts.offset
+  return apiClient.get<NotificationLogPage>('/notifications/log', params)
+}
+
+export const getNotificationUnreadCount = async (): Promise<number> => {
+  const res = await apiClient.get<{ count: number }>('/notifications/unread-count')
+  return res.count
+}
+
+export const acknowledgeNotification = async (id: string): Promise<void> => {
+  await apiClient.post<unknown>(`/notifications/${encodeURIComponent(id)}/acknowledge`)
+}
+
+export const acknowledgeAllNotifications = async (): Promise<{ acknowledged: number }> => {
+  return apiClient.post<{ acknowledged: number }>('/notifications/acknowledge-all')
+}
+
+export const getNotificationPreferences = async (): Promise<NotificationPreferencesDTO> => {
+  return apiClient.get<NotificationPreferencesDTO>('/notifications/preferences')
+}
+
+export const saveNotificationPreferences = async (
+  prefs: Partial<NotificationPreferencesDTO>,
+): Promise<NotificationPreferencesDTO> => {
+  return apiClient.post<NotificationPreferencesDTO>('/notifications/preferences', prefs)
+}
+
+export const sendTestNotification = async (
+  sink: NotificationSink,
+): Promise<{ ok: boolean; error?: string }> => {
+  return apiClient.post<{ ok: boolean; error?: string }>('/notifications/test', { sink })
+}
