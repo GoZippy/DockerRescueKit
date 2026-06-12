@@ -16,7 +16,7 @@
     "dev": "npm run dev -ws",
     "build": "npm run build -ws",
     "test": "npm test -ws",
-    "lint": "npm run lint -ws",
+    "lint": "npm run lint --workspaces --if-present",
     "postinstall": "npm run build --workspace=@docker-rescue-kit/shared"
   },
   "overrides": {
