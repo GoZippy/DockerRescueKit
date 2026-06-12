@@ -55,6 +55,8 @@ limited to:
 - `packages/extension/` (React UI for the Docker Desktop Extension)
 - `packages/cli/` (the `drk` command-line interface)
 - `packages/shared/` (shared TypeScript types and utilities)
+- `packages/mcp/` (`drk-mcp` Model Context Protocol server — exposes safe Docker
+  tools to cooperative AI agents; calls the DRK backend over the local REST API)
 - `tools/` (internal tooling)
 - `Dockerfile`, `Makefile`, build configuration, CI workflows
 - `package.json`, `package-lock.json`, all `node_modules/`
@@ -94,6 +96,8 @@ LICENSE.
 | v1.2-rc | 2026-05-24 | `.autoclaw/orchestrator/sprints/v1.2-launch.yaml`, `.autoclaw/orchestrator/comms/inboxes/**`, `.autoclaw/internal/marketplace-submission.md`, `.autoclaw/kdream/memory/MEMORY.md` updates | Restricted (covered by `.autoclaw/` pattern; also `.gitignore`d so not redistributed) |
 | v1.2-rc | 2026-05-25 | `license-server/` — initially added here, then **extracted to a separate private repository** at `K:\Projects\DRK_LicenseServer\` on 2026-05-25 for security isolation. It is `.gitignore`d in this repo so accidental re-add is blocked. Holds the RS256 JWT signing private key + Square API tokens — must not appear in any source-available distribution. | **Not in this repository** (lives in a separate private repo; explicitly `.gitignore`d here) |
 | 2026-05-24 | 2026-05-24 | `LICENSE` switch from MIT to Zippy Technologies Source-Available Commercial License v1.3, `COMPONENTS.md` created | Open (as listed above) |
+| v1.4-dev | 2026-06-11 | `packages/mcp/` (`drk-mcp` MCP server, PG-1.6) | **Restricted** (covered by `packages/` pattern — proprietary MCP server that calls the licensed DRK backend API; not redistributable under the source-available terms) |
+| v1.4-dev | 2026-06-11 | `docs/PRUNE_GUARD_GUIDE.md`, `docs/SWITCHING.md`, `docs/design/PRUNE_GUARD.md` | Open (covered by `docs/` pattern) |
 
 This audit log is informational; the patterns in §Open Materials and
 §Restricted Materials remain the authoritative classification.

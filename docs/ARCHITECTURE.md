@@ -87,6 +87,26 @@ Docker Backup Service is a comprehensive disaster recovery platform for Docker e
 │  │   │ └────────────────────────────────────────┘   │   │  │
 │  │   │                                               │   │  │
 │  │   │ ┌────────────────────────────────────────┐   │   │  │
+│  │   │ │ PruneGuardService + GuardMonitor       │   │   │  │
+│  │   │ │ (experimental: DRK_PRUNE_GUARD=1)      │   │   │  │
+│  │   │ │ - Event-reactive floor (dockerode      │   │   │  │
+│  │   │ │   getEvents subscription)              │   │   │  │
+│  │   │ │ - Periodic last-known-good snapshots   │   │   │  │
+│  │   │ │ - guard-cache I/O (exportVolume reuse) │   │   │  │
+│  │   │ │ - LRU disk-budget eviction + TTL sweep │   │   │  │
+│  │   │ │ - /api/guard/* REST + SSE stream       │   │   │  │
+│  │   │ │ - guard_events table (SQLite)          │   │   │  │
+│  │   │ └────────────────────────────────────────┘   │   │  │
+│  │   │                                               │   │  │
+│  │   │ ┌────────────────────────────────────────┐   │   │  │
+│  │   │ │ drk-mcp (packages/mcp)                 │   │   │  │
+│  │   │ │ (experimental: DRK_PRUNE_GUARD=1)      │   │   │  │
+│  │   │ │ - MCP server for cooperative agents    │   │   │  │
+│  │   │ │ - safe_prune / snapshot_volumes tools  │   │   │  │
+│  │   │ │ - Calls /api/guard/* over local API    │   │   │  │
+│  │   │ └────────────────────────────────────────┘   │   │  │
+│  │   │                                               │   │  │
+│  │   │ ┌────────────────────────────────────────┐   │   │  │
 │  │   │ │ Metrics + Audit Services               │   │   │  │
 │  │   │ │ - Prometheus /metrics renderer         │   │   │  │
 │  │   │ │ - Append-only audit log                │   │   │  │
@@ -112,6 +132,7 @@ Docker Backup Service is a comprehensive disaster recovery platform for Docker e
 │  │   │ - Storage configs (encrypted credentials)   │   │  │
 │  │   │ - Audit log (all operations)                │   │  │
 │  │   │ - Credentials vault (AES-256 encrypted)     │   │  │
+│  │   │ - guard_events (Prune Guard — experimental) │   │  │
 │  │   └──────────────────────────────────────────────┘   │  │
 │  │                                                        │  │
 │  └────────────────────────────────────────────────────────┘  │
@@ -123,6 +144,10 @@ Docker Backup Service is a comprehensive disaster recovery platform for Docker e
 │                  │  - volume data (tar)   │                 │
 │                  │  - images (tar)        │                 │
 │                  │  - container configs   │                 │
+│                  │  data/guard-cache/     │                 │
+│                  │  - <event-id>/         │                 │
+│                  │    manifest.json       │                 │
+│                  │    <vol>.tar.gz        │                 │
 │                  └────────────────────────┘                 │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
@@ -524,9 +549,14 @@ permitted because Vite injects a small inline bootstrap.
   the auth middleware. Returns `{ status: 'ok', uptime: <seconds> }`.
   Suitable for Docker `HEALTHCHECK`, Kubernetes liveness probes, Uptime
   Kuma, etc.
+- **`GET /api/status`** — Authenticated. Returns backend state including a
+  `securityWarnings` array surfacing any detected configuration issues (e.g.
+  default API key in use, secrets file permission anomalies).
 - **`GET /metrics`** — Unauthenticated Prometheus exposition format
   (`text/plain; version=0.0.4`). Renders backup counts, scheduler state,
-  policy outcomes, verify pass/fail, and storage usage.
+  policy outcomes, verify pass/fail, and storage usage. **Note:** the
+  disk-pressure gauge currently returns zeros; a reliable implementation
+  is planned for v1.5.
 - **`X-Request-Id` header** — A correlation id is stamped on every
   inbound request by the `requestId` middleware, echoed back on the
   response, included in every structured log line, and embedded in error

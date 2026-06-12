@@ -15,7 +15,7 @@ split is intended to work. Internal business-plan detail lives in
 |---|---|
 | **Backup engine** | Containers, volumes, images, and networks captured as a coherent unit |
 | **Pre/post hooks** | `docker exec` hook runner before and after each backup operation |
-| **Database exporters** | PostgreSQL, MySQL, MongoDB, Redis, SQLite, InfluxDB, MSSQL (7 total) |
+| **Database exporters** | PostgreSQL, MySQL, MongoDB, Redis, SQLite, InfluxDB, MSSQL, CouchDB (8 total) |
 | **Storage: Local** | Tarball-based filesystem backup |
 | **Storage: SMB/CIFS** | Windows shares via cifs-utils mount + restic |
 | **Storage: SFTP** | SSH file transfer via restic |
@@ -29,11 +29,11 @@ split is intended to work. Internal business-plan detail lives in
 | **Rehearsal workflow** | Sandbox restore + smoke checks with SSE streaming (DR-001) |
 | **Partial restore** | Browse files inside a backup archive; extract individual files |
 | **REST API** | All features reachable via `x-api-key`-authenticated HTTP endpoints |
-| **CLI (`drk`)** | Full CLI wrapping the REST API |
+| **CLI (`drk`)** | Full CLI wrapping the REST API; day-0 setup commands shipped in v1.4 |
 | **Web UI** | React/Vite dashboard: policies, history, restore, connectors, rehearsals, cost analysis |
 | **Docker Desktop Extension** | Socket-transport integration; published on Docker Hub |
 | **Connectors** | 7 connector types (S3, SMB, SFTP, Rclone, Proxmox, TrueNAS, PBS) |
-| **Connector discovery** | Proxmox/TrueNAS/PBS have real discovery; S3/SFTP/Rclone stubs (v1.3) |
+| **Connector discovery** | All discovery-capable connectors wired through `AddConnectorWizard` (v1.4); S3 `ListBuckets`/`ListObjectsV2`, SFTP `readdir`, Rclone `lsjson` |
 | **SSRF protection** | SsrfGuard blocks loopback/link-local/RFC1918 by default (DR-001) |
 | **Observability** | `/healthz`, `/metrics` (Prometheus), Pino logs, `X-Request-Id` |
 | **Notification delivery** | Slack, ntfy, SMTP email (nodemailer); webhook support |
@@ -45,9 +45,7 @@ split is intended to work. Internal business-plan detail lives in
 
 | Feature | Notes |
 |---|---|
-| **S3/SFTP/Rclone discovery** | Stubs return []; real discovery needs deps decision (AWS SDK vs raw HTTP, ssh2 vs openssh) |
-| **License key / feature gating** | LicenseService exists (RS256 JWT); 5-policy free gate middleware wired but not enforced |
-| **Per-policy limits** | Free tier is documented as 5 concurrent policies; gate exists but not strict |
+| **License key / feature gating** | *Partially enforced in v1.4.0:* notifications route gate + tiered audit TTL. Policy-count cap and remaining per-feature gates exist in the code but are not yet strictly enforced on all paths. |
 | **Stripe / billing integration** | Square webhooks in LicenseService; Stripe/Lemon Squeezy not integrated |
 | **Managed hosted S3 (Pro backend)** | Architecture documented; no cloud backend deployed |
 | **Docker account OAuth2** | Planned for Pro sign-in; not started |
@@ -61,11 +59,11 @@ split is intended to work. Internal business-plan detail lives in
 | **Fleet / multi-host inventory** | Documented; not implemented |
 | **Compliance certifications** | HIPAA/SOC2/GDPR roadmap exists; no audits started |
 | **Public website / landing page** | No marketing site exists |
-| **Test coverage CI gate** | 21+ Jest test suites exist; coverage threshold not enforced in CI |
-| **Connector discovery UI** | AddConnectorWizard has no discovery step; needs C-1/C-2 backend first |
+| **Test coverage CI gate** | Jest test suites exist; coverage threshold not enforced in CI |
 | **Kopia storage engine** | Not implemented; restic-only dedup |
-| **CouchDB exporter** | Not implemented; tiredofit parity gap |
 | **Cross-host federation** | P3; designed but not started |
+| **Disk-pressure metric** | `/metrics` gauge returns zeros; reliable implementation planned for v1.5 |
+| **Prune Guard socket proxy (PG-2)** | Phase-2 full-coverage opt-in proxy (`drk-guard-proxy`); planned post-v1.4 |
 
 ---
 
@@ -309,12 +307,29 @@ Driven by `docs/COMPETITIVE_ANALYSIS.md` (2026-05-24). Full task breakdown in
 - F-1: Drift detection — alert when unpolicy'd volume gains significant writes
 - C-3: Restore-cost dashboard ($/GB egress + time-to-restore per backend)
 
-### v1.3+ queue
+### v1.4 — shipped / in-flight
 
+| Item | Status |
+|---|---|
+| CouchDB exporter (D-5 part) | ✅ Shipped |
+| Connector discovery UI wiring | ✅ Shipped |
+| CLI day-0 setup commands | ✅ Shipped |
+| CORS allowlist + `?apiKey` restriction + secrets hardening | ✅ Shipped |
+| License gate (notifications route) + tiered audit TTL | ✅ Partially shipped — remaining gates in code, not yet enforced on all paths |
+| Prune Guard MVP (PG-1.1/1.2/1.5/1.6; PG-1.3/1.4 in-flight) | ✅ Shipped experimental (`DRK_PRUNE_GUARD=1`, default OFF in v1.4.0) |
+| `drk-mcp` MCP server (PG-1.6) | ✅ Shipped experimental |
+| Responsive layout + cron humanization | ✅ Shipped |
+| SWITCHING.md migration guide | ✅ Shipped |
+
+### v1.5+ queue
+
+- PG-2: Prune Guard socket proxy (`drk-guard-proxy`) — full non-cooperative coverage, opt-in
 - F-2: Cross-host backup federation (DRK-to-DRK protocol)
 - B-2: Lemon Squeezy / Paddle integration + Supabase license records
 - D-4: Wrap kopia as a 4th engine alongside restic
-- D-5: MariaDB explicit exporter + CouchDB exporter
+- D-5 remainder: MariaDB explicit exporter
+- Disk-pressure metric (reliable implementation)
+- Remaining licence gates — per-feature enforcement for tiers whose routes don't exist yet (BYOK, fleet, RBAC, SSO, WORM). Already enforced: free 5-policy cap, notifications gate, tiered audit retention.
 
 ### Restore-rehearsal — the differentiator nobody else ships
 

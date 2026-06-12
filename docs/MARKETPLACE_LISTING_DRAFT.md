@@ -1,12 +1,11 @@
 # Docker Hub / Docker Desktop Marketplace Listing
 
-**Status:** SHIPPED to Docker Hub on 2026-06-08 as `gozippy/dockerrescuekit:1.3.1`
-(`+ :latest, :standalone-v1.3.1, :standalone-latest`). v1.3 sprint added
-real storage discovery (S3 ListBuckets/ListObjectsV2, SFTP readdir, Rclone
-lsjson) so the AddConnectorWizard now shows a "Discover destinations"
-picker after Test Connection succeeds, instead of asking users to type
-bucket names blind. Marketplace listing copy still to be pasted into the
-Docker Hub overview editor + verified-publisher form.
+**Status:** v1.3.1 SHIPPED to Docker Hub on 2026-06-08. v1.4.0 in progress
+(branch `v1.4-dev`). **Do not switch the listing hero yet** — Prune Guard ships
+behind `DRK_PRUNE_GUARD=1` (experimental, default OFF in v1.4.0); the hero
+move to "Never lose work to a runaway command" is reserved for v1.4.x once
+the feature exits experimental. Hero remains "active backup / scheduled-snapshot /
+one-click restore" for the v1.4.0 release cut.
 
 Earlier publish history: v1.2.0 was the SWOT-merge-complete draft; v1.3.0
 was tagged but never published to Docker Hub (CI workflow failures in
@@ -92,23 +91,25 @@ What you get that the bundled Volumes tab does not:
 - **Browse-to-pick destinations** — once a connector tests OK, DRK shows the actual buckets, prefixes, SFTP directories, or rclone remotes available to that credential. No more typing a bucket name blind and finding out later you misspelled it.
 - **Backup verification** — every snapshot can be restore-tested in a scratch container before you trust it (not just an integrity hash)
 - **Partial restore browser** — browse archives and extract individual files, or restore the full stack
-- **7 typed database exporters** — Postgres, MySQL, MongoDB, Redis, SQLite, InfluxDB, and MSSQL — consistent dumps without pre-quiescing by hand
+- **8 typed database exporters** — Postgres, MySQL, MongoDB, Redis, SQLite, InfluxDB, MSSQL, and CouchDB — consistent dumps without pre-quiescing by hand
 - **Pre/post hooks** — quiesce apps via `docker exec` before and after each backup
 - **SSRF guard on remote endpoints** — cloud instance-metadata (169.254.169.254, IMDSv6) is denied by default; `DRK_SSRF_STRICT=1` extends to the full private/internal set for hosted deployments.
+- **CLI with day-0 setup commands** — `drk` now covers first-run configuration so you can script a headless install without opening the UI.
 
 ## Features
 
 - 7 storage backends: Local, SMB/CIFS, SFTP, S3-compatible, Proxmox Backup Server, Restic, Rclone (40+ cloud providers)
 - Storage discovery: connector wizard enumerates buckets/prefixes (S3), directories (SFTP), and remote folders (Rclone) post-credentials. See [docs/CONNECTORS.md](CONNECTORS.md).
 - Safe upgrades: auto-export of database and config on every backend start, plus one-click export and import-from-disk for portable migrations. See [docs/UPGRADE.md](UPGRADE.md).
-- Cron-based scheduling with tiered retention
+- Cron-based scheduling with tiered retention; cron expressions shown as plain-English descriptions
 - Backup verification in scratch container
 - Partial restore down to individual files
-- 7 typed database exporters
+- 8 typed database exporters (PostgreSQL, MySQL, MongoDB, Redis, SQLite, InfluxDB, MSSQL, CouchDB)
 - Pre/post hooks via `docker exec`
 - AES-256-GCM encrypted credential vault, SSRF guard on remote endpoints (cloud-metadata default-deny; `DRK_SSRF_STRICT=1` for full private-range deny)
-- REST API + CLI (`drk`) + embedded React UI
+- REST API + CLI (`drk`, with day-0 setup commands) + embedded React UI
 - Prometheus `/metrics`, audit log, `/healthz` probes
+- **Coming next (v1.4.x):** Prune Guard — automatic pre-prune snapshots and one-click undo for `docker system prune`, `volume prune`, and `compose down -v`; MCP server for cooperative AI agents (`drk-mcp`)
 
 ## Compared to alternatives
 
@@ -170,17 +171,16 @@ For full analysis, see [docs/COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md).
 ## Open items before publish
 
 1. Operator review of this final draft.
-2. Capture screenshots from the v1.3.1 image (`gozippy/dockerrescuekit:1.3.1`):
-   - `04-restore-browser.png` — partial-restore file browser
-   - `05-storage-vault.png` — vault list with multiple connectors saved
-   - `06-discover-step.png` — **new for v1.3.1** — the AddConnectorWizard
-     "Discover destinations" step showing a list of buckets/dirs picked
-     from a live connector
+2. Capture screenshots from the v1.3.1 (or v1.4.0) image:
+   - `04-restore-browser.png` — partial-restore file browser — **STILL OUTSTANDING**
+   - `05-storage-vault.png` — vault list with multiple connectors saved — **STILL OUTSTANDING**
+   - `06-discover-step.png` — AddConnectorWizard "Discover destinations" step — **STILL OUTSTANDING**
 3. ~~Tag `v1.2.0` to trigger Docker Hub build~~ — superseded; `v1.3.1` is live as of 2026-06-08.
 4. Paste this listing copy into the Docker Hub repository overview editor
    and the Docker Desktop Marketplace submission form.
 5. Submit verified-publisher application using the packet documented in
    `.autoclaw/internal/marketplace-submission.md`.
+6. **v1.4.0:** Bump tag reference from `1.3.1` to `1.4.0` in the status header above and paste updated copy when the tag ships. Do not flip the Prune Guard hero until the feature exits experimental.
 
 ## Pricing/feature drift watch
 
@@ -195,6 +195,6 @@ update the others or you will mislead users / fail compliance:
 | Launch lock-in ($99, 1k Seats or 2026-12-31) | ✓ | ✓ | ✓ |
 | Priority Queue Add-on ($750/yr, capped, not an SLA) | ✓ | ✓ | ✓ |
 | Storage backend count (7) | ✓ | n/a | ✓ |
-| DB exporter count (7 after v1.2: PG/MySQL/Mongo/Redis/SQLite/InfluxDB/MSSQL) | ✓ | n/a | n/a |
+| DB exporter count (8 after v1.4: PG/MySQL/Mongo/Redis/SQLite/InfluxDB/MSSQL/CouchDB) | ✓ | n/a | n/a |
 
 Re-run this checklist before every tag.
