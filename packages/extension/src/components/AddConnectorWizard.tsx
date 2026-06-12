@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, CheckCircle, AlertTriangle, Loader2, Search, Info, ChevronRight } from 'lucide-react'
 import { ConnectorResource } from '@docker-rescue-kit/shared'
 import { getConnectors, testConnector, saveConnectorInstance, discoverConnector } from '../api'
+import { ConnectorHelp } from './ConnectorHelp'
+import { InfoHint } from './InfoHint'
+import { CONNECTOR_FIELD_HINTS } from '../integrationsHelp'
 
 // Connector types where discovery is intentionally not available yet.
 const DISCOVERY_NOT_AVAILABLE: string[] = ['smb', 'pbs']
@@ -181,11 +184,17 @@ export const AddConnectorWizard: React.FC<{ onClose: () => void, initialType?: s
                 </button>
               </div>
 
+              {/* What is this & what do I need? — collapsed by default */}
+              <ConnectorHelp integrationKey={selectedType} />
+
               {/* Fields */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {selectedDef?.fields.map((field: any) => (
                   <div key={field.name}>
-                    <label className="form-label">{field.label}{field.required && <span style={{ color: 'var(--rose)', marginLeft: 2 }}>*</span>}</label>
+                    <label className="form-label">
+                      {field.label}{field.required && <span style={{ color: 'var(--rose)', marginLeft: 2 }}>*</span>}
+                      {CONNECTOR_FIELD_HINTS[field.name] && <InfoHint text={CONNECTOR_FIELD_HINTS[field.name]} />}
+                    </label>
                     {field.type === 'boolean' ? (
                       <input
                         type="checkbox"

@@ -898,6 +898,13 @@ export class BackupService {
       res.json(this.rclone.getProviders())
     })
 
+    // Health probe for the rclone the backend uses (bundled in the image).
+    // Powers the "rclone vX ready" badge + install helper in the UI. Returns
+    // { installed, version, configPath } and never throws.
+    this.app.get('/api/rclone/check', asyncHandler(async (_req, res) => {
+      res.json(await this.rclone.checkInstall())
+    }))
+
     this.app.get('/api/rclone/remotes', asyncHandler(async (_req, res) => {
       res.json(await this.rclone.listRemotes())
     }))

@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   X, Cloud, Server, HardDrive, Wifi, CheckCircle2, AlertCircle,
-  ExternalLink, Copy, RefreshCw, Loader2, Trash2, Plus, Terminal
+  ExternalLink, Copy, RefreshCw, Loader2, Trash2, Plus, Terminal, ShieldCheck, Download
 } from 'lucide-react'
 import {
-  getRcloneProviders, getRcloneRemotes,
+  getRcloneProviders, getRcloneRemotes, checkRclone,
   createRcloneRemote, deleteRcloneRemote, testRcloneRemote,
   startRcloneOAuth, finishRcloneOAuth
 } from '../api'
+import { HelpDisclosure } from './HelpDisclosure'
+import { ConnectorHelp } from './ConnectorHelp'
+import { RcloneInstallHelper } from './RcloneInstallHelper'
+import { InfoHint } from './InfoHint'
+import { FaqAccordion } from './FaqAccordion'
+import { RCLONE_OVERVIEW_HELP, RCLONE_FAQS, FIELD_HINTS } from '../integrationsHelp'
 
 interface Provider {
   id: string; name: string; description: string
@@ -36,8 +42,9 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Rclone available check
+  // Rclone available check + version (for the "ready" badge)
   const [rcloneOk, setRcloneOk] = useState<boolean | null>(null)
+  const [rcloneVersion, setRcloneVersion] = useState<string | null>(null)
 
   // Key-based form
   const [remoteName, setRemoteName] = useState('')
@@ -92,13 +99,18 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
     setLoading(true)
     setError(null)
     try {
-      const [p, r] = await Promise.all([
+      // checkRclone is the authoritative "is rclone present" signal — the
+      // providers list is a static catalogue and won't fail when rclone is
+      // missing, so we can't infer availability from it.
+      const [p, r, chk] = await Promise.all([
         getRcloneProviders(),
-        getRcloneRemotes().catch(() => [])
+        getRcloneRemotes().catch(() => []),
+        checkRclone().catch(() => ({ installed: true, version: null, configPath: '' })),
       ])
       setProviders(p)
       setRemotes(r)
-      setRcloneOk(true)
+      setRcloneOk(chk.installed)
+      setRcloneVersion(chk.version)
     } catch (e: any) {
       if (e?.response?.data?.error?.includes('rclone')) {
         setRcloneOk(false)
@@ -227,10 +239,19 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
       >
 
         <div className="modal-header">
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span id="rclone-wizard-title" style={{ fontWeight: 700, fontSize: 15 }}>
               {view === 'remotes' ? 'Rclone Remotes' : `Add Remote — ${selectedProvider?.name}`}
             </span>
+            {rcloneOk === true && (
+              <span
+                className="badge badge-success"
+                style={{ fontSize: 10 }}
+                title="DRK ships rclone for transfers — it's already working. You only need rclone on your own computer for cloud sign-in."
+              >
+                <ShieldCheck size={11} /> rclone{rcloneVersion ? ` ${rcloneVersion}` : ''} ready
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {view === 'add' && (
@@ -242,28 +263,28 @@ export const RcloneWizard: React.FC<Props> = ({ onClose }) => {
 
         <div className="modal-body">
 
-          {/* Rclone not installed */}
+          {/* Rclone not installed (rare — DRK normally bundles it; this shows
+              only if RCLONE_BIN is misconfigured or the binary is missing) */}
           {rcloneOk === false && (
-            <div style={{ padding: '24px 0', textAlign: 'center' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, color: 'var(--rose)' }}>
-                rclone is not installed
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: 'var(--rose)' }}>
+                  rclone wasn't found on the DRK host
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                  DRK usually ships rclone inside its container, so this is unusual — it can happen if{' '}
+                  <span className="font-mono">RCLONE_BIN</span> points somewhere wrong. Install it on the
+                  machine running DRK, then re-check.
+                </p>
               </div>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                rclone is required for cloud storage backends (Google Drive, OneDrive, Dropbox, etc.)
-              </p>
-              <div className="card" style={{ textAlign: 'left', maxWidth: 420, margin: '0 auto' }}>
-                <div className="form-label">Install rclone</div>
-                <pre className="font-mono" style={{ fontSize: 12, background: 'var(--surface-1)', padding: '10px 12px', borderRadius: 'var(--r-sm)', margin: 0, overflowX: 'auto' }}>
-{`# Windows (winget)
-winget install Rclone.Rclone
-
-# Linux (Debian/Ubuntu)
-apt install rclone
-
-# Or: https://rclone.org/downloads/`}
-                </pre>
+              <ConnectorHelp
+                help={RCLONE_OVERVIEW_HELP}
+                title="What is rclone & why does DRK use it?"
+              />
+              <div className="card">
+                <RcloneInstallHelper context="backend" />
               </div>
-              <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={load}>
+              <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={load}>
                 <RefreshCw size={14} /> Check again
               </button>
             </div>
@@ -271,6 +292,12 @@ apt install rclone
 
           {rcloneOk !== false && view === 'remotes' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              {/* Newcomer-friendly explainer — collapsed so it never crowds the UI */}
+              <ConnectorHelp
+                help={RCLONE_OVERVIEW_HELP}
+                title="New to rclone? What it is & whether you need to install anything"
+              />
 
               {/* Existing remotes */}
               {loading ? (
@@ -342,6 +369,14 @@ apt install rclone
                   })}
                 </div>
               </div>
+
+              {/* Questions & safety FAQ — collapsed by default */}
+              <HelpDisclosure
+                icon={<ShieldCheck size={14} />}
+                title="Questions about rclone? Safety, privacy & troubleshooting"
+              >
+                <FaqAccordion items={RCLONE_FAQS} />
+              </HelpDisclosure>
             </div>
           )}
 
@@ -354,6 +389,9 @@ apt install rclone
                   {error}
                 </div>
               )}
+
+              {/* Per-provider context — what it's for and what you'll need */}
+              <ConnectorHelp integrationKey={selectedProvider.id} defaultOpen />
 
               <div>
                 <label className="form-label">Remote name</label>
@@ -372,7 +410,10 @@ apt install rclone
               {/* Key-based fields */}
               {selectedProvider.authType === 'key' && selectedProvider.fields.map(f => (
                 <div key={f.name}>
-                  <label className="form-label">{f.label}{f.required ? '' : ' (optional)'}</label>
+                  <label className="form-label">
+                    {f.label}{f.required ? '' : ' (optional)'}
+                    {FIELD_HINTS[f.name] && <InfoHint text={FIELD_HINTS[f.name]} />}
+                  </label>
                   {f.description && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{f.description}</div>}
                   <input
                     className={`form-input${f.type === 'password' ? '' : ' font-mono'}`}
@@ -388,13 +429,22 @@ apt install rclone
               {selectedProvider.authType === 'oauth' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {oauthStep === 'idle' && (
-                    <div className="card" style={{ background: 'var(--surface-1)' }}>
-                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
-                        {selectedProvider.name} uses a browser sign-in that must run on a machine
-                        with a web browser (your own desktop). Click <strong>Authorize</strong> and
-                        we'll give you a one-line <span className="font-mono">rclone authorize</span>{' '}
-                        command to run there — then paste the token it prints back here.
-                      </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div className="card" style={{ background: 'var(--surface-1)' }}>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                          {selectedProvider.name} uses a browser sign-in that must run on a machine
+                          with a web browser (your own desktop). Click <strong>Authorize</strong> and
+                          we'll give you a one-line <span className="font-mono">rclone authorize</span>{' '}
+                          command to run there — then paste the token it prints back here.
+                        </p>
+                      </div>
+                      <HelpDisclosure
+                        compact
+                        icon={<Download size={13} />}
+                        title="Don't have rclone on that computer yet? Install it"
+                      >
+                        <RcloneInstallHelper context="host" />
+                      </HelpDisclosure>
                     </div>
                   )}
 
@@ -426,9 +476,18 @@ apt install rclone
                         </div>
                       </div>
 
+                      <HelpDisclosure
+                        compact
+                        icon={<Download size={13} />}
+                        title="That command says rclone isn't installed there? Install it"
+                      >
+                        <RcloneInstallHelper context="host" />
+                      </HelpDisclosure>
+
                       <div>
                         <label className="form-label">
                           Step 2 — Paste the token rclone printed
+                          <InfoHint text={FIELD_HINTS.token} />
                         </label>
                         <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
                           Copy everything between <span className="font-mono">{'--->'}</span> and{' '}

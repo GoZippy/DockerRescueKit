@@ -180,6 +180,12 @@ export const getRcloneProviders = async () => {
   }>>('/rclone/providers')
 }
 
+// Health probe for the rclone bundled in the DRK backend. Powers the
+// "rclone ready" badge and decides whether to show the install helper.
+export const checkRclone = async () => {
+  return apiClient.get<{ installed: boolean; version: string | null; configPath: string }>('/rclone/check')
+}
+
 export const getRcloneRemotes = async () => {
   return apiClient.get<Array<{ name: string; type: string; configured: boolean }>>('/rclone/remotes')
 }
