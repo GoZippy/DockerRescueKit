@@ -107,6 +107,14 @@ Docker Backup Service is a comprehensive disaster recovery platform for Docker e
 │  │   │ └────────────────────────────────────────┘   │   │  │
 │  │   │                                               │   │  │
 │  │   │ ┌────────────────────────────────────────┐   │   │  │
+│  │   │ │ GuardProxy (opt-in: DRK_GUARD_PROXY=1) │   │   │  │
+│  │   │ │ - Docker Engine-API reverse proxy      │   │   │  │
+│  │   │ │ - snapshot-first on destructive calls  │   │   │  │
+│  │   │ │ - failClosed gate (503) / fail-open    │   │   │  │
+│  │   │ │ - feeds the same PruneGuardService.guard│   │   │  │
+│  │   │ └────────────────────────────────────────┘   │   │  │
+│  │   │                                               │   │  │
+│  │   │ ┌────────────────────────────────────────┐   │   │  │
 │  │   │ │ Metrics + Audit Services               │   │   │  │
 │  │   │ │ - Prometheus /metrics renderer         │   │   │  │
 │  │   │ │ - Append-only audit log                │   │   │  │
@@ -160,6 +168,21 @@ Docker Backup Service is a comprehensive disaster recovery platform for Docker e
     │ (short-term)│            │ (long-term)      │
     └─────────────┘            └──────────────────┘
 ```
+
+**Prune Guard interception front-ends.** Prune Guard (experimental,
+`DRK_PRUNE_GUARD=1`) is a single snapshot engine (`PruneGuardService.guard()`)
+fed by three independent front-ends: the zero-config event-reactive floor
+(`GuardMonitor`), the cooperative-agent MCP server (`drk-mcp`), and the opt-in
+`GuardProxy` (`DRK_GUARD_PROXY=1`). The proxy is a dependency-free Docker
+Engine-API reverse proxy: agents point at its unix socket (or `127.0.0.1` TCP)
+instead of `/var/run/docker.sock`, so every destructive call — `volume rm`,
+`volume prune`, `container rm -v`, `container prune`, even from a non-cooperative
+or raw-socket client — is snapshotted before being forwarded to the real daemon.
+Non-destructive traffic (including streaming logs and `exec`/`attach` HTTP
+upgrades) passes through untouched. It is the full-coverage, defense-in-depth
+tier; with `failClosed` it can return a 503 and block a destroy it could not
+protect, otherwise it is fail-open and never breaks tooling. See
+[`docs/PRUNE_GUARD_GUIDE.md`](PRUNE_GUARD_GUIDE.md) and design spec §4b/§5/§7.1.
 
 ## Data Flow: Backup Execution
 

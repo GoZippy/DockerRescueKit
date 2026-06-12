@@ -46,6 +46,7 @@ import { NotificationService } from './services/NotificationService'
 import { mountRehearsalRoutes } from './routes/rehearsals'
 import { PruneGuardService } from './services/PruneGuardService'
 import { GuardMonitor } from './services/GuardMonitor'
+import { GuardProxy } from './services/GuardProxy'
 import { mountGuardRoutes } from './routes/guard'
 import { mountLogsRoutes } from './routes/logs'
 import { mountVolumesRoutes } from './routes/volumes'
@@ -221,6 +222,9 @@ export class BackupService {
   // feature) and the monitor never starts.
   private pruneGuard: PruneGuardService | null = null
   private guardMonitor: GuardMonitor | null = null
+  // PG-2.1 — Phase-2 socket proxy. Null unless DRK_GUARD_PROXY=1 AND the guard
+  // kill-switch (DRK_PRUNE_GUARD=1) is on. Opt-in full coverage (§4b/§5 Phase 2).
+  private guardProxy: GuardProxy | null = null
   private health: HealthCheckService
   private logTriage: LogTriageService
   private partial: PartialRestoreService
@@ -309,6 +313,18 @@ export class BackupService {
         settings: this.settings,
         guard: this.pruneGuard,
       })
+      // PG-2.1 — the socket proxy is a further opt-in on top of the guard. It
+      // needs the guard core (only constructed above), so it lives inside this
+      // block; DRK_GUARD_PROXY=1 is the second flag (§5 Phase 2 is opt-in).
+      if (process.env.DRK_GUARD_PROXY === '1') {
+        this.guardProxy = new GuardProxy({
+          guard: this.pruneGuard,
+          docker: this.dockerService,
+          settings: this.settings,
+          audit: this.audit,
+          dataDir,
+        })
+      }
     }
     this.health = new HealthCheckService(this.dockerService, this.policyManager, this.rehearsal, this.db, this.notificationDispatcher)
     this.logTriage = new LogTriageService(this.dockerService, this.db, this.health)
@@ -408,7 +424,7 @@ export class BackupService {
     //   - PolicyManager enforces the Free 5-policy cap
     //     (services/PolicyManager.assertPolicyQuotaAvailable)
     this.app.use('/api/notifications', requireFeature(this.license, 'notifications'))
-    mountNotificationRoutes(this.app, { db: this.db })
+    mountNotificationRoutes(this.app, { db: this.db, dispatcher: this.notificationDispatcher })
     // v1.2.2 in-product feedback + update-check. FeedbackService fans out to
     // local file / email / GitHub / webhook sinks; the version route compares
     // the running APP_VERSION against Docker Hub tags so the UI can show an
@@ -1001,6 +1017,14 @@ export class BackupService {
       )
     }
 
+    // PG-2.1 — start the opt-in guard proxy listener (best-effort; never blocks
+    // boot and never crashes the process — it logs + 502/503s on errors).
+    if (this.guardProxy) {
+      this.guardProxy.start().catch(err =>
+        logger.error({ err }, '[GuardProxy] failed to start'),
+      )
+    }
+
     // Online license revocation check. Fires once on start, then every 24h.
     // No-op if DRK_LICENSE_SERVER_URL isn't set — the install runs in
     // offline-only mode and stays Free until a token is pasted in
@@ -1081,6 +1105,7 @@ export class BackupService {
       try {
         this.scheduler.stop()
         this.guardMonitor?.stop()
+        await this.guardProxy?.stop().catch(() => { /* best-effort socket cleanup */ })
         if (this.httpServer) {
           await new Promise<void>((resolve) => this.httpServer!.close(() => resolve()))
         }

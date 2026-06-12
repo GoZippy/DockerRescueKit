@@ -162,6 +162,98 @@ The MCP server only works if `DRK_PRUNE_GUARD=1` is set in the backend.
 
 ---
 
+## Lock your agent down: the guard proxy
+
+The floor and the MCP server cover two cases: "you did nothing" and "the agent
+cooperated." Neither catches a **rogue or jailbroken agent** that has the real
+Docker socket and ignores the safe tools — it can call `DELETE /volumes/{name}`
+or `POST /volumes/prune` on the raw socket and the data is gone before any event
+fires. The **guard proxy** closes that gap. It is the opt-in, defense-in-depth
+tier (design spec §4b / §5 Phase 2).
+
+### How it works
+
+The proxy is a small reverse proxy that speaks the Docker Engine API. You point
+your agent (or tooling) at the **proxy socket** instead of `/var/run/docker.sock`.
+Every request flows through DRK:
+
+- Non-destructive calls (list, inspect, logs, build, `exec`) pass straight
+  through, unchanged.
+- Destructive calls — `volume rm`, `volume prune`, `container rm -v`,
+  `container prune` — are intercepted: DRK resolves the volumes the call would
+  destroy, **snapshots them first**, and only then forwards the original request
+  to the real daemon. This is the only mechanism with full, non-cooperative
+  coverage: it catches the CLI, the SDK, MCP, and raw-socket calls uniformly,
+  because they all funnel through the one socket.
+
+Because the proxy sees the request *before* the daemon, it gives true pre-op
+protection even for `volume rm`/`prune`, which the zero-config floor cannot
+catch in time.
+
+### Enable it
+
+The proxy is gated behind a second flag on top of the guard kill-switch. Both
+must be set:
+
+```
+DRK_PRUNE_GUARD=1          # the guard core (also enables the floor + MCP)
+DRK_GUARD_PROXY=1          # turn the proxy listener on
+```
+
+Optional configuration:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `DRK_GUARD_PROXY_SOCKET` | `<dataDir>/drk-guard.sock` | Unix socket the proxy listens on |
+| `DRK_GUARD_PROXY_PORT` | _(off)_ | If set, also listen on this TCP port — **bound to `127.0.0.1` only** |
+| `DRK_GUARD_PROXY_UPSTREAM` | the real docker socket | Override the upstream daemon (`tcp://host:port` or `unix:///path`) |
+
+### Point your agent at the proxy
+
+The primary path is the **agent-in-a-container** case — the exact place the
+runaway-prune incidents happen. Instead of bind-mounting the real socket into
+your agent container:
+
+```yaml
+# don't:  - /var/run/docker.sock:/var/run/docker.sock
+# do:
+    volumes:
+      - /path/to/drk-data/drk-guard.sock:/var/run/docker.sock
+```
+
+The agent talks to what it thinks is `/var/run/docker.sock`; it is really the
+DRK proxy, which snapshots before every destroy. Give the agent container
+*only* the proxy socket (not the real one) so it cannot bypass DRK.
+
+For a host CLI/SDK, point `DOCKER_HOST` at the proxy:
+
+```
+export DOCKER_HOST=unix:///path/to/drk-data/drk-guard.sock
+```
+
+### Fail-closed: turn the safety net into a gate
+
+By default the proxy is **fail-open** (design spec §7.1): if a snapshot fails
+(disk full, volume locked), the destructive request is still forwarded and you
+get a warning — DRK never breaks your tooling. If you would rather DRK **block**
+a destroy it could not protect, set `failClosed` in Prune Guard settings
+(Settings → Prune Guard → Advanced). With fail-closed on, a destructive request
+whose snapshot did not fully succeed gets a **503** and the daemon never sees it
+— the only place DRK acts as a true preventer, and only because you deliberately
+routed your agent through it. Every block is audited as `guard.proxy_blocked`.
+
+### Windows
+
+Listening on a unix socket is the supported path on Linux and the Docker Desktop
+Linux VM. **On Windows, the proxy does not listen on a host named pipe** — Node's
+support for binding an arbitrary unix-socket path on Windows is unreliable. The
+supported Windows story is exactly the agent-in-a-container case above: Docker
+Desktop runs containers in a Linux VM, so bind-mounting the proxy's unix socket
+into your agent container works there. If you need a host listener on Windows for
+testing, set `DRK_GUARD_PROXY_PORT` to use the `127.0.0.1` TCP listener instead.
+
+---
+
 ## Troubleshooting
 
 ### Guard card does not appear in the Dashboard
