@@ -60,7 +60,7 @@ var to show anything:
 
 ---
 
-## [1.4.0] - Unreleased
+## [1.4.0] - 2026-06-12
 
 The safety-net + hardening sprint. Headline features: **Prune Guard** (experimental,
 behind `DRK_PRUNE_GUARD=1`), **CouchDB exporter**, **CLI day-0 setup commands**,
