@@ -119,6 +119,12 @@ from the Settings panel in the web UI — no restart required.
 - **Verify and restore** — every backup can be restore-tested in a
   scratch container before you trust it. Full-stack restore or partial
   restore down to individual files (browse and extract).
+- **Cost analysis** — compare restore cost and speed across 15 storage
+  backends with built-in, source-linked reference pricing (AWS S3, Google
+  Cloud Storage, Azure Blob, Cloudflare R2, Backblaze B2, Wasabi, IDrive
+  e2, DigitalOcean Spaces, Hetzner, S3 Glacier Deep Archive, and
+  self-hosted options). Prices are dated and link to each vendor's page;
+  override with your own rates via `DRK_COST_CONFIG`.
 - **CLI** — `drk` command with policy, backup, connector, and rclone
   subcommands. Talks to the same REST API the UI uses.
 - **Web UI** — bundled React app served by the backend on the same port.

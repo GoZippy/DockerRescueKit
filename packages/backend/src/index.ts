@@ -65,87 +65,71 @@ import { LicenseService } from './services/LicenseService'
 import { requireFeature } from './middleware/licenseGate'
 import { EncryptionUtility } from './utils/Encryption'
 import { Server } from 'http'
+import {
+  COST_PRESETS,
+  COST_PRESETS_UPDATED,
+  COST_PRESETS_SCHEMA_VERSION,
+  type StorageCostConfig,
+} from './data/costPresets'
 
 dotenv.config()
 
-export interface StorageCostConfig {
-  storageType: string
-  label: string
-  icon: string
-  costPerGBMonth: number
-  costPerGBDownload: number
-  restoreSpeedMBps: number
-  durability: string
-  notes: string
+// StorageCostConfig + the bundled default dataset now live in ./data/costPresets.
+// Re-exported here so existing importers of `StorageCostConfig` keep working.
+export type { StorageCostConfig }
+
+/**
+ * Response shape for GET /api/settings/cost-config. Wraps the presets with
+ * provenance so the UI can show "Pricing as of <date>" and where it came from.
+ */
+export interface CostConfigResponse {
+  /** Backend pricing/performance reference rows. */
+  presets: StorageCostConfig[]
+  /** ISO (YYYY-MM-DD) date the pricing was last reviewed. */
+  lastUpdated: string
+  /** Schema version of the preset rows. */
+  schemaVersion: number
+  /** Where the data came from: shipped defaults vs a DRK_COST_CONFIG override. */
+  source: 'bundled' | 'env-override'
 }
 
-export function getDefaultCostConfig(): StorageCostConfig[] {
+/**
+ * Resolve the cost-config dataset. A DRK_COST_CONFIG env var (JSON) always
+ * wins over the bundled defaults; it may be either a bare presets array
+ * (legacy form) or a full { presets, lastUpdated, schemaVersion } object.
+ * Bundled defaults are the fallback so this never returns empty.
+ */
+export function getCostConfig(): CostConfigResponse {
   const raw = process.env.DRK_COST_CONFIG
   if (raw) {
-    try { return JSON.parse(raw) } catch { /* fall through to defaults */ }
+    try {
+      const parsed = JSON.parse(raw)
+      const presets: StorageCostConfig[] | undefined = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.presets)
+          ? parsed.presets
+          : undefined
+      if (presets && presets.length > 0) {
+        return {
+          presets,
+          lastUpdated: typeof parsed?.lastUpdated === 'string' ? parsed.lastUpdated : COST_PRESETS_UPDATED,
+          schemaVersion: typeof parsed?.schemaVersion === 'number' ? parsed.schemaVersion : COST_PRESETS_SCHEMA_VERSION,
+          source: 'env-override',
+        }
+      }
+    } catch { /* malformed override — fall through to bundled defaults */ }
   }
-  return [
-    {
-      storageType: 'local',
-      label: 'Local Disk',
-      icon: 'hard-drive',
-      costPerGBMonth: 0,
-      costPerGBDownload: 0,
-      restoreSpeedMBps: 500,
-      durability: 'Single disk — no redundancy',
-      notes: 'Fastest restore. No cloud egress. Risk: disk failure = total loss.',
-    },
-    {
-      storageType: 'smb',
-      label: 'SMB / CIFS (NAS)',
-      icon: 'server',
-      costPerGBMonth: 0,
-      costPerGBDownload: 0,
-      restoreSpeedMBps: 100,
-      durability: 'Depends on NAS RAID config',
-      notes: 'Good for homelab. Speed limited by network. No egress fees.',
-    },
-    {
-      storageType: 'sftp',
-      label: 'SFTP / SSH',
-      icon: 'lock',
-      costPerGBMonth: 0,
-      costPerGBDownload: 0,
-      restoreSpeedMBps: 50,
-      durability: 'Depends on server',
-      notes: 'Any SSH server works. Slower than SMB over WAN.',
-    },
-    {
-      storageType: 's3',
-      label: 'S3 / Object Storage',
-      icon: 'cloud',
-      costPerGBMonth: 0.023,
-      costPerGBDownload: 0.09,
-      restoreSpeedMBps: 200,
-      durability: '99.999999999% (11 nines)',
-      notes: 'AWS S3 Standard pricing shown. MinIO/Wasabi/B2 may differ. Egress is the main cost.',
-    },
-    {
-      storageType: 'proxmox',
-      label: 'Proxmox Backup Server',
-      icon: 'database',
-      costPerGBMonth: 0,
-      costPerGBDownload: 0,
-      restoreSpeedMBps: 200,
-      durability: 'Depends on PBS storage',
-      notes: 'Deduplication + compression. No egress. Requires Proxmox infrastructure.',
-    },
-    {
-      storageType: 'rclone',
-      label: 'Rclone (40+ providers)',
-      icon: 'globe',
-      costPerGBMonth: 0.02,
-      costPerGBDownload: 0.08,
-      restoreSpeedMBps: 100,
-      durability: 'Varies by provider',
-      notes: 'Google Drive, OneDrive, Dropbox, B2, etc. Pricing varies — shown as S3 equivalent estimate.',
-    },
-  ]
+  return {
+    presets: COST_PRESETS,
+    lastUpdated: COST_PRESETS_UPDATED,
+    schemaVersion: COST_PRESETS_SCHEMA_VERSION,
+    source: 'bundled',
+  }
+}
+
+/** Backward-compat: the bare presets array (env-override aware). */
+export function getDefaultCostConfig(): StorageCostConfig[] {
+  return getCostConfig().presets
 }
 
 // ---- CORS allowlist helpers ------------------------------------------------
@@ -440,12 +424,6 @@ export class BackupService {
       db: this.db,
       license: this.license,
       importService: this.importService,
-    })
-
-    // Cost analysis config — static per-backend pricing/performance reference data.
-    // Users can override via DRK_COST_CONFIG env var (JSON) for their region.
-    this.app.get('/api/settings/cost-config', (_req, res) => {
-      res.json(getDefaultCostConfig())
     })
 
     this.setupStaticUI()
@@ -793,6 +771,16 @@ export class BackupService {
         staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging'),
         lastExportAt,
       })
+    })
+
+    // Cost analysis config — bundled per-backend pricing/performance reference
+    // data (versioned + dated; see ./data/costPresets). Users can override via
+    // the DRK_COST_CONFIG env var (JSON) for their region/negotiated rates.
+    // MUST be registered before the wildcard /:key route below, or that route
+    // captures "cost-config" and returns {value:null} (the bug that left the
+    // Cost Analysis tab empty through v1.4.0).
+    this.app.get('/api/settings/cost-config', (_req, res) => {
+      res.json(getCostConfig())
     })
 
     this.app.get('/api/settings/:key', validateParams(settingKeyParamSchema), async (req, res) => {
