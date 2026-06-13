@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+---
+
+## [1.4.1] - 2026-06-13
+
 ### Added
 
 **Cost Analysis — bundled, sourced reference pricing dataset.** The Cost Analysis
@@ -44,6 +48,12 @@ var to show anything:
 
 ### Fixed
 
+- **Cost Analysis was non-functional in v1.4.0** — `GET /api/settings/cost-config`
+  was registered in the constructor *after* `setupRoutes()`, so the wildcard
+  `/api/settings/:key` route captured `cost-config` and returned `{"value":null}`,
+  leaving the tab permanently empty. The route is now registered inside
+  `setupRoutes()` ahead of the wildcard. (This, not a stale container, was the
+  real cause of the empty tab.)
 - Cost Analysis empty state no longer misleadingly says "set `DRK_COST_CONFIG`"
   when defaults always exist — it now distinguishes a backend load failure
   (e.g. still starting up) from genuinely empty data.

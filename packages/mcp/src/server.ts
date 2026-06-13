@@ -28,7 +28,7 @@ export function buildServer(cfg: McpConfig, deps?: Partial<ToolDeps>): McpServer
   }
 
   const server = new McpServer(
-    { name: 'drk-mcp', version: '1.4.0' },
+    { name: 'drk-mcp', version: '1.4.1' },
     {
       instructions:
         'Docker Rescue Kit guard tools. ALWAYS prefer safe_prune over raw `docker system/volume/image prune`, ' +

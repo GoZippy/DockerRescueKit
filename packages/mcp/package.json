@@ -1,6 +1,6 @@
 {
   "name": "@docker-rescue-kit/mcp",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "drk-mcp — Model Context Protocol server exposing snapshot-before-prune safety tools for AI agents (Prune Guard PG-1.6)",

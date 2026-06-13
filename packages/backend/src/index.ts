@@ -426,13 +426,6 @@ export class BackupService {
       importService: this.importService,
     })
 
-    // Cost analysis config — bundled per-backend pricing/performance reference
-    // data (versioned + dated; see ./data/costPresets). Users can override via
-    // the DRK_COST_CONFIG env var (JSON) for their region/negotiated rates.
-    this.app.get('/api/settings/cost-config', (_req, res) => {
-      res.json(getCostConfig())
-    })
-
     this.setupStaticUI()
     this.setupErrorHandler()
 
@@ -778,6 +771,16 @@ export class BackupService {
         staging: path.join(process.env.DRK_DATA_DIR || 'data', 'staging'),
         lastExportAt,
       })
+    })
+
+    // Cost analysis config — bundled per-backend pricing/performance reference
+    // data (versioned + dated; see ./data/costPresets). Users can override via
+    // the DRK_COST_CONFIG env var (JSON) for their region/negotiated rates.
+    // MUST be registered before the wildcard /:key route below, or that route
+    // captures "cost-config" and returns {value:null} (the bug that left the
+    // Cost Analysis tab empty through v1.4.0).
+    this.app.get('/api/settings/cost-config', (_req, res) => {
+      res.json(getCostConfig())
     })
 
     this.app.get('/api/settings/:key', validateParams(settingKeyParamSchema), async (req, res) => {
