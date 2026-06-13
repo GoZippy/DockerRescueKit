@@ -3,10 +3,12 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['**/__tests__/**/*.test.ts'],
-  // GitHub windows-latest runners under --coverage are 4-6x slower than
-  // ubuntu/local; the 5s jest default flakes integration-server hooks and
-  // the guard suite's real fs work (see run 27396004807). 30s is headroom,
-  // not a license for slow tests — keep suites fast locally.
+  // Integration tests boot a full BackupService per `beforeEach` (RSA keygen +
+  // sqlite + scheduler); GitHub windows-latest runners under --coverage are
+  // several times slower, so the 5s jest default flakes the
+  // `beforeEach(createTestServer)` hook (see run 27396004807). 30s is headroom,
+  // not a license for slow tests — keep suites fast locally. (jest-circus
+  // applies testTimeout to before/after hooks.)
   testTimeout: 30000,
   moduleNameMapper: {
     '^@docker-rescue-kit/shared$': '<rootDir>/../shared/src/types.ts'
