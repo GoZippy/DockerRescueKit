@@ -2,25 +2,28 @@ import axios from 'axios'
 import { Database } from '../db/Database'
 import { DockerService } from './DockerService'
 import { NotificationService } from './NotificationService'
+import { SsrfGuard } from '../security/SsrfGuard'
 import { logger as defaultLogger } from '../utils/logger'
 import { v4 as uuid } from 'uuid'
 import type { NotificationPayload, NotificationEventType } from '@docker-rescue-kit/shared'
 import type { Logger } from 'pino'
 
 /**
- * Validate an operator-configured webhook URL. Accepts only http(s).
- * Private/RFC-1918 hosts are intentionally allowed — operators commonly
- * point at LAN-hosted Slack/ntfy/n8n. URL flows from the local DB config
- * row, not from any HTTP request input.
+ * Validate + SSRF-check an operator-configured delivery URL. Accepts only
+ * http(s). SsrfGuard.assertSafe() blocks the cloud-metadata endpoint always,
+ * and (under DRK_SSRF_STRICT) the full private range. RFC-1918 / LAN hosts
+ * stay reachable by default because operators commonly point at LAN-hosted
+ * Slack/ntfy/n8n — DRK is homelab-first.
  */
-function parseWebhookUrl(raw: unknown): string {
+async function assertSafeDeliveryUrl(raw: unknown): Promise<string> {
   if (typeof raw !== 'string' || raw.length === 0) {
-    throw new Error('webhook URL is missing')
+    throw new Error('delivery URL is missing')
   }
   const u = new URL(raw)
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-    throw new Error(`webhook URL has unsupported protocol: ${u.protocol}`)
+    throw new Error(`delivery URL has unsupported protocol: ${u.protocol}`)
   }
+  await SsrfGuard.assertSafe(u.toString())
   return u.toString()
 }
 
@@ -229,7 +232,8 @@ export class NotificationDispatcher {
   }
 
   /**
-   * Send notification to a single delivery channel.
+   * Send notification to a single delivery channel. Throws on failure so the
+   * caller can record per-channel errors and decide overall success.
    */
   private async sendNotification(
     channel: string,
@@ -245,10 +249,19 @@ export class NotificationDispatcher {
         return
       }
 
+      case 'ntfy': {
+        if (!prefs.ntfyUrl) {
+          throw new Error('ntfy URL not configured')
+        }
+        await this.sendNtfy(payload, prefs.ntfyUrl)
+        return
+      }
+
       case 'email': {
-        // Email dispatch requires SMTP config from NotificationService
-        // For now, we skip email in v1.3 P2 (v1.4 feature)
-        this.logger.debug('[N1Notif] Email channel not yet implemented for N-1 notifications')
+        if (!prefs.emailTo) {
+          throw new Error('Email recipient (emailTo) not configured')
+        }
+        await this.sendEmail(payload, prefs.emailTo)
         return
       }
 
@@ -260,10 +273,10 @@ export class NotificationDispatcher {
 
   /**
    * POST notification to webhook URL with exponential backoff.
-   * Max 3 retries: 1s, 2s, 4s.
+   * Max 3 retries: 1s, 2s, 4s. URL is SSRF-checked before each attempt.
    */
   private async sendWebhook(payload: NotificationPayload, url: string): Promise<void> {
-    const target = parseWebhookUrl(url)
+    const target = await assertSafeDeliveryUrl(url)
     const maxRetries = 3
     let lastError: any
 
@@ -271,6 +284,10 @@ export class NotificationDispatcher {
       try {
         await axios.post(target, payload, {
           timeout: 15_000,
+          // assertSafeDeliveryUrl only vets the URL we hand axios; without this
+          // a safe-looking host could 30x-redirect to 169.254.169.254 and the
+          // SSRF guard never sees the final hop. Refuse to follow redirects.
+          maxRedirects: 0,
           headers: {
             'Content-Type': 'application/json',
             'X-DRK-Event': payload.eventType,
@@ -288,5 +305,78 @@ export class NotificationDispatcher {
     }
 
     throw new Error(`Webhook failed after ${maxRetries} retries: ${lastError?.message}`)
+  }
+
+  /**
+   * Push a plain-text alert to an ntfy topic URL (homelab-friendly push).
+   * Single attempt — ntfy is fire-and-forget; the retry sweep handles the
+   * 'failed' rows. URL is SSRF-checked first.
+   */
+  private async sendNtfy(payload: NotificationPayload, url: string): Promise<void> {
+    const target = await assertSafeDeliveryUrl(url)
+    await axios.post(target, `${payload.subject}\n\n${payload.message}`, {
+      timeout: 15_000,
+      maxRedirects: 0, // see sendWebhook — don't let a redirect escape the SSRF guard
+      headers: {
+        'Content-Type': 'text/plain',
+        Title: payload.subject,
+        Priority: payload.severity === 'critical' ? 'high' : 'default',
+        Tags: payload.severity === 'critical' ? 'rotating_light' : 'warning',
+      },
+    })
+  }
+
+  /**
+   * Deliver the alert as email via the shared NotificationService SMTP path
+   * (self-hosted SMTP, no third-party API). Throws a clear error when no SMTP
+   * config is resolvable so the channel is marked failed honestly rather than
+   * silently dropped.
+   */
+  private async sendEmail(payload: NotificationPayload, to: string): Promise<void> {
+    const sent = await this.notificationService.sendAlertEmail(
+      to,
+      `[DRK] ${payload.subject}`,
+      payload.message,
+    )
+    if (!sent) {
+      throw new Error('email sink unavailable — no SMTP configured (set smtp.* settings or DRK_SMTP_* env)')
+    }
+  }
+
+  /**
+   * Fire a real test notification to a single sink so the user can confirm
+   * delivery from the Notifications UI. Reuses the live sink code paths and
+   * the operator's saved preferences (webhookUrl / ntfyUrl / emailTo).
+   *
+   * Returns { ok, error? }. Never throws — the route reports the result.
+   */
+  public async sendTestNotification(
+    sink: 'webhook' | 'ntfy' | 'email',
+  ): Promise<{ ok: boolean; error?: string }> {
+    const prefs = await this.database.getNotificationPreferences('default')
+    const payload: NotificationPayload = {
+      id: uuid(),
+      eventType: 'unhealthy',
+      severity: 'warning',
+      timestamp: new Date().toISOString(),
+      subject: 'DockerRescueKit test notification',
+      message: `This is a test ${sink} notification from DockerRescueKit. If you received it, ${sink} delivery is working.`,
+      details: { test: true },
+    }
+    try {
+      await this.sendNotification(sink, payload, prefs || {})
+      this.logger.info(`[N1Notif] Test notification delivered via ${sink}`)
+      return { ok: true }
+    } catch (err) {
+      const error = (err as Error).message
+      this.logger.warn({ sink, err }, '[N1Notif] Test notification failed')
+      return { ok: false, error }
+    }
+  }
+
+  /** Whether the email sink can currently send (SMTP resolvable). The UI uses
+   *  this to avoid offering email when no SMTP is configured. */
+  public async isEmailAvailable(): Promise<boolean> {
+    return this.notificationService.hasSmtpConfigured()
   }
 }

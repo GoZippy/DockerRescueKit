@@ -97,6 +97,11 @@ export class NotificationService {
   ): Promise<void> {
     const config = cfg.config || {}
     switch (cfg.type) {
+      // NOTE(follow-up): parseNotificationUrl only checks the protocol — unlike
+      // NotificationDispatcher these legacy paths don't run the SSRF host guard.
+      // maxRedirects:0 closes the redirect-to-metadata vector now; routing these
+      // through assertSafeDeliveryUrl is a tracked follow-up (needs an offline-CI
+      // DNS-resolution strategy before it can land safely).
       case 'webhook': {
         const target = parseNotificationUrl(config.url)
         await axios.post(target, {
@@ -107,12 +112,12 @@ export class NotificationService {
           status: backup.status,
           message,
           backup
-        }, { timeout: 15_000 })
+        }, { timeout: 15_000, maxRedirects: 0 })
         return
       }
       case 'slack': {
         const target = parseNotificationUrl(config.url)
-        await axios.post(target, { text: message }, { timeout: 15_000 })
+        await axios.post(target, { text: message }, { timeout: 15_000, maxRedirects: 0 })
         return
       }
       case 'ntfy': {
@@ -124,7 +129,8 @@ export class NotificationService {
             Priority: event === 'failure' ? 'high' : 'default',
             Tags: event === 'failure' ? 'warning' : 'white_check_mark'
           },
-          timeout: 15_000
+          timeout: 15_000,
+          maxRedirects: 0
         })
         return
       }
@@ -208,6 +214,46 @@ export class NotificationService {
       subject,
       text: message,
     })
+  }
+
+  /**
+   * Send a standalone alert email (used by the N-1 NotificationDispatcher,
+   * which has no BackupPolicy/Backup pair). Resolves SMTP from the same
+   * sources as policy email — inline config, SettingsService, or env.
+   *
+   * Returns true if mail was sent, false if no SMTP config could be resolved
+   * (so the caller can mark the email sink "unavailable" honestly rather than
+   * silently swallowing). Throws on an actual SMTP/transport failure.
+   */
+  public async sendAlertEmail(to: string, subject: string, body: string): Promise<boolean> {
+    if (!to) {
+      logger.warn('[Notify:email] sendAlertEmail called without a recipient')
+      return false
+    }
+    const smtp = await this.resolveSmtpConfig({})
+    if (!smtp) return false
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodemailer = require('nodemailer') as typeof import('nodemailer')
+    const transport = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      requireTLS: !smtp.secure,
+      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
+    })
+    await transport.sendMail({ from: smtp.from, to, subject, text: body })
+    return true
+  }
+
+  /** True when SMTP can be resolved from inline/settings/env — drives the
+   *  "email available?" hint surfaced to the UI so we never offer a sink we
+   *  can't actually use. */
+  public async hasSmtpConfigured(): Promise<boolean> {
+    return (await this.resolveSmtpConfig({})) !== null
   }
 
   private async resolveSmtpConfig(config: Record<string, any>): Promise<{

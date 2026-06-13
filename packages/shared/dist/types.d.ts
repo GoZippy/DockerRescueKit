@@ -483,6 +483,10 @@ export interface VolumesManifestResponse {
     readonly policyId?: string;
 }
 export type NotificationEventType = 'unhealthy' | 'restart_loop' | 'no_backup' | 'disk_pressure' | 'restore_failed';
+/** Delivery sinks for N-1 notifications. All three are dependency-free /
+ *  self-hosted: webhook (generic JSON POST), ntfy (homelab push), email
+ *  (user-supplied SMTP via nodemailer). */
+export type NotificationSink = 'webhook' | 'ntfy' | 'email';
 /**
  * User notification preferences for N-1 events.
  * Configurable per-event-type: enabled/disabled, frequency, channels, custom thresholds.
@@ -492,8 +496,10 @@ export interface NotificationPreferences {
     readonly unsubscribeToken: string;
     readonly enabled: Record<NotificationEventType, boolean>;
     readonly frequencies: Record<NotificationEventType, 'immediate' | 'daily' | 'weekly'>;
-    readonly deliveryChannels: ('webhook' | 'email')[];
+    readonly deliveryChannels: NotificationSink[];
     readonly webhookUrl?: string;
+    readonly ntfyUrl?: string;
+    readonly emailTo?: string;
     readonly customThresholds?: {
         restartCount?: number;
         diskPercent?: number;

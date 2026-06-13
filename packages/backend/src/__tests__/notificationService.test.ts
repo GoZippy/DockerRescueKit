@@ -103,6 +103,17 @@ describe('NotificationService — webhook', () => {
 
     await expect(svc.notify('success', policy, makeBackup())).resolves.toBeUndefined()
   })
+
+  it('refuses to follow redirects (maxRedirects:0) so a redirect cannot escape to metadata IPs', async () => {
+    const policy = makePolicy([
+      { type: 'webhook', events: ['success'], config: { url: 'https://hooks.example.com/notify' } } as any,
+    ])
+
+    await svc.notify('success', policy, makeBackup())
+
+    const opts = (mockedAxios.post as jest.Mock).mock.calls[0][2]
+    expect(opts.maxRedirects).toBe(0)
+  })
 })
 
 // ---------------------------------------------------------------------------

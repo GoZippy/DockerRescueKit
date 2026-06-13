@@ -220,6 +220,16 @@ export class Database {
     try {
       this.db.exec(`ALTER TABLE policies ADD COLUMN verifySchedule TEXT`)
     } catch { /* column already exists */ }
+
+    // Lightweight migration (v1.4): per-sink delivery targets for N-1
+    // notifications. webhook_url already existed; ntfy + email need their own
+    // target so all three sinks can be configured independently.
+    try {
+      this.db.exec(`ALTER TABLE notification_preferences ADD COLUMN ntfy_url TEXT`)
+    } catch { /* column already exists */ }
+    try {
+      this.db.exec(`ALTER TABLE notification_preferences ADD COLUMN email_to TEXT`)
+    } catch { /* column already exists */ }
   }
 
   // Policy Operations
@@ -930,6 +940,8 @@ export class Database {
       },
       deliveryChannels: row.delivery_channels ? JSON.parse(row.delivery_channels) : ['webhook'],
       webhookUrl: row.webhook_url,
+      ntfyUrl: row.ntfy_url,
+      emailTo: row.email_to,
       customThresholds: row.custom_thresholds ? JSON.parse(row.custom_thresholds) : {},
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
@@ -942,8 +954,8 @@ export class Database {
         userId, unsubscribeToken,
         unhealthy_enabled, restart_loop_enabled, no_backup_enabled, disk_pressure_enabled, restore_failed_enabled,
         unhealthy_frequency, restart_loop_frequency, no_backup_frequency, disk_pressure_frequency, restore_failed_frequency,
-        delivery_channels, webhook_url, custom_thresholds, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        delivery_channels, webhook_url, ntfy_url, email_to, custom_thresholds, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(userId) DO UPDATE SET
         unsubscribeToken = excluded.unsubscribeToken,
         unhealthy_enabled = excluded.unhealthy_enabled,
@@ -958,6 +970,8 @@ export class Database {
         restore_failed_frequency = excluded.restore_failed_frequency,
         delivery_channels = excluded.delivery_channels,
         webhook_url = excluded.webhook_url,
+        ntfy_url = excluded.ntfy_url,
+        email_to = excluded.email_to,
         custom_thresholds = excluded.custom_thresholds,
         updatedAt = CURRENT_TIMESTAMP
     `)
@@ -977,6 +991,8 @@ export class Database {
       prefs.frequencies?.restore_failed || 'immediate',
       JSON.stringify(prefs.deliveryChannels || ['webhook']),
       prefs.webhookUrl || null,
+      prefs.ntfyUrl || null,
+      prefs.emailTo || null,
       JSON.stringify(prefs.customThresholds || {})
     )
   }
@@ -1052,5 +1068,100 @@ export class Database {
     const stmt = this.db.prepare('DELETE FROM notification_log WHERE createdAt < ?')
     const result = stmt.run(cutoff)
     return result.changes
+  }
+
+  /**
+   * Paginated notification-log listing for the in-app UI. Newest first.
+   * Optional filters: eventType, and acknowledged (true = only acked,
+   * false = only un-acked). Returns parsed payloads + a total count for the
+   * matching filter so the UI can paginate.
+   */
+  public async listNotificationLog(opts: {
+    eventType?: string
+    acknowledged?: boolean
+    limit?: number
+    offset?: number
+  } = {}): Promise<{ entries: any[]; total: number }> {
+    const where: string[] = []
+    const params: any[] = []
+    if (opts.eventType) {
+      where.push('eventType = ?')
+      params.push(opts.eventType)
+    }
+    if (opts.acknowledged === true) {
+      where.push('acknowledgedAt IS NOT NULL')
+    } else if (opts.acknowledged === false) {
+      where.push('acknowledgedAt IS NULL')
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+
+    const total = (this.db
+      .prepare(`SELECT COUNT(*) AS n FROM notification_log ${whereSql}`)
+      .get(...params) as any).n as number
+
+    const limit = Math.min(Math.max(Number(opts.limit ?? 50), 1), 200)
+    const offset = Math.max(Number(opts.offset ?? 0), 0)
+    const rows = this.db.prepare(`
+      SELECT * FROM notification_log
+      ${whereSql}
+      ORDER BY createdAt DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset) as any[]
+
+    const entries = rows.map(row => ({
+      id: row.id,
+      eventType: row.eventType,
+      resourceId: row.resourceId,
+      resourceName: row.resourceName,
+      severity: row.severity,
+      status: row.status,
+      deliveryChannel: row.deliveryChannel,
+      payload: this.safeJson(row.payload),
+      sentAt: row.sentAt,
+      acknowledgedAt: row.acknowledgedAt,
+      errorMessage: row.errorMessage,
+      retryCount: row.retryCount,
+      createdAt: row.createdAt,
+    }))
+    return { entries, total }
+  }
+
+  /** Count notifications not yet acknowledged — drives the bell-icon badge. */
+  public async countUnacknowledgedNotifications(): Promise<number> {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM notification_log WHERE acknowledgedAt IS NULL`)
+      .get() as any
+    return row.n as number
+  }
+
+  /**
+   * Mark a single notification acknowledged. Returns false if the id is
+   * unknown so the route can answer 404. Idempotent — re-acking is a no-op
+   * (we only stamp acknowledgedAt when it's currently NULL).
+   */
+  public async acknowledgeNotification(id: string): Promise<boolean> {
+    const exists = this.db.prepare('SELECT 1 FROM notification_log WHERE id = ?').get(id)
+    if (!exists) return false
+    this.db.prepare(`
+      UPDATE notification_log
+      SET acknowledgedAt = COALESCE(acknowledgedAt, ?)
+      WHERE id = ?
+    `).run(new Date().toISOString(), id)
+    return true
+  }
+
+  /** Acknowledge every un-acked notification. Returns the number affected. */
+  public async acknowledgeAllNotifications(): Promise<number> {
+    const result = this.db.prepare(`
+      UPDATE notification_log
+      SET acknowledgedAt = ?
+      WHERE acknowledgedAt IS NULL
+    `).run(new Date().toISOString())
+    return result.changes
+  }
+
+  private safeJson(raw: unknown): any {
+    if (typeof raw !== 'string' || raw.length === 0) return {}
+    try { return JSON.parse(raw) } catch { return {} }
   }
 }
