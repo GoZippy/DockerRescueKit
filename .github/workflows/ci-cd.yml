@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v3
       - name: Build backend image (CI smoke)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/backend/Dockerfile
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v3
       - name: Build backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/backend/Dockerfile
@@ -152,7 +152,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v3
       - name: Build backend (named for extension compose)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/backend/Dockerfile
@@ -160,7 +160,7 @@ jobs:
           tags: gozippy/dockerrescuekit:ci-${{ github.sha }}
           load: true
       - name: Build Docker Desktop Extension image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
