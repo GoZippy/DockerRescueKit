@@ -29,7 +29,7 @@
     "cross-env": "^7.0.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.4.5",
-    "vite": "^5.2.10"
+    "vite": "^8.0.16"
   },
   "//optionalDependencies": "Force-install rollup native binaries for the platforms our Docker images target, so a lockfile generated on Windows still resolves on alpine linux (npm/cli#4828). Add other arches here if you build for them.",
   "optionalDependencies": {
