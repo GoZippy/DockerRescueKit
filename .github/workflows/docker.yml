@@ -126,7 +126,7 @@ jobs:
       # we publish anything. Multi-arch buildx-push happens only after the
       # scan passes, so a CRITICAL CVE never reaches Docker Hub or ECR.
       - name: Build local image for scan (amd64 only)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -174,7 +174,7 @@ jobs:
       # empty strings when ECR is disabled — build-push-action ignores
       # blank lines in the tags list, so the same step works in both modes.
       - name: Build and push (multi-arch) to Docker Hub + Amazon ECR
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
