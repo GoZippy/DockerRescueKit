@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { getCostConfig, getPolicies, listAllBackups } from '../api'
+import type { CostPreset, CostConfigResponse } from '../api'
+import { openExternal } from '../utils/openExternal'
 import {
   DollarSign, Clock, HardDrive, Cloud, Server, Lock, Database,
-  Globe, TrendingUp, Info, Zap, Shield,
+  Globe, TrendingUp, Info, Zap, Shield, ExternalLink,
 } from 'lucide-react'
 
 const ICON_MAP: Record<string, React.ReactNode> = {
@@ -14,34 +16,33 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   'globe': <Globe size={18} />,
 }
 
-interface CostConfig {
-  storageType: string
-  label: string
-  icon: string
-  costPerGBMonth: number
-  costPerGBDownload: number
-  restoreSpeedMBps: number
-  durability: string
-  notes: string
-}
-
 export const CostAnalysisPage: React.FC = () => {
-  const [config, setConfig] = useState<CostConfig[]>([])
+  const [config, setConfig] = useState<CostPreset[]>([])
+  const [meta, setMeta] = useState<{ lastUpdated: string; source: CostConfigResponse['source'] } | null>(null)
   const [policies, setPolicies] = useState<any[]>([])
   const [backups, setBackups] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
   const [selectedSizeGB, setSelectedSizeGB] = useState(50)
 
   useEffect(() => {
     ;(async () => {
       setLoading(true)
+      setLoadError(false)
       try {
         const [c, p, b] = await Promise.all([
-          getCostConfig().catch(() => []),
+          getCostConfig().catch(() => null),
           getPolicies().catch(() => []),
           listAllBackups().catch(() => []),
         ])
-        setConfig(Array.isArray(c) ? (c as CostConfig[]) : [])
+        if (c && Array.isArray(c.presets)) {
+          setConfig(c.presets)
+          setMeta({ lastUpdated: c.lastUpdated, source: c.source })
+        } else {
+          setConfig([])
+          setLoadError(true)
+        }
         setPolicies(p as any[])
         setBackups(b as any[])
       } finally {
@@ -98,29 +99,77 @@ export const CostAnalysisPage: React.FC = () => {
         </div>
         <div className="empty-state card">
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            No cost configuration available. Set the <code>DRK_COST_CONFIG</code> environment variable with JSON data to enable cost analysis.
+            {loadError
+              ? <>Couldn't load pricing data. The backend may still be starting up — wait a few seconds and reopen this tab. Cost analysis ships with built-in reference pricing, so no configuration is required.</>
+              : <>No pricing data available. Cost analysis normally ships with built-in reference pricing; you can also set the <code>DRK_COST_CONFIG</code> environment variable with JSON to override it for your providers.</>}
           </div>
         </div>
       </div>
     )
   }
 
-  const cheapest = config.reduce((best, c) => {
-    const cost = monthlyCostFor(c.costPerGBMonth, selectedSizeGB) + egressCostFor(c.costPerGBDownload, selectedSizeGB)
-    const bestCost = monthlyCostFor(best.costPerGBMonth, selectedSizeGB) + egressCostFor(best.costPerGBDownload, selectedSizeGB)
-    return cost < bestCost ? c : best
-  }, config[0])
+  // Total estimated cost = one month of storage + one full restore (egress).
+  const totalCostFor = (c: CostPreset) =>
+    monthlyCostFor(c.costPerGBMonth, selectedSizeGB) + egressCostFor(c.costPerGBDownload, selectedSizeGB)
 
-  const fastest = config.reduce((best, c) => c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best, config[0])
+  // Self-hosted/local options are always $0, so an overall "cheapest" trivially
+  // picks Local Disk and buries the cloud comparison this page exists for.
+  // Split the two: free local/self-hosted vs cheapest paid off-site option.
+  // "Off-site" = rows backed by a real vendor price (they carry a sourceUrl).
+  const offsiteOptions = config.filter(c => !!c.sourceUrl)
+  const cheapestOffsite = offsiteOptions.length
+    ? offsiteOptions.reduce((best, c) => (totalCostFor(c) < totalCostFor(best) ? c : best))
+    : null
+
+  // Fastest among off-site options (local disk is always fastest but isn't a real backup target).
+  const fastestOffsite = offsiteOptions.length
+    ? offsiteOptions.reduce((best, c) => (c.restoreSpeedMBps > best.restoreSpeedMBps ? c : best))
+    : null
+
+  // Staleness guard: published third-party pricing drifts. If the bundled
+  // dataset hasn't been re-reviewed in >180 days, warn rather than silently
+  // asserting old numbers. User overrides (env) are the user's own problem.
+  const STALE_AFTER_DAYS = 180
+  const reviewedAt = meta?.lastUpdated ? new Date(meta.lastUpdated) : null
+  const dataAgeDays = reviewedAt && !isNaN(reviewedAt.getTime())
+    ? (Date.now() - reviewedAt.getTime()) / 86_400_000
+    : null
+  const isStale = meta?.source === 'bundled' && dataAgeDays !== null && dataAgeDays > STALE_AFTER_DAYS
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {isStale && (
+        <div className="card" style={{
+          background: 'var(--amber-dim, rgba(245,158,11,0.08))',
+          border: '1px solid var(--amber-border, rgba(245,158,11,0.25))',
+          display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12,
+          lineHeight: 1.5, color: 'var(--text-secondary)',
+        }}>
+          <Info size={16} color="var(--amber, #f59e0b)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            This reference pricing was last reviewed on <strong>{meta?.lastUpdated}</strong>
+            {' '}(over {Math.floor((dataAgeDays as number) / 30)} months ago) and may be out of date.
+            Confirm current rates with each provider via the source links below.
+          </span>
+        </div>
+      )}
       {/* Header */}
       <div>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Cost Analysis</h2>
         <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
           Compare restore costs and speeds across storage backends. Data is representative — actual pricing varies by provider and region.
         </p>
+        {meta && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+            <Clock size={11} />
+            <span>
+              {meta.source === 'env-override'
+                ? <>Using your <code>DRK_COST_CONFIG</code> override</>
+                : <>Built-in reference pricing</>}
+              {meta.lastUpdated && <> · as of {meta.lastUpdated}</>}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Size selector */}
@@ -246,6 +295,22 @@ export const CostAnalysisPage: React.FC = () => {
                 <Info size={11} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>{backend.notes}</span>
               </div>
+
+              {/* Source attribution — links to the vendor's official pricing page */}
+              {backend.sourceUrl && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => openExternal(backend.sourceUrl!)}
+                  title={backend.sourceUrl}
+                  style={{
+                    alignSelf: 'flex-start', fontSize: 10, padding: '2px 6px',
+                    display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)',
+                  }}
+                >
+                  <ExternalLink size={10} />
+                  Vendor pricing{meta?.lastUpdated ? ` (as of ${meta.lastUpdated})` : ''}
+                </button>
+              )}
             </div>
           )
         })}
@@ -260,23 +325,53 @@ export const CostAnalysisPage: React.FC = () => {
         <TrendingUp size={16} color="var(--blue-500, #3b82f6)" style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
           <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Recommendation</div>
-          <p style={{ margin: 0 }}>
-            For <strong>{selectedSizeGB >= 1000 ? `${selectedSizeGB / 1000}TB` : `${selectedSizeGB}GB`}</strong> of backup data,
-            the cheapest long-term option is <strong>{cheapest.label}</strong> with a total estimated cost of{' '}
-            <strong>{fmtCost(monthlyCostFor(cheapest.costPerGBMonth, selectedSizeGB) + egressCostFor(cheapest.costPerGBDownload, selectedSizeGB))}</strong>{' '}
-            (monthly storage + one restore).
-          </p>
+          {cheapestOffsite ? (
+            <p style={{ margin: 0 }}>
+              For <strong>{selectedSizeGB >= 1000 ? `${selectedSizeGB / 1000}TB` : `${selectedSizeGB}GB`}</strong> of backup data,
+              the cheapest off-site option is <strong>{cheapestOffsite.label}</strong> at{' '}
+              <strong>{fmtCost(totalCostFor(cheapestOffsite))}</strong> (one month of storage + one full restore).
+            </p>
+          ) : (
+            <p style={{ margin: 0 }}>
+              For <strong>{selectedSizeGB >= 1000 ? `${selectedSizeGB / 1000}TB` : `${selectedSizeGB}GB`}</strong>, costs are estimated per backend below.
+            </p>
+          )}
           <p style={{ margin: '6px 0 0' }}>
-            For the fastest restore, use <strong>{fastest.label}</strong> at{' '}
-            <strong>{fastest.restoreSpeedMBps} MB/s</strong> (~{restoreTimeFor(fastest.restoreSpeedMBps, selectedSizeGB)}).
+            Local Disk / NAS are free and fastest to restore, but they aren't off-site — keep at least one remote or cloud copy
+            so a host failure can't take your backups with it.
           </p>
+          {fastestOffsite && (
+            <p style={{ margin: '6px 0 0' }}>
+              Fastest off-site restore: <strong>{fastestOffsite.label}</strong> at{' '}
+              <strong>{fastestOffsite.restoreSpeedMBps} MB/s</strong> (~{restoreTimeFor(fastestOffsite.restoreSpeedMBps, selectedSizeGB)} for this size).
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Disclaimer */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', paddingBottom: 8 }}>
-        Pricing is representative and based on AWS S3 Standard rates. Actual costs vary by provider, region, and usage tier.
-        Configure <code>DRK_COST_CONFIG</code> env var with JSON to override for your specific providers.
+      {/* Disclaimer — accuracy + non-affiliation. Keep this honest: we publish
+          third-party prices, so we date them, link the source, and hedge. */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, paddingBottom: 8 }}>
+        {meta?.source === 'env-override' ? (
+          <p style={{ margin: 0 }}>
+            Showing your <code>DRK_COST_CONFIG</code> override. Figures are whatever you supplied.
+          </p>
+        ) : (
+          <>
+            <p style={{ margin: 0 }}>
+              As of <strong>{meta?.lastUpdated ?? 'the last review'}</strong> we believe these prices are correct per each
+              vendor's published pricing (use the <em>Vendor pricing</em> links above to confirm). Prices change frequently,
+              vary by region/tier/usage, and are shown for rough comparison only — always verify with the provider before
+              relying on them. Self-hosted options (Local, SMB, SFTP, Proxmox) have no vendor fee; rclone figures are a rough
+              S3-equivalent estimate.
+            </p>
+            <p style={{ margin: '6px 0 0' }}>
+              Docker Rescue Kit is not affiliated with, sponsored by, or endorsed by these vendors. All product names and
+              trademarks belong to their respective owners. Override these defaults with the <code>DRK_COST_CONFIG</code> env
+              var (JSON) for your own negotiated rates.
+            </p>
+          </>
+        )}
       </div>
     </div>
   )

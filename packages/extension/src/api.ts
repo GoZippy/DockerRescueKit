@@ -314,17 +314,29 @@ export const getRehearsalStreamUrl = (id: string) => {
 
 // ── Cost Analysis (C-3) ───────────────────────────────────────────────────
 
+export interface CostPreset {
+  storageType: string
+  label: string
+  icon: string
+  costPerGBMonth: number
+  costPerGBDownload: number
+  restoreSpeedMBps: number
+  durability: string
+  notes: string
+  /** Official vendor pricing page this row was sourced from (cloud rows only). */
+  sourceUrl?: string
+}
+
+export interface CostConfigResponse {
+  presets: CostPreset[]
+  /** ISO (YYYY-MM-DD) date the pricing was last reviewed. */
+  lastUpdated: string
+  schemaVersion: number
+  source: 'bundled' | 'env-override'
+}
+
 export const getCostConfig = async () => {
-  return apiClient.get<Array<{
-    storageType: string
-    label: string
-    icon: string
-    costPerGBMonth: number
-    costPerGBDownload: number
-    restoreSpeedMBps: number
-    durability: string
-    notes: string
-  }>>('/settings/cost-config')
+  return apiClient.get<CostConfigResponse>('/settings/cost-config')
 }
 
 // ── License (v1.2.2) ──────────────────────────────────────────────────────

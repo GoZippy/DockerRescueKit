@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+### Added
+
+**Cost Analysis — bundled, sourced reference pricing dataset.** The Cost Analysis
+tab now ships with built-in pricing instead of requiring a `DRK_COST_CONFIG` env
+var to show anything:
+- New versioned data module `packages/backend/src/data/costPresets.ts`
+  (`COST_PRESETS_SCHEMA_VERSION`, `COST_PRESETS_UPDATED`) — a single, human-editable
+  file to refresh each release.
+- Expanded from 6 → **15 backends**, all researched against vendors' official
+  pricing pages (verified 2026-06-12): Local, SMB, SFTP, Proxmox, **Hetzner Storage
+  Box**, AWS S3 Standard, **Google Cloud Storage**, **Azure Blob (Hot)**, Cloudflare
+  R2, Backblaze B2, Wasabi, **IDrive e2**, **DigitalOcean Spaces**, **S3 Glacier Deep
+  Archive**, and the rclone meta-row.
+- Each cloud row carries a `sourceUrl` linking to the vendor's official pricing
+  page (opened via the Docker Desktop host bridge).
+- UI shows pricing provenance ("Built-in reference pricing · as of <date>" or
+  "Using your `DRK_COST_CONFIG` override") and a **staleness banner** if the data
+  is >180 days past review.
+- Accuracy + non-affiliation disclaimer ("as of <date> we believe these are
+  correct — verify with the provider"; not affiliated with/endorsed by any vendor).
+- Known upcoming changes encoded in notes (Wasabi → $7.99/TB on 2026-07-01); Storj
+  intentionally excluded (its 2026-07-01 model raises the monthly minimum to $50,
+  which would read as misleadingly "cheap" per-GB).
+
+### Changed
+
+- `GET /api/settings/cost-config` now returns `{ presets, lastUpdated,
+  schemaVersion, source }` instead of a bare array. `DRK_COST_CONFIG` still
+  overrides and accepts either a bare presets array (legacy) or the full object.
+- Cost Analysis recommendation now leads with the **cheapest off-site option**
+  (rows with a real vendor price) rather than trivially picking free Local Disk,
+  with a data-safety note to keep at least one off-site copy.
+
+### Fixed
+
+- Cost Analysis empty state no longer misleadingly says "set `DRK_COST_CONFIG`"
+  when defaults always exist — it now distinguishes a backend load failure
+  (e.g. still starting up) from genuinely empty data.
+
 ---
 
 ## [1.4.0] - Unreleased
