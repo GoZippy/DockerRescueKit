@@ -15,6 +15,12 @@ export type LicenseTier = 'free' | 'personal-pro' | 'commercial-pro' | 'enterpri
 export type LicenseFeature =
   | 'unlimited_policies'
   | 'notifications'
+  // byok_encryption gates BRING-YOUR-OWN / customer-managed encryption keys
+  // (supplying + rotating your own key). Baseline AES-256 encryption at rest
+  // is ALWAYS ON for every tier regardless of this flag — see Schedule A.
+  // NOTE: enforcement of the customer-managed-key UX is pending; see
+  // docs/BYOK_FEATURE_SPEC.md. Do NOT gate EncryptionUtility/VaultService on
+  // this flag — that would risk orphaning existing encrypted vault data.
   | 'byok_encryption'
   | 'audit_log_90d'
   | 'audit_log_365d'

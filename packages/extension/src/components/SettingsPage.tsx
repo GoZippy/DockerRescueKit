@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey,
   getSetting, saveSetting,
-  getLicenseStatus, checkVersion, submitFeedback, exportConfig, importConfig,
+  getLicenseStatus, activateLicense, clearLicense, checkVersion, submitFeedback, exportConfig, importConfig,
 } from '../api'
+import type { BackendTier } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
 import { ImportWizard } from './ImportWizard'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -19,6 +20,10 @@ const DOCKER_HUB_URL  = 'https://hub.docker.com/r/gozippy/dockerrescuekit'
 const GITHUB_URL      = 'https://github.com/gozippy/DockerRescueKit'
 const LICENSE_URL     = 'https://github.com/gozippy/DockerRescueKit/blob/main/LICENSE'
 const CHANGELOG_URL   = 'https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md'
+// Canonical purchase/pricing page. Keep this in sync with the upgrade URLs the
+// backend returns in its 402 body (licenseGate.ts). This page must exist and
+// route to the Square checkout links — see docs/BUY_PAGE_SPEC.md.
+const UPGRADE_URL     = 'https://gozippy.com/drk'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatUptime(seconds: number | undefined | null): string {
@@ -50,6 +55,27 @@ const SectionHeading: React.FC<{ children: React.ReactNode; first?: boolean }> =
 
 // ── License tier pill ────────────────────────────────────────────────────────
 type Tier = 'free' | 'pro' | 'enterprise' | 'unknown'
+
+/**
+ * Collapse the backend's tier strings into the UI's display buckets. The
+ * backend emits `personal-pro` / `commercial-pro` (and `enterprise` / `free`);
+ * the UI shows a single "Pro" pill for both paid Pro tiers. Without this,
+ * paying customers were read as `unknown` → `isPro === false` → still locked
+ * out of paid UI after activating a valid license.
+ */
+function normalizeTier(t: BackendTier | string | undefined | null): Tier {
+  switch (t) {
+    case 'personal-pro':
+    case 'commercial-pro':
+      return 'pro'
+    case 'enterprise':
+      return 'enterprise'
+    case 'free':
+      return 'free'
+    default:
+      return 'unknown'
+  }
+}
 
 const TIER_STYLES: Record<Tier, { bg: string; fg: string; label: string }> = {
   free:       { bg: 'var(--surface-3)',  fg: 'var(--text-secondary)', label: 'Free' },
@@ -126,6 +152,11 @@ export const SettingsPage: React.FC = () => {
     expiresAt?: string
   } | null>(null)
 
+  // ── License activation (paste-a-key) state ──
+  const [licenseKeyInput, setLicenseKeyInput] = useState('')
+  const [licenseBusy, setLicenseBusy]         = useState(false)
+  const [licenseError, setLicenseError]       = useState<string | null>(null)
+
   // ── Update-check state ──
   const [updateInfo, setUpdateInfo] = useState<{
     current: string
@@ -174,7 +205,7 @@ export const SettingsPage: React.FC = () => {
       try {
         const lic = await getLicenseStatus()
         setLicense({
-          tier: (lic?.tier as Tier) ?? 'unknown',
+          tier: normalizeTier(lic?.tier),
           features: Array.isArray(lic?.features) ? lic.features : [],
           expiresAt: lic?.expiresAt,
         })
@@ -310,6 +341,46 @@ export const SettingsPage: React.FC = () => {
       setExportError(e?.message ?? 'Export failed')
     } finally {
       setExporting(false)
+    }
+  }
+
+  // ── License activate / remove ──────────────────────────────────────────
+  const handleActivateLicense = async () => {
+    const token = licenseKeyInput.trim()
+    if (!token) return
+    setLicenseBusy(true)
+    setLicenseError(null)
+    try {
+      const lic = await activateLicense(token)
+      setLicense({
+        tier: normalizeTier(lic?.tier),
+        features: Array.isArray(lic?.features) ? lic.features : [],
+        expiresAt: lic?.expiresAt,
+      })
+      setLicenseKeyInput('')
+      toast.push('success', 'License activated — Pro features unlocked')
+    } catch (e: any) {
+      // Backend returns 400 token_invalid for a key that fails verification.
+      const msg = /token_invalid/.test(e?.message ?? '')
+        ? "That license key isn't valid or has expired."
+        : (e?.message ?? 'Activation failed')
+      setLicenseError(msg)
+    } finally {
+      setLicenseBusy(false)
+    }
+  }
+
+  const handleRemoveLicense = async () => {
+    setLicenseBusy(true)
+    setLicenseError(null)
+    try {
+      await clearLicense()
+      setLicense({ tier: 'free', features: [] })
+      toast.push('success', 'License removed — returned to Free')
+    } catch (e: any) {
+      setLicenseError(e?.message ?? 'Could not remove license')
+    } finally {
+      setLicenseBusy(false)
     }
   }
 
@@ -481,6 +552,84 @@ export const SettingsPage: React.FC = () => {
             </span>
           )}
         </div>
+
+        {/* Encryption-at-rest status — always on; shows key provenance. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14,
+          fontSize: 13, color: 'var(--text-secondary)',
+        }}>
+          <Lock size={13} color="var(--text-muted)" />
+          <span>Encryption at rest:</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+            AES-256
+            {status?.encryption?.keySource === 'customer-managed'
+              ? ' · customer-managed key (BYOK)'
+              : status?.encryption?.keySource === 'generated'
+                ? ' · auto-generated key'
+                : ''}
+          </span>
+        </div>
+
+        {/* License key entry / removal */}
+        {isPro ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14,
+            fontSize: 12, color: 'var(--text-secondary)',
+          }}>
+            <CheckCircle2 size={14} color="#4ade80" />
+            <span>License active.</span>
+            <button
+              className="btn btn-ghost"
+              onClick={handleRemoveLicense}
+              disabled={licenseBusy}
+              style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }}
+            >
+              {licenseBusy ? <Loader2 size={13} className="animate-spin" /> : <LogOut size={13} />} Remove
+            </button>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+              Have a license key? Paste it to unlock Pro.
+            </label>
+            <textarea
+              value={licenseKeyInput}
+              onChange={(e) => { setLicenseKeyInput(e.target.value); setLicenseError(null) }}
+              placeholder="Paste your DRK license token…"
+              spellCheck={false}
+              rows={2}
+              className="font-mono"
+              style={{
+                width: '100%', resize: 'vertical', fontSize: 11, lineHeight: 1.4,
+                padding: '8px 10px', borderRadius: 'var(--r-sm)',
+                border: '1px solid var(--surface-4)', background: 'var(--surface-2)',
+                color: 'var(--text-primary)', boxSizing: 'border-box',
+              }}
+            />
+            {licenseError && (
+              <div style={{ fontSize: 11, color: '#f87171', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertTriangle size={12} /> {licenseError}
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleActivateLicense}
+                disabled={licenseBusy || !licenseKeyInput.trim()}
+                style={{ fontSize: 12, padding: '6px 14px' }}
+              >
+                {licenseBusy ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />} Activate
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => openExternal(UPGRADE_URL)}
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                <ExternalLink size={13} /> View plans
+              </button>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 14 }}>
           <ExtLink href={DOCKER_HUB_URL} icon={<Package size={13} color="var(--blue-500)" />}>
@@ -774,10 +923,10 @@ export const SettingsPage: React.FC = () => {
               </div>
               <button
                 className="btn btn-primary"
-                onClick={() => openExternal(LICENSE_URL)}
+                onClick={() => openExternal(UPGRADE_URL)}
                 style={{ marginTop: 4 }}
               >
-                <ExternalLink size={14} /> Learn more
+                <ExternalLink size={14} /> Upgrade to Pro
               </button>
             </div>
           </div>

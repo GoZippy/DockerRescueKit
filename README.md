@@ -198,9 +198,10 @@ manual migration commands, and the list of broken v1.2.x Hub tags.
 | Concurrent policy limit | 5 | Unlimited |
 | Slack / email / webhook notifications | — | ✅ |
 | Managed offsite backup (hosted S3) | — | ✅ |
-| Backup encryption (AES-256, bring your own key) | — | ✅ |
-| Extended audit log retention | 30 days | 90 days |
-| Priority support | Community | 24-hour |
+| Encryption at rest (AES-256) | ✅ | ✅ |
+| Bring-your-own / customer-managed encryption key | — | ✅ |
+| Extended audit log retention | 14 days | 90 days |
+| Priority support | Community | Priority queue |
 | Multi-user / RBAC | — | Enterprise |
 | SSO (SAML/OIDC) | — | Enterprise |
 | Managed HA infrastructure (AWS/GCP) | — | Enterprise |

@@ -43,7 +43,7 @@ backup solution with a UI, scheduling, verification, and multi-destination suppo
 | New project | Zero brand recognition vs. offen/restic/duplicati |
 | Single-node | No multi-host fleet management yet (roadmap) |
 
-**Pricing:** Free tier (5 policies, all BYOD storage). Pro ($29 one-time or $89/year) unlocks unlimited policies, notifications, managed storage.
+**Pricing:** Free tier (5 policies, all BYOD storage). Personal Pro is **$29 one-time** (personal / non-commercial use); Commercial Pro is **$149/seat/year** (launch pricing **$99/seat/year**, locked in for life for continuous subscribers). Paid tiers unlock unlimited policies, notifications, BYOK encryption, and extended audit-log retention.
 
 ---
 

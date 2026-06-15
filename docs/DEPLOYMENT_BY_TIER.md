@@ -832,7 +832,7 @@ Pre-built dashboards:
 
 ```
 Free → Pro:
-  1. Set LICENSE_KEY in environment
+  1. Set DRK_LICENSE_KEY in environment (or paste the key in Settings → About → license field)
   2. Restart service
   3. Data persists, no migration needed
 
