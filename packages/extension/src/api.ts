@@ -380,6 +380,22 @@ export const clearLicense = async (): Promise<{ ok: boolean }> => {
   return apiClient.delete<{ ok: boolean }>('/license')
 }
 
+export interface RotateKeyResult {
+  ok: boolean
+  rotated: number
+  alreadyCurrent?: boolean
+  keySource: 'customer-managed' | 'generated' | 'unknown'
+}
+
+/**
+ * Rotate the vault encryption key to a customer-managed key (Pro:
+ * byok_encryption). Re-encrypts all stored credentials server-side; returns
+ * 402 on Free tier. Throws on an invalid/too-short key.
+ */
+export const rotateEncryptionKey = async (key: string): Promise<RotateKeyResult> => {
+  return apiClient.post<RotateKeyResult>('/encryption/rotate', { key })
+}
+
 // ── Version / update check (v1.2.2) ───────────────────────────────────────
 
 export interface VersionCheckResult {

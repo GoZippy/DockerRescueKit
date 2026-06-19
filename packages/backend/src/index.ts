@@ -36,6 +36,8 @@ import { ConnectorManager } from './services/ConnectorManager'
 import { TelemetryService } from './services/TelemetryService'
 import { SettingsService } from './services/SettingsService'
 import { SecretsService } from './services/SecretsService'
+import { VaultService } from './services/VaultService'
+import { EncryptionKeyService } from './services/EncryptionKeyService'
 import { MetricsService } from './services/MetricsService'
 import { VerifyService } from './services/VerifyService'
 import { RehearsalService } from './services/RehearsalService'
@@ -217,6 +219,7 @@ export class BackupService {
   private importService: ImportService
   private rclone: RcloneService
   private license: LicenseService
+  private encryptionKeys: EncryptionKeyService
   private notificationDispatcher: NotificationDispatcher
   private httpServer: Server | null = null
 
@@ -242,6 +245,9 @@ export class BackupService {
     this.policyManager = new PolicyManager(this.db, path.join(dataDir, 'staging'), this.license)
     this.dockerService = new DockerService()
     this.connectorManager = new ConnectorManager(this.db)
+    // BYOK key rotation (Pro). Stateless over db/secrets; recoverIfInterrupted()
+    // runs at the top of start() before any vault read.
+    this.encryptionKeys = new EncryptionKeyService(this.db, this.secrets, new VaultService(this.db))
     this.telemetry = new TelemetryService()
     this.metrics = new MetricsService(this.policyManager, this.db)
     this.verify = new VerifyService(this.policyManager, this.dockerService, path.join(dataDir, 'staging'), this.db)
@@ -839,6 +845,32 @@ export class BackupService {
       res.json({ ok: true })
     })
 
+    // ---- BYOK encryption key rotation (Pro: byok_encryption) -------------
+    // Re-encrypts the whole credential vault under an operator-supplied key.
+    // Gated so Free tier gets 402; baseline encryption-at-rest stays universal
+    // and decryption is NEVER gated (see EncryptionKeyService). Crash-safe.
+    this.app.post(
+      '/api/encryption/rotate',
+      requireFeature(this.license, 'byok_encryption'),
+      async (req, res) => {
+        const key = String(req.body?.key || '').trim()
+        if (!key) {
+          res.status(400).json({ error: 'key_required' })
+          return
+        }
+        try {
+          const result = await this.encryptionKeys.rotate(key)
+          await this.audit.record('encryption.rotate', {
+            rotated: result.rotated,
+            alreadyCurrent: !!result.alreadyCurrent,
+          })
+          res.json({ ok: true, ...result, keySource: this.secrets.getEncryptionKeySource() })
+        } catch (err: any) {
+          res.status(400).json({ error: 'rotation_failed', detail: err?.message })
+        }
+      },
+    )
+
     // ---- Docker inspection ----------------------------------------------
     // All Docker routes degrade gracefully when Docker Desktop is offline.
     // Codes that all mean "the docker socket is not usable from this process":
@@ -998,6 +1030,18 @@ export class BackupService {
   }
 
   public async start() {
+    // DATA SAFETY: finish or roll back an interrupted BYOK key rotation BEFORE
+    // anything reads the vault, so credentials are never left encrypted under a
+    // key secrets.json no longer holds. No-op when there's no rotation marker.
+    try {
+      const outcome = await this.encryptionKeys.recoverIfInterrupted()
+      if (outcome !== 'none') {
+        logger.warn({ outcome }, '[DRK] recovered interrupted encryption key rotation')
+      }
+    } catch (err) {
+      logger.error({ err }, '[DRK] encryption key rotation recovery failed')
+    }
+
     await this.scheduler.start()
 
     // PG-1.3 — start the Prune Guard monitor (events floor + periodic cron +

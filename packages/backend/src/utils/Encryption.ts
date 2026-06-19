@@ -38,6 +38,10 @@ export class EncryptionUtility {
   private static readonly IV_LENGTH = 12
   private static readonly LEGACY_SALT = Buffer.from('drk-static-salt')
   private static key: Buffer | null = null
+  // The per-install salt is retained so key rotation can re-derive against the
+  // SAME salt (rotating the raw key must change the derived key, but the salt
+  // is a per-install constant — see loadOrCreateSalt).
+  private static salt: Buffer | null = null
 
   /**
    * Set the encryption key. Must be called once at startup by SecretsService
@@ -51,9 +55,22 @@ export class EncryptionUtility {
    *                tests stay deterministic.
    */
   public static init(rawKey: string, dataDir?: string): void {
-    const salt = dataDir ? loadOrCreateSalt(dataDir) : this.LEGACY_SALT
-    // scrypt derives a stable 32-byte key regardless of input length/format.
-    this.key = crypto.scryptSync(rawKey, salt, 32)
+    this.salt = dataDir ? loadOrCreateSalt(dataDir) : this.LEGACY_SALT
+    this.key = this.deriveKey(rawKey)
+  }
+
+  /**
+   * Swap the active key after a successful rotation. The salt is unchanged —
+   * init() must have run first to establish it.
+   */
+  public static reinit(rawKey: string): void {
+    this.key = this.deriveKey(rawKey)
+  }
+
+  /** scrypt-derive a stable 32-byte key from a raw secret using the active salt. */
+  private static deriveKey(rawKey: string): Buffer {
+    const salt = this.salt ?? this.LEGACY_SALT
+    return crypto.scryptSync(rawKey, salt, 32)
   }
 
   private static getKey(): Buffer {
@@ -64,22 +81,44 @@ export class EncryptionUtility {
   }
 
   public static encrypt(text: string): string {
+    return this.encryptWith(this.getKey(), text)
+  }
+
+  public static decrypt(cipherText: string): string {
+    return this.decryptWith(this.getKey(), cipherText)
+  }
+
+  /**
+   * Encrypt with an explicit RAW key (derived against the active salt) rather
+   * than the active key. Used by key rotation to write ciphertext under the
+   * incoming key without first swapping the global key.
+   */
+  public static encryptWithRawKey(rawKey: string, text: string): string {
+    return this.encryptWith(this.deriveKey(rawKey), text)
+  }
+
+  /** Decrypt with an explicit RAW key (e.g. the old key during rotation). */
+  public static decryptWithRawKey(rawKey: string, cipherText: string): string {
+    return this.decryptWith(this.deriveKey(rawKey), cipherText)
+  }
+
+  private static encryptWith(key: Buffer, text: string): string {
     const iv = crypto.randomBytes(this.IV_LENGTH)
-    const cipher = crypto.createCipheriv(this.ALGORITHM, this.getKey(), iv)
+    const cipher = crypto.createCipheriv(this.ALGORITHM, key, iv)
     let encrypted = cipher.update(text, 'utf8', 'hex')
     encrypted += cipher.final('hex')
     const authTag = cipher.getAuthTag().toString('hex')
     return `${iv.toString('hex')}:${authTag}:${encrypted}`
   }
 
-  public static decrypt(cipherText: string): string {
+  private static decryptWith(key: Buffer, cipherText: string): string {
     const [ivHex, authTagHex, encryptedText] = cipherText.split(':')
     if (!ivHex || !authTagHex || !encryptedText) {
       throw new Error('Invalid ciphertext format')
     }
     const iv = Buffer.from(ivHex, 'hex')
     const authTag = Buffer.from(authTagHex, 'hex')
-    const decipher = crypto.createDecipheriv(this.ALGORITHM, this.getKey(), iv)
+    const decipher = crypto.createDecipheriv(this.ALGORITHM, key, iv)
     decipher.setAuthTag(authTag)
     let decrypted = decipher.update(encryptedText, 'hex', 'utf8')
     decrypted += decipher.final('utf8')
