@@ -63,6 +63,18 @@ const FEATURES_BY_TIER: Record<LicenseTier, ReadonlySet<LicenseFeature>> = {
   ]),
 }
 
+/**
+ * Default feature set for a tier, sorted for stable comparison. This is the
+ * authoritative tier→feature contract on the verifier side; the license
+ * server (DRK_LicenseServer) mints against its own copy and the two MUST
+ * match. `featuresByTier.contract.test.ts` pins this exact shape so a change
+ * here fails CI until the snapshot — and, by the failing test's reminder, the
+ * server's copies — are updated in lockstep.
+ */
+export function featuresForTier(tier: LicenseTier): LicenseFeature[] {
+  return Array.from(FEATURES_BY_TIER[tier] ?? []).sort()
+}
+
 export const FREE_TIER_POLICY_LIMIT = 5
 export const FREE_TIER_AUDIT_RETENTION_DAYS = 14
 export const OFFLINE_GRACE_DAYS = 30
