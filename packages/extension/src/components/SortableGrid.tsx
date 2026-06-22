@@ -14,9 +14,13 @@ import { GripVertical } from 'lucide-react'
  * `narrowBelow` (measured on the grid itself, so it reacts to sidebar resizing —
  * not just window size) every widget collapses to a single full-width column.
  *
- * Reordering: dragging a widget's grip live-reorders the `order` array as the
- * pointer crosses other widgets, mirroring how modern sortables feel. The parent
- * owns the order (and its persistence); we only emit `onReorder`.
+ * Reordering only happens in `editing` mode (opt-in). That's deliberate: when
+ * editing is off there are no grips and the cards are fully interactive, so a
+ * drag handle can never sit on top of a toggle / badge / header and block it. In
+ * editing mode the *entire* card becomes the drag target and its contents go
+ * non-interactive, so handle-vs-control overlap stops mattering. Dragging
+ * live-reorders the `order` array as the pointer crosses other widgets; the
+ * parent owns the order (and its persistence) and we only emit `onReorder`.
  */
 export interface SortableWidget {
   id: string
@@ -31,6 +35,8 @@ interface SortableGridProps {
   /** Widgets already in display order (parent applies the order array). */
   widgets: SortableWidget[]
   onReorder: (orderedIds: string[]) => void
+  /** When true, show grips and allow drag/keyboard reordering. */
+  editing?: boolean
   columns?: number
   gap?: number
   /** Grid width (px) at/under which everything stacks to one column. */
@@ -40,6 +46,7 @@ interface SortableGridProps {
 export const SortableGrid: React.FC<SortableGridProps> = ({
   widgets,
   onReorder,
+  editing = false,
   columns = 12,
   gap = 12,
   narrowBelow = 720,
@@ -95,7 +102,15 @@ export const SortableGrid: React.FC<SortableGridProps> = ({
     if (next.join('|') !== cur.join('|')) onReorder(next)
   }
 
-  const onGripPointerDown = (id: string) => (e: React.PointerEvent) => {
+  // Cancel any in-progress drag if we leave editing mode.
+  useEffect(() => {
+    if (!editing) setDragId(null)
+  }, [editing])
+
+  // The whole card is the drag target (in editing mode). Its contents are made
+  // non-interactive there, so pointerdown always lands on the card wrapper.
+  const onWidgetPointerDown = (id: string) => (e: React.PointerEvent) => {
+    if (!editing) return
     // Left button / touch / pen only.
     if (e.button !== 0 && e.pointerType === 'mouse') return
     e.preventDefault()
@@ -107,7 +122,7 @@ export const SortableGrid: React.FC<SortableGridProps> = ({
     setDragId(id)
   }
 
-  const onGripPointerMove = (e: React.PointerEvent) => {
+  const onWidgetPointerMove = (e: React.PointerEvent) => {
     if (!dragId) return
     reorderFromPointer(e.clientX, e.clientY)
   }
@@ -146,7 +161,7 @@ export const SortableGrid: React.FC<SortableGridProps> = ({
   return (
     <div
       ref={containerRef}
-      className="sortable-grid"
+      className={`sortable-grid${editing ? ' editing' : ''}`}
       style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
@@ -164,28 +179,35 @@ export const SortableGrid: React.FC<SortableGridProps> = ({
               if (el) itemRefs.current.set(w.id, el)
               else itemRefs.current.delete(w.id)
             }}
-            className={`widget${dragging ? ' dragging' : ''}`}
+            className={`widget${dragging ? ' dragging' : ''}${editing ? ' editing' : ''}`}
             style={{
               gridColumn: `span ${span}`,
               ...(dragging
                 ? { zIndex: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.45)', borderRadius: 12 }
                 : {}),
             }}
+            // Drag handlers live on the whole card, and only fire in editing mode.
+            onPointerDown={editing ? onWidgetPointerDown(w.id) : undefined}
+            onPointerMove={editing ? onWidgetPointerMove : undefined}
+            onPointerUp={editing ? endDrag : undefined}
+            onPointerCancel={editing ? endDrag : undefined}
           >
-            <button
-              type="button"
-              className="widget-grip"
-              title="Drag to rearrange — or focus and use arrow keys"
-              aria-label={`Reorder ${w.label}. Panel ${idx + 1} of ${widgets.length}. Use arrow keys to move.`}
-              onPointerDown={onGripPointerDown(w.id)}
-              onPointerMove={onGripPointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-              onKeyDown={onGripKeyDown(w.id)}
-            >
-              <GripVertical size={15} />
-            </button>
-            {w.node}
+            {/* Grip is a visual + keyboard affordance; it only exists while
+                editing, so it can never cover a control in normal use. */}
+            {editing && (
+              <button
+                type="button"
+                className="widget-grip"
+                title="Drag to rearrange — or focus and use arrow keys"
+                aria-label={`Reorder ${w.label}. Panel ${idx + 1} of ${widgets.length}. Use arrow keys to move.`}
+                onKeyDown={onGripKeyDown(w.id)}
+              >
+                <GripVertical size={15} />
+              </button>
+            )}
+            <div className="widget-content" style={editing ? { pointerEvents: 'none' } : undefined}>
+              {w.node}
+            </div>
           </div>
         )
       })}
