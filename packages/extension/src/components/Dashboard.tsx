@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Activity, Database, HardDrive, Server,
   Play, Layers, Plus, RefreshCw, CheckCircle2, AlertCircle, Clock,
-  Cpu, TrendingUp, WifiOff, KeyRound, RotateCcw,
+  Cpu, TrendingUp, WifiOff, KeyRound, RotateCcw, LayoutGrid, Check,
 } from 'lucide-react'
 import axios from 'axios'
 import { BackupPolicy, Backup } from '@docker-rescue-kit/shared'
@@ -73,6 +73,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [errorKind, setErrorKind] = useState<ErrorKind>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
   const [order, setOrder] = useState<string[]>(loadOrder)
+  const [editing, setEditing] = useState(false)
 
   const applyOrder = (next: string[]) => {
     setOrder(next)
@@ -349,7 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
   const trendsNode = (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 240, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingRight: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Activity size={16} color="var(--indigo)" />
         <span style={{ fontWeight: 700, fontSize: 13 }}>Backup Trends — 7 days</span>
       </div>
@@ -362,7 +363,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const controlsNode = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, paddingRight: 28 }}>Quick Actions</span>
+        <span style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Quick Actions</span>
         <button
           className="btn btn-primary"
           style={{ justifyContent: 'flex-start' }}
@@ -425,7 +426,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const recentNode = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card" style={{ padding: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 48px 12px 16px', borderBottom: '1px solid var(--surface-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--surface-4)' }}>
           <Clock size={15} color="var(--text-muted)" />
           <span style={{ fontWeight: 700, fontSize: 13 }}>Recent Backup Runs</span>
           <span className="badge badge-muted" style={{ marginLeft: 'auto' }}>Last 5</span>
@@ -540,22 +541,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Reset arrangement — only when the user has customized it */}
-      {isCustomOrder && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      {/* Arrange toolbar — drag handles only appear once the user opts in, so
+          nothing is ever layered over a live control during normal use. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+          {editing && 'Drag a panel to rearrange — or focus a handle and use the arrow keys. Changes save automatically.'}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+          {editing && isCustomOrder && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => applyOrder(DEFAULT_ORDER)}
+              style={{ fontSize: 12, padding: '5px 10px' }}
+              title="Restore the default panel arrangement"
+            >
+              <RotateCcw size={13} /> Reset
+            </button>
+          )}
           <button
-            className="btn btn-ghost"
-            onClick={() => applyOrder(DEFAULT_ORDER)}
+            className={editing ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => setEditing(e => !e)}
             style={{ fontSize: 12, padding: '5px 10px' }}
-            title="Restore the default panel arrangement"
+            title={editing ? 'Finish arranging panels' : 'Rearrange dashboard panels'}
+            aria-pressed={editing}
           >
-            <RotateCcw size={13} /> Reset layout
+            {editing ? <><Check size={13} /> Done</> : <><LayoutGrid size={13} /> Arrange</>}
           </button>
         </div>
-      )}
+      </div>
 
       {/* Draggable, responsive widget grid */}
-      <SortableGrid widgets={orderedWidgets} onReorder={applyOrder} columns={12} narrowBelow={720} />
+      <SortableGrid widgets={orderedWidgets} onReorder={applyOrder} editing={editing} columns={12} narrowBelow={720} />
     </div>
   )
 }

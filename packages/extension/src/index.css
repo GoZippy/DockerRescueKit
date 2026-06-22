@@ -559,9 +559,27 @@
   .status-dot.idle    { background-color: var(--text-muted); }
 
   /* ---------- Draggable dashboard widgets ---------- */
+  /* Grips and drag affordances only appear in "Arrange" (editing) mode, so in
+     normal use nothing is ever layered on top of a toggle, badge, or header. */
   .widget {
     position: relative;
     min-width: 0;            /* allow grid children to shrink below content size */
+  }
+  .widget.editing {
+    cursor: grab;
+    outline: 1px dashed var(--surface-4);
+    outline-offset: 2px;
+    border-radius: var(--r-lg);
+  }
+  .widget.editing:hover { outline-color: var(--blue-border); }
+  .widget.editing.dragging {
+    cursor: grabbing;
+    outline: 2px solid var(--blue-500);
+  }
+  /* Contents are non-interactive while arranging — dim them to signal that. */
+  .widget.editing .widget-content {
+    opacity: 0.7;
+    transition: opacity 0.15s;
   }
   .widget-grip {
     position: absolute;
@@ -575,29 +593,18 @@
     height: 26px;
     padding: 0;
     border-radius: var(--r-sm);
-    color: var(--text-muted);
-    background: var(--surface-3);
-    border: 1px solid var(--surface-4);
+    color: #fff;
+    background: var(--blue-500);
+    border: 1px solid var(--blue-600);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
     cursor: grab;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
     touch-action: none;      /* let the pointer drag instead of scrolling */
   }
-  .widget:hover .widget-grip,
   .widget-grip:focus-visible {
-    opacity: 1;
+    outline: 2px solid #fff;
+    outline-offset: 1px;
   }
-  .widget-grip:hover {
-    color: var(--text-primary);
-    background: var(--surface-4);
-  }
-  .widget-grip:active { cursor: grabbing; }
-  .widget.dragging { cursor: grabbing; }
-  .widget.dragging .widget-grip { opacity: 1; }
-  /* Coarse-pointer (touch) devices have no hover — keep the grip discoverable. */
-  @media (hover: none) {
-    .widget-grip { opacity: 0.55; }
-  }
+  .widget.dragging .widget-grip { cursor: grabbing; }
 
   /* ---------- Sidebar resize handle ---------- */
   .resize-handle {
