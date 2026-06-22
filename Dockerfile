@@ -53,7 +53,7 @@ RUN npm prune --omit=dev
 # -39832..39834 fix versions), but the binary at downloads.rclone.org was
 # compiled before that bump and still bundles the vulnerable libs. Building
 # from the git tag picks up the fixed deps.
-FROM golang:1.25-alpine@sha256:8d22e29d960bc50cd025d93d5b7c7d220b1ee9aa7a239b3c8f55a57e987e8d45 AS rclone-build
+FROM golang:1.26-alpine@sha256:7a3e50096189ad57c9f9f865e7e4aa8585ed1585248513dc5cda498e2f41812c AS rclone-build
 RUN apk add --no-cache git
 ARG RCLONE_VERSION=1.74.2
 WORKDIR /src
@@ -66,7 +66,7 @@ RUN go build -trimpath -ldflags="-s -w" -tags noselfupdate -o /rclone .
 # BELOW CVE fix versions). We `go get` newer versions before build to cut
 # the bundled-Go CVEs. The crypto APIs restic uses (SCrypt, Poly1305,
 # Salsa20) are stable across these versions.
-FROM golang:1.25-alpine@sha256:8d22e29d960bc50cd025d93d5b7c7d220b1ee9aa7a239b3c8f55a57e987e8d45 AS restic-build
+FROM golang:1.26-alpine@sha256:7a3e50096189ad57c9f9f865e7e4aa8585ed1585248513dc5cda498e2f41812c AS restic-build
 RUN apk add --no-cache git
 ARG RESTIC_VERSION=0.18.1
 WORKDIR /src
