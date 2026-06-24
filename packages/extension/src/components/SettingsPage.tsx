@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   getSettingsMeta, regenerateApiKey, getStatus, pauseScheduler, resumeScheduler, clearApiKey,
   getSetting, saveSetting,
-  getLicenseStatus, activateLicense, clearLicense, checkVersion, submitFeedback, exportConfig, importConfig,
+  getLicenseStatus, activateLicense, clearLicense, rotateEncryptionKey,
+  checkVersion, submitFeedback, exportConfig, importConfig,
 } from '../api'
 import type { BackendTier } from '../api'
 import { openExternal, openMarketplace } from '../utils/openExternal'
@@ -156,6 +157,12 @@ export const SettingsPage: React.FC = () => {
   const [licenseKeyInput, setLicenseKeyInput] = useState('')
   const [licenseBusy, setLicenseBusy]         = useState(false)
   const [licenseError, setLicenseError]       = useState<string | null>(null)
+
+  // ── BYOK encryption-key rotation (Pro) state ──
+  const [showRotateKey, setShowRotateKey]     = useState(false)
+  const [rotateKeyInput, setRotateKeyInput]   = useState('')
+  const [rotateBusy, setRotateBusy]           = useState(false)
+  const [rotateError, setRotateError]         = useState<string | null>(null)
 
   // ── Update-check state ──
   const [updateInfo, setUpdateInfo] = useState<{
@@ -384,6 +391,35 @@ export const SettingsPage: React.FC = () => {
     }
   }
 
+  const handleRotateKey = async () => {
+    const key = rotateKeyInput.trim()
+    if (key.length < 16) {
+      setRotateError('Key must be at least 16 characters.')
+      return
+    }
+    setRotateBusy(true)
+    setRotateError(null)
+    try {
+      const res = await rotateEncryptionKey(key)
+      setRotateKeyInput('')
+      setShowRotateKey(false)
+      toast.push(
+        'success',
+        res.alreadyCurrent
+          ? 'That key is already in use — no change.'
+          : `Encryption key rotated — ${res.rotated} credential${res.rotated === 1 ? '' : 's'} re-encrypted.`,
+      )
+      await load() // refresh the encryption keySource shown below
+    } catch (e: any) {
+      const msg = /license_required/.test(e?.message ?? '')
+        ? 'Customer-managed keys require a Pro license.'
+        : (e?.message ?? 'Key rotation failed')
+      setRotateError(msg)
+    } finally {
+      setRotateBusy(false)
+    }
+  }
+
   // Sprint-1 (B1): toast-wrapped export used by the UpgradeBanner and the
   // Updates-card "Export config" promoted button. Same logic as handleExport
   // above, but surfaces success/failure via the global toast provider so the
@@ -569,6 +605,71 @@ export const SettingsPage: React.FC = () => {
                 : ''}
           </span>
         </div>
+
+        {/* BYOK: rotate to a customer-managed key (Pro). */}
+        {isPro ? (
+          <div style={{ marginBottom: 14 }}>
+            {!showRotateKey ? (
+              <button
+                className="btn btn-ghost"
+                onClick={() => { setShowRotateKey(true); setRotateError(null) }}
+                style={{ fontSize: 12, padding: '4px 10px' }}
+              >
+                <Key size={13} /> Use my own encryption key (BYOK)
+              </button>
+            ) : (
+              <div style={{
+                border: '1px solid var(--surface-4)', borderRadius: 'var(--r-sm)',
+                padding: 10, background: 'var(--surface-2)',
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  Rotate to a customer-managed key. All stored credentials are
+                  re-encrypted; existing data stays readable throughout.
+                </div>
+                <input
+                  type="password"
+                  value={rotateKeyInput}
+                  onChange={(e) => { setRotateKeyInput(e.target.value); setRotateError(null) }}
+                  placeholder="New encryption key (min 16 chars)"
+                  spellCheck={false}
+                  className="font-mono"
+                  style={{
+                    width: '100%', fontSize: 12, padding: '7px 10px', boxSizing: 'border-box',
+                    borderRadius: 'var(--r-sm)', border: '1px solid var(--surface-4)',
+                    background: 'var(--surface-1)', color: 'var(--text-primary)',
+                  }}
+                />
+                {rotateError && (
+                  <div style={{ fontSize: 11, color: '#f87171', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <AlertTriangle size={12} /> {rotateError}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleRotateKey}
+                    disabled={rotateBusy || rotateKeyInput.trim().length < 16}
+                    style={{ fontSize: 12, padding: '6px 14px' }}
+                  >
+                    {rotateBusy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Rotate key
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => { setShowRotateKey(false); setRotateKeyInput(''); setRotateError(null) }}
+                    disabled={rotateBusy}
+                    style={{ fontSize: 12, padding: '6px 12px' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
+            Bring your own / customer-managed encryption key is available on Pro.
+          </div>
+        )}
 
         {/* License key entry / removal */}
         {isPro ? (

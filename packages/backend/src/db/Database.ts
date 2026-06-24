@@ -321,6 +321,19 @@ export class Database {
     })
   }
 
+  /**
+   * Replace many storage_vault configs in a single all-or-nothing transaction.
+   * Used by key rotation: either every row is re-encrypted under the new key or
+   * none is, so a crash mid-write can never leave a mix of old/new ciphertext.
+   */
+  public replaceStorageConfigs(rows: Array<{ id: string; type: string; config: any }>): void {
+    const stmt = this.db.prepare('INSERT OR REPLACE INTO storage_vault (id, type, config) VALUES (?, ?, ?)')
+    const tx = this.db.transaction((items: Array<{ id: string; type: string; config: any }>) => {
+      for (const r of items) stmt.run(r.id, r.type, JSON.stringify(r.config))
+    })
+    tx(rows)
+  }
+
   // Connector Instance Operations
   public async getConnectors(): Promise<any[]> {
     const rows = this.db.prepare('SELECT * FROM connectors').all() as any[]

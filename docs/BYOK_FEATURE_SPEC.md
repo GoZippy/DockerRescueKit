@@ -1,7 +1,8 @@
 # BYOK / Customer-Managed Encryption Keys — Feature Spec
 
-**Status:** PLANNED. This turns the `byok_encryption` entitlement from a hollow flag
-into a real, enforceable Pro feature. Additive — baseline encryption stays free.
+**Status:** Slices 1–2 SHIPPED (`feat/byok-key-rotation`); slices 3–4 planned.
+This turns the `byok_encryption` entitlement from a hollow flag into a real,
+enforceable Pro feature. Additive — baseline encryption stays free.
 
 ## Current state (v1.4.1)
 
@@ -56,14 +57,17 @@ DRK is a backup tool; orphaning a user's encrypted vault is the cardinal sin
 
 ## Suggested implementation slices
 
-1. **Provenance + visibility (safe, small):** `SecretsService` tracks `keySource:
-   'generated' | 'env' | 'managed'`; expose it on the license/status DTO; Settings → About
-   shows "Encryption: auto-generated key / customer-managed key". No gating, no data risk.
-2. **Set/rotate API (the feature):** `POST /api/encryption/key` + `POST /api/encryption/rotate`,
-   both `requireFeature('byok_encryption')`, with the re-encrypt-verify-swap migration above.
-3. **UI:** Settings → Security card to set/rotate, Pro-locked with an Upgrade CTA (reuse
-   the new `UPGRADE_URL` + license-entry flow shipped 2026-06-15).
-4. **KMS reference (Enterprise, later):** AWS KMS / GCP KMS / Vault transit as the key source.
+1. **[DONE] Provenance + visibility:** `SecretsService` tracks `keySource:
+   'generated' | 'env' | 'managed'`; surfaced on `GET /api/status` and shown in
+   Settings → About ("Encryption at rest: AES-256 · customer-managed / auto-generated").
+   No gating, no data risk.
+2. **[DONE] Rotate API + crash-safe migration:** `POST /api/encryption/rotate`,
+   `requireFeature('byok_encryption')` (402 on Free). `EncryptionKeyService` re-encrypts
+   in memory → marker → all-or-nothing DB transaction → atomic key swap → verify, with
+   boot-time `recoverIfInterrupted()` that finishes or rolls back a crashed rotation.
+   Pro-gated rotate control in Settings → About. Covered by `encryptionKeyService.test.ts`.
+3. **[planned] UI polish:** dedicated Security card, key-strength meter, generate-random helper.
+4. **[planned] KMS reference (Enterprise):** AWS KMS / GCP KMS / Vault transit as the key source.
 
 ## Acceptance
 
