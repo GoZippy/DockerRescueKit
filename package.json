@@ -8,14 +8,15 @@
     "packages/extension",
     "packages/backend",
     "packages/shared",
-    "packages/cli"
+    "packages/cli",
+    "packages/mcp"
   ],
   "scripts": {
     "setup": "npm install && npm run bootstrap",
     "bootstrap": "npm run build -ws",
     "dev": "npm run dev -ws",
     "build": "npm run build -ws",
-    "test": "npm test -ws",
+    "test": "npm test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "postinstall": "npm run build --workspace=@docker-rescue-kit/shared"
   },

@@ -36,6 +36,10 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=@docker-rescue-kit/shared
       - run: npm test --workspace=@docker-rescue-kit/backend -- --coverage
+      # cli and mcp are shipped workspace packages with their own jest suites —
+      # exercise them too so a regression there fails CI (previously untested).
+      - run: npm test --workspace=@docker-rescue-kit/cli
+      - run: npm test --workspace=@docker-rescue-kit/mcp
       - uses: codecov/codecov-action@v4
         if: always() && runner.os == 'Linux'
         with:

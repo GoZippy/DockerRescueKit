@@ -107,4 +107,53 @@ describe('SecretsService', () => {
     const svc = new SecretsService(p)
     expect(svc.getSecurityWarnings()).toEqual([])
   })
+
+  describe('encryption key provenance (BYOK visibility)', () => {
+    it('fresh install with no env key is reported as generated and persists provenance', () => {
+      const p = path.join(tmp, 'secrets.json')
+      const svc = new SecretsService(p)
+      svc.load()
+      expect(svc.getEncryptionKeySource()).toBe('generated')
+      // Provenance is written to disk so later boots need no env re-check.
+      expect(fs.readJsonSync(p).keySource).toBe('generated')
+    })
+
+    it('fresh install with an env key is reported as customer-managed (BYOK)', () => {
+      process.env.DRK_ENCRYPTION_KEY = 'operator-supplied-key-value'
+      const p = path.join(tmp, 'secrets.json')
+      const svc = new SecretsService(p)
+      const secrets = svc.load()
+      expect(secrets.encryptionKey).toBe('operator-supplied-key-value')
+      expect(svc.getEncryptionKeySource()).toBe('customer-managed')
+      expect(fs.readJsonSync(p).keySource).toBe('env')
+    })
+
+    it('honors recorded provenance from an existing secrets.json', () => {
+      const p = path.join(tmp, 'secrets.json')
+      fs.writeJsonSync(p, {
+        apiKey: 'a'.repeat(64),
+        encryptionKey: 'b'.repeat(64),
+        keySource: 'env',
+      })
+      const svc = new SecretsService(p)
+      expect(svc.getEncryptionKeySource()).toBe('customer-managed')
+      // DATA SAFETY: an existing file is never rewritten.
+      expect(fs.readJsonSync(p).encryptionKey).toBe('b'.repeat(64))
+    })
+
+    it('infers customer-managed for a pre-provenance file when env matches the stored key', () => {
+      const p = path.join(tmp, 'secrets.json')
+      fs.writeJsonSync(p, { apiKey: 'a'.repeat(64), encryptionKey: 'shared-secret' })
+      process.env.DRK_ENCRYPTION_KEY = 'shared-secret'
+      const svc = new SecretsService(p)
+      expect(svc.getEncryptionKeySource()).toBe('customer-managed')
+    })
+
+    it('reports unknown for a pre-provenance file with no matching env key', () => {
+      const p = path.join(tmp, 'secrets.json')
+      fs.writeJsonSync(p, { apiKey: 'a'.repeat(64), encryptionKey: 'b'.repeat(64) })
+      const svc = new SecretsService(p)
+      expect(svc.getEncryptionKeySource()).toBe('unknown')
+    })
+  })
 })

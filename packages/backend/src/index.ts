@@ -568,6 +568,9 @@ export class BackupService {
         // Non-empty only when an existing secrets.json still holds a known
         // shipped-default API/encryption key — see SecretsService.detectWeakDefaults.
         securityWarnings: this.secrets.getSecurityWarnings(),
+        // Encryption-at-rest is always on for every tier; this only reports
+        // whether the key is customer-managed (BYOK) or auto-generated.
+        encryption: { keySource: this.secrets.getEncryptionKeySource() },
       })
     })
 

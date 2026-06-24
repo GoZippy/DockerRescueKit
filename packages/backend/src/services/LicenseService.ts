@@ -15,6 +15,12 @@ export type LicenseTier = 'free' | 'personal-pro' | 'commercial-pro' | 'enterpri
 export type LicenseFeature =
   | 'unlimited_policies'
   | 'notifications'
+  // byok_encryption gates BRING-YOUR-OWN / customer-managed encryption keys
+  // (supplying + rotating your own key). Baseline AES-256 encryption at rest
+  // is ALWAYS ON for every tier regardless of this flag — see Schedule A.
+  // NOTE: enforcement of the customer-managed-key UX is pending; see
+  // docs/BYOK_FEATURE_SPEC.md. Do NOT gate EncryptionUtility/VaultService on
+  // this flag — that would risk orphaning existing encrypted vault data.
   | 'byok_encryption'
   | 'audit_log_90d'
   | 'audit_log_365d'
@@ -55,6 +61,18 @@ const FEATURES_BY_TIER: Record<LicenseTier, ReadonlySet<LicenseFeature>> = {
     'msp_white_label',
     'managed_cloud_backup',
   ]),
+}
+
+/**
+ * Default feature set for a tier, sorted for stable comparison. This is the
+ * authoritative tier→feature contract on the verifier side; the license
+ * server (DRK_LicenseServer) mints against its own copy and the two MUST
+ * match. `featuresByTier.contract.test.ts` pins this exact shape so a change
+ * here fails CI until the snapshot — and, by the failing test's reminder, the
+ * server's copies — are updated in lockstep.
+ */
+export function featuresForTier(tier: LicenseTier): LicenseFeature[] {
+  return Array.from(FEATURES_BY_TIER[tier] ?? []).sort()
 }
 
 export const FREE_TIER_POLICY_LIMIT = 5

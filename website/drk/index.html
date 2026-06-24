@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DockerRescueKit — Pricing &amp; Plans</title>
+  <meta name="description" content="DockerRescueKit (DRK) pricing: Free, Personal Pro, Commercial Pro, and Enterprise plans. Backup, cleanup, repair, and optimize your Docker environment." />
+  <link rel="icon" href="https://license.gozippy.com/assets/logo.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="https://gozippy.com/drk">
+        <img src="https://license.gozippy.com/assets/logo.png" alt="DockerRescueKit logo" />
+        <span class="brand-name">DockerRescueKit</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#plans">Plans</a>
+        <a href="personal-pro/">Personal Pro</a>
+        <a href="commercial-pro/">Commercial Pro</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/gozippy/DockerRescueKit">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero container">
+      <span class="eyebrow">Backup &middot; Cleanup &middot; Repair &middot; Optimize</span>
+      <h1>Pricing that fits how you run Docker</h1>
+      <p>Start free, upgrade when you need more. Every plan includes AES-256 encryption at rest. Perpetual personal licensing, fair per-seat commercial pricing, and a launch price locked for life.</p>
+    </section>
+
+    <section id="plans" class="container">
+      <div class="pricing-grid">
+
+        <!-- Free -->
+        <div class="tier">
+          <h2>Free</h2>
+          <p class="tier-tag">For trying DRK and light personal use.</p>
+          <div class="price">
+            <span class="amount">$0</span>
+          </div>
+          <ul>
+            <li>Up to 5 policies</li>
+            <li>14-day audit retention</li>
+            <li>AES-256 encryption at rest</li>
+            <li>Backup, cleanup &amp; repair tools</li>
+            <li class="muted">Notifications</li>
+            <li class="muted">Multi-host fleet</li>
+          </ul>
+          <a class="btn btn-secondary btn-block" href="https://github.com/gozippy/DockerRescueKit">Get DRK Free</a>
+        </div>
+
+        <!-- Personal Pro -->
+        <div class="tier featured">
+          <span class="badge">Most popular</span>
+          <h2>Personal Pro</h2>
+          <p class="tier-tag">For individuals, non-commercial use. Perpetual within the major version.</p>
+          <div class="price">
+            <span class="amount">$29</span>
+            <span class="period">one-time</span>
+            <span class="note">Perpetual within major version</span>
+          </div>
+          <ul>
+            <li>Unlimited policies</li>
+            <li>Notifications</li>
+            <li>90-day audit retention</li>
+            <li>Bring-your-own / customer-managed encryption key</li>
+            <li>AES-256 encryption at rest</li>
+          </ul>
+          <!-- Square line-item SKU: DRK-PERSONAL-PRO-V1 ($29 one-time, perpetual within major version) -->
+          <a class="btn btn-primary btn-block" href="SQUARE_PAYMENT_LINK_PERSONAL_PRO">Buy Personal Pro</a>
+        </div>
+
+        <!-- Commercial Pro -->
+        <div class="tier">
+          <h2>Commercial Pro</h2>
+          <p class="tier-tag">For teams and businesses. Per-seat, 3-seat minimum.</p>
+          <div class="price">
+            <span class="amount">$99</span>
+            <span class="period">/seat/year</span>
+            <span class="note">Launch price locked for life &middot; reg. $149</span>
+          </div>
+          <ul>
+            <li>Everything in Personal Pro</li>
+            <li>Commercial-use rights</li>
+            <li>Multi-host fleet management</li>
+            <li>365-day audit retention</li>
+            <li>AES-256 encryption at rest</li>
+          </ul>
+          <!-- Square line-item SKU: DRK-COMMERCIAL-PRO-LAUNCH ($99/seat/year launch, locked for life; standard SKU DRK-COMMERCIAL-PRO-STANDARD is $149/seat/year). Enable seat-quantity selection at checkout; 3-seat minimum. -->
+          <a class="btn btn-primary btn-block" href="SQUARE_PAYMENT_LINK_COMMERCIAL_PRO_LAUNCH">Buy Commercial Pro</a>
+        </div>
+
+        <!-- Enterprise -->
+        <div class="tier">
+          <h2>Enterprise</h2>
+          <p class="tier-tag">For large fleets and organizations with procurement needs.</p>
+          <div class="price">
+            <span class="amount">$5,000+</span>
+            <span class="period">/year</span>
+            <span class="note">Sales-only &middot; talk to us</span>
+          </div>
+          <ul>
+            <li>Everything in Commercial Pro</li>
+            <li>Volume seat licensing</li>
+            <li>Procurement &amp; invoicing support</li>
+            <li>Priority support (best-effort, not an SLA)</li>
+            <li>AES-256 encryption at rest</li>
+          </ul>
+          <a class="btn btn-secondary btn-block" href="mailto:Support@GoZippy.com?subject=DRK%20Enterprise%20inquiry">Contact Sales</a>
+        </div>
+
+      </div>
+
+      <!-- Priority Queue add-on -->
+      <div class="addon">
+        <div class="addon-info">
+          <h3>Priority Queue add-on</h3>
+          <p>Move your support requests to the front of the queue. Best-effort prioritization &mdash; not an SLA or guaranteed response time.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+          <div class="addon-price">$750<span class="period" style="font-size:0.95rem; color:var(--text-dim);">/year</span></div>
+          <!-- Square line-item SKU: DRK-PRIORITY-QUEUE ($750/year) -->
+          <a class="btn btn-primary" href="SQUARE_PAYMENT_LINK_PRIORITY_QUEUE">Add Priority Queue</a>
+        </div>
+      </div>
+    </section>
+
+    <h2 class="section-title" id="faq">Frequently asked questions</h2>
+    <p class="section-sub">Everything you need to know before you buy.</p>
+    <section class="faq container">
+      <details>
+        <summary>What does &ldquo;perpetual within major version&rdquo; mean for Personal Pro?</summary>
+        <p>Your $29 Personal Pro purchase is a one-time payment. It unlocks Pro features permanently for the major version you bought it under (for example, all v1.x releases). A future major version may be a separate upgrade.</p>
+      </details>
+      <details>
+        <summary>How does Commercial Pro per-seat pricing work?</summary>
+        <p>Commercial Pro is licensed per seat at $99/seat/year (launch price, locked for life), with a 3-seat minimum. You choose the number of seats at Square checkout, and the quantity you select sets your licensed seat count. The regular price is $149/seat/year.</p>
+      </details>
+      <details>
+        <summary>Is encryption included on the Free plan?</summary>
+        <p>Yes. AES-256 encryption at rest is included in every plan, including Free. Personal Pro and above add bring-your-own / customer-managed encryption keys.</p>
+      </details>
+      <details>
+        <summary>What support do I get?</summary>
+        <p>Support is best-effort and is not an SLA or guaranteed response time. The optional Priority Queue add-on ($750/year) prioritizes your requests, but it is still best-effort.</p>
+      </details>
+      <details>
+        <summary>How do I activate my license after buying?</summary>
+        <p>After checkout you&rsquo;ll receive a license token by email. Paste it into the extension at <strong>Settings &rarr; About &rarr; &ldquo;Have a license key?&rdquo;</strong>, or set the <code>DRK_LICENSE_KEY</code> environment variable.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div>&copy; 2026 Zippy Technologies, LLC &middot; DockerRescueKit</div>
+      <nav class="footer-links">
+        <a href="https://github.com/gozippy/DockerRescueKit">GitHub</a>
+        <a href="https://github.com/gozippy/DockerRescueKit/blob/main/LICENSE">License</a>
+        <a href="mailto:Support@GoZippy.com">Support</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

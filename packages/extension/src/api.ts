@@ -341,8 +341,16 @@ export const getCostConfig = async () => {
 
 // ── License (v1.2.2) ──────────────────────────────────────────────────────
 
+/**
+ * Tier strings exactly as the backend emits them (LicenseService.LicenseTier).
+ * The UI normalizes `personal-pro`/`commercial-pro` → a single `pro` display
+ * bucket (see SettingsPage `normalizeTier`); do NOT assume these are already
+ * collapsed.
+ */
+export type BackendTier = 'free' | 'personal-pro' | 'commercial-pro' | 'enterprise'
+
 export interface LicenseStatusDTO {
-  tier: 'free' | 'pro' | 'enterprise'
+  tier: BackendTier
   seats: number
   features: string[]
   majorVersion?: string
@@ -355,6 +363,21 @@ export interface LicenseStatusDTO {
 
 export const getLicenseStatus = async (): Promise<LicenseStatusDTO> => {
   return apiClient.get<LicenseStatusDTO>('/license')
+}
+
+/**
+ * Activate a pasted license token. The backend verifies the RS256 signature
+ * locally and returns the resolved status; on an invalid/expired token it
+ * responds 400 and the token is NOT persisted, so a thrown error here means
+ * "that key isn't valid".
+ */
+export const activateLicense = async (token: string): Promise<LicenseStatusDTO> => {
+  return apiClient.post<LicenseStatusDTO>('/license/activate', { token })
+}
+
+/** Remove the stored license token and return the install to Free. */
+export const clearLicense = async (): Promise<{ ok: boolean }> => {
+  return apiClient.delete<{ ok: boolean }>('/license')
 }
 
 // ── Version / update check (v1.2.2) ───────────────────────────────────────

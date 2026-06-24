@@ -83,9 +83,10 @@ Suitable for homelab, indie dev, single-machine Docker Desktop users.
 - Backup verification
 - Partial restore / file browsing
 - CLI + REST API + Web UI + Docker Desktop Extension
+- AES-256 encryption at rest for stored credentials (all tiers)
 - Community support (GitHub Discussions)
 - **Limit: 5 concurrent active policies**
-- **Limit: 30-day audit log retention**
+- **Limit: 14-day audit log retention**
 - No managed hosted backup
 - No notifications (Slack, email, webhook)
 
@@ -98,7 +99,7 @@ Everything in Free, plus:
 - **90-day audit log retention**
 - Slack, email, webhook, ntfy notifications
 - Backup encryption with AES-256 (bring your own key or managed key)
-- Priority support (24-hour response SLA)
+- Priority support queue (best-effort; not a service-level agreement — see LICENSE §5.7)
 - Optional: managed hosted S3 backend (100 GB included, ~$25/month)
   - User's data goes to a dedicated S3 bucket you own or we provision
   - No vendor lock-in: export your bucket credentials any time
@@ -119,13 +120,13 @@ Everything in Pro, plus:
 - SSO via SAML 2.0 or OIDC
 - Customer-managed encryption keys (CMEK / HSM)
 - Immutable backups (WORM / object lock)
-- Tamper-proof audit log (external sink or notarization)
+- Tamper-evident audit log (external sink or notarization)
 - Multi-host fleet inventory and central policy management
 - Managed HA infrastructure (AWS or GCP, dedicated VPC per customer)
 - Clustering (active-active backup service nodes)
 - Compliance documentation (HIPAA BAA, SOC2, GDPR DPA on request)
 - Dedicated account manager + quarterly business reviews
-- 1-hour support SLA + dedicated Slack channel
+- Priority support with dedicated Slack channel (best-effort; not a service-level agreement — see LICENSE §5.7)
 - MSP/white-label mode (multi-tenant dashboard, reseller margin)
 
 ---
