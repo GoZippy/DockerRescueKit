@@ -40,7 +40,7 @@ jobs:
       # exercise them too so a regression there fails CI (previously untested).
       - run: npm test --workspace=@docker-rescue-kit/cli
       - run: npm test --workspace=@docker-rescue-kit/mcp
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         if: always() && runner.os == 'Linux'
         with:
           files: ./packages/backend/coverage/lcov.info
