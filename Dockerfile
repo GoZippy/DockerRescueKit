@@ -48,14 +48,14 @@ RUN npm prune --omit=dev
 
 # ─── Stage 1b: rclone from source ───────────────────────────────────────────
 # rclone publishes prebuilt binaries that lag the source on dep bumps.
-# v1.74.2 source go.mod already pins golang.org/x/crypto v0.52.0 and
+# v1.74.3 source go.mod already pins golang.org/x/crypto v0.52.0 and
 # google.golang.org/grpc v1.80.0 (both ABOVE the CVE-2026-46595 / -42508 /
 # -39832..39834 fix versions), but the binary at downloads.rclone.org was
 # compiled before that bump and still bundles the vulnerable libs. Building
 # from the git tag picks up the fixed deps.
 FROM golang:1.26-alpine@sha256:7a3e50096189ad57c9f9f865e7e4aa8585ed1585248513dc5cda498e2f41812c AS rclone-build
 RUN apk add --no-cache git
-ARG RCLONE_VERSION=1.74.2
+ARG RCLONE_VERSION=1.74.3
 WORKDIR /src
 RUN git clone --depth 1 --branch v${RCLONE_VERSION} https://github.com/rclone/rclone.git .
 ENV CGO_ENABLED=0
