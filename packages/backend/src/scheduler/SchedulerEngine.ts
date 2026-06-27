@@ -1,4 +1,4 @@
-import cron from 'node-cron'
+import cron, { type ScheduledTask } from 'node-cron'
 import { PolicyManager } from '../services/PolicyManager'
 import { VerifyService } from '../services/VerifyService'
 import { ExportService } from '../services/ExportService'
@@ -6,7 +6,7 @@ import { BackupPolicy, Backup, RetentionPolicy, BackupTier } from '@docker-rescu
 
 export interface ScheduledJob {
   policyId: string
-  job: cron.ScheduledTask
+  job: ScheduledTask
 }
 
 export class SchedulerEngine {
@@ -14,7 +14,7 @@ export class SchedulerEngine {
   private verifyJobs: Map<string, ScheduledJob> = new Map()
   /** Periodic ExportService snapshot job (A2). At most one — registered on
    *  start(), unregistered on stop(). */
-  private exportJob: cron.ScheduledTask | null = null
+  private exportJob: ScheduledTask | null = null
   /** Tracks policies whose backup is currently in flight. Used to skip
    *  overlapping cron fires ("if a Friday backup runs long, Saturday doesn't
    *  pile on top of it"). */

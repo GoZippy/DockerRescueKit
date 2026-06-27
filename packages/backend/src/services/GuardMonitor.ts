@@ -1,4 +1,4 @@
-import cron from 'node-cron'
+import cron, { type ScheduledTask } from 'node-cron'
 import type Dockerode from 'dockerode'
 import type { DockerService } from './DockerService'
 import type { SettingsService } from './SettingsService'
@@ -40,7 +40,7 @@ const RECONNECT_MAX_MS = 30_000
 
 export class GuardMonitor {
   private eventStream: NodeJS.ReadableStream | null = null
-  private floorJob: cron.ScheduledTask | null = null
+  private floorJob: ScheduledTask | null = null
   private sweepTimer: NodeJS.Timeout | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
   private reconnectAttempt = 0
