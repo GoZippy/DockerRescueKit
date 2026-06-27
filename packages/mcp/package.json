@@ -18,7 +18,7 @@
     "@docker-rescue-kit/shared": "file:../shared",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.18.1",
-    "dockerode": "^4.0.2",
+    "dockerode": "^5.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
