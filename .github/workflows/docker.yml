@@ -163,7 +163,7 @@ jobs:
           exit-code: '0'
 
       - name: Upload Trivy SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()  # publish findings even if the gate failed above
         with:
           sarif_file: trivy-results.sarif
