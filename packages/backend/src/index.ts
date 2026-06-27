@@ -1010,7 +1010,10 @@ export class BackupService {
     console.log(`\x1b[34m[UI]\x1b[0m Serving static bundle from ${uiDir}`)
     this.app.use(express.static(uiDir))
     const indexHtml = `${uiDir}/index.html`
-    this.app.get('*', (req, res, next) => {
+    // Express 5 / path-to-regexp v8 rejects the bare '*' wildcard, so the SPA
+    // fallback is a pathless middleware instead — same GET-only, non-API behavior.
+    this.app.use((req, res, next) => {
+      if (req.method !== 'GET') return next()
       if (req.path.startsWith('/api') || req.path.startsWith('/metrics')) return next()
       res.sendFile(indexHtml)
     })
