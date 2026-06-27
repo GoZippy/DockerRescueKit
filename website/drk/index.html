@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DockerRescueKit — Pricing &amp; Plans</title>
-  <meta name="description" content="DockerRescueKit (DRK) pricing: Free, Personal Pro, Commercial Pro, and Enterprise plans. Backup, cleanup, repair, and optimize your Docker environment." />
+  <title>DockerRescueKit — Backup &amp; Restore for Docker Desktop</title>
+  <meta name="description" content="DockerRescueKit (DRK) is the Docker Desktop extension for scheduled, policy-driven backup and one-click restore of containers, volumes, images, and networks — to 7 storage backends. Start free." />
   <link rel="icon" type="image/png" href="assets/zippy-mark.png" />
   <link rel="icon" href="assets/favicon.ico" sizes="any" />
   <link rel="apple-touch-icon" href="assets/zippy-mark.png" />
   <meta name="theme-color" content="#0b0e14" />
-  <meta property="og:title" content="DockerRescueKit — Pricing &amp; Plans" />
-  <meta property="og:description" content="Backup, cleanup, repair, and optimize your Docker environment. Free, Personal Pro, Commercial Pro, and Enterprise plans." />
+  <meta property="og:title" content="DockerRescueKit — Backup &amp; Restore for Docker Desktop" />
+  <meta property="og:description" content="Scheduled, policy-driven backup and one-click restore for Docker — containers, volumes, images, networks — to 7 storage backends. Start free." />
   <meta property="og:image" content="https://license.gozippy.com/assets/og-image.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -22,9 +22,11 @@
         <span class="brand-name">Docker<b>Rescue</b>Kit</span>
       </a>
       <nav class="nav-links">
-        <a href="#plans">Plans</a>
+        <a href="#features">Features</a>
+        <a href="#why">Why upgrade</a>
         <a href="personal-pro/">Personal Pro</a>
         <a href="commercial-pro/">Commercial Pro</a>
+        <a href="#plans">Pricing</a>
         <a href="#faq">FAQ</a>
         <a href="https://github.com/gozippy/DockerRescueKit">GitHub</a>
       </nav>
@@ -32,13 +34,124 @@
   </header>
 
   <main>
+    <!-- Hero -->
     <section class="hero container">
       <span class="eyebrow">Backup &middot; Cleanup &middot; Repair &middot; Optimize</span>
-      <h1>Pricing that fits how you run Docker</h1>
-      <p>Start free, upgrade when you need more. Every plan includes AES-256 encryption at rest. Perpetual personal licensing, fair per-seat commercial pricing, and a launch price locked for life.</p>
+      <h1>Scheduled backup &amp; one-click restore for Docker Desktop</h1>
+      <p>DockerRescueKit snapshots your containers, volumes, images, and networks on a schedule — and restores them in one click. Runs as a single container, discovers your stacks automatically, and backs up to 7 storage destinations.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="https://hub.docker.com/r/gozippy/dockerrescuekit">Get DRK Free</a>
+        <a class="btn btn-secondary btn-lg" href="#plans">See plans</a>
+      </div>
+      <p class="hero-sub">Free for personal use &middot; AES-256 encryption on every plan &middot; no account required</p>
     </section>
 
-    <section id="plans" class="container">
+    <!-- Positioning -->
+    <section class="container">
+      <div class="positioning">
+        <span class="positioning-mark">★</span>
+        The <strong>only published Docker Desktop extension</strong> for policy-driven backup &amp; restore — since Docker retired its own <em>Volumes Backup &amp; Share</em> in 2024.
+      </div>
+    </section>
+
+    <!-- Features -->
+    <h2 class="section-title" id="features">Everything you need to protect a Docker stack</h2>
+    <p class="section-sub">Four jobs, one extension — no scripts to babysit.</p>
+    <section class="features container">
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <h3>Policy-driven backup</h3>
+        <p>Capture containers, volumes, images, and networks as one consistent unit, with pre- and post-backup hooks run inside the target.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <h3>Scheduling &amp; retention</h3>
+        <p>Cron-based policies with pause/resume, plus simple, time-based, or tiered retention so old snapshots prune themselves.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        </div>
+        <h3>Verify + one-click restore</h3>
+        <p>Every backup can be restore-tested in a sandbox. Dry-run a restore, browse files, or roll a whole stack back in one click.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6"/><rect x="13" y="7" width="3" height="10"/></svg>
+        </div>
+        <h3>Cost &amp; speed analysis</h3>
+        <p>Compare restore cost and speed across 15 storage backends with built-in, source-linked reference pricing before you commit.</p>
+      </div>
+    </section>
+
+    <!-- Product tour -->
+    <h2 class="section-title" id="tour">See it in action</h2>
+    <p class="section-sub">A clean dashboard for your whole Docker environment.</p>
+    <section class="tour container">
+      <div class="tour-item">
+        <div class="shot"><img src="assets/screenshots/dashboard.png" alt="DockerRescueKit dashboard showing stack health and recent backups" loading="lazy" width="2604" height="2054" /></div>
+        <div class="tour-copy">
+          <h3>Dashboard</h3>
+          <p>See stack health, recent backups, and what's scheduled next at a glance &mdash; the home base for your whole Docker environment. Backup Policies, Compose Stacks, Backup History, Cost Analysis, the Storage Vault, and more all live a click away.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Storage backends -->
+    <h2 class="section-title">Back up anywhere</h2>
+    <p class="section-sub">Seven first-class storage backends — plus 40+ clouds through Rclone.</p>
+    <section class="container">
+      <div class="backends">
+        <span class="pill">Local disk</span>
+        <span class="pill">SMB / CIFS</span>
+        <span class="pill">SFTP</span>
+        <span class="pill">Amazon S3</span>
+        <span class="pill">Proxmox PBS</span>
+        <span class="pill">Restic</span>
+        <span class="pill pill-accent">+ 40 clouds via Rclone</span>
+      </div>
+    </section>
+
+    <!-- Why upgrade / pain points -->
+    <h2 class="section-title" id="why">Why teams upgrade</h2>
+    <p class="section-sub">The problems DRK was built to kill &mdash; and why Pro pays for itself.</p>
+    <section class="why container">
+      <div class="why-grid">
+        <div class="why-card">
+          <h3>No safety net for Docker data</h3>
+          <p>Docker Desktop has shipped no backup since Docker retired <em>Volumes Backup &amp; Share</em> in 2024. One <code>docker volume rm</code>, a disk failure, or a reinstall and your data is gone. DRK snapshots it automatically, on a schedule.</p>
+        </div>
+        <div class="why-card">
+          <h3>Backup scripts you don&rsquo;t trust</h3>
+          <p>Hand-rolled <code>tar</code> + cron scripts rot, go undocumented, and nobody tests the restore until it&rsquo;s an outage. DRK restore-tests every backup in a sandbox, so recovery actually works.</p>
+        </div>
+        <div class="why-card">
+          <h3>The Free-tier ceiling</h3>
+          <p>Free caps you at 5 policies and 14-day history. Pro unlocks <strong>unlimited policies</strong> and 90- or 365-day audit retention &mdash; real coverage across every stack you run.</p>
+        </div>
+        <div class="why-card">
+          <h3>Silent failures</h3>
+          <p>A backup that quietly fails is the worst kind. Pro adds <strong>notifications</strong> (Slack, email, webhook) so you hear about a problem <em>before</em> you need the backup.</p>
+        </div>
+        <div class="why-card">
+          <h3>Your keys, your control</h3>
+          <p>Pro adds <strong>bring-your-own / customer-managed encryption keys</strong> on top of the AES-256 encryption at rest that every plan already includes.</p>
+        </div>
+        <div class="why-card support">
+          <h3>Keep it alive &#9829;</h3>
+          <p>DRK is the <strong>only published Docker Desktop backup extension</strong>. A one-time $29 (or $99/seat) directly funds its continued development &mdash; upgrading is the simplest way to support the project and get more in return.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <h2 class="section-title" id="plans">Pricing that fits how you run Docker</h2>
+    <p class="section-sub">Start free, upgrade when you need more. Every plan includes AES-256 encryption at rest.</p>
+    <section class="container">
       <div class="pricing-grid">
 
         <!-- Free -->
@@ -78,6 +191,7 @@
           </ul>
           <!-- Square line-item SKU: DRK-PERSONAL-PRO-V1 ($29 one-time, perpetual within major version) -->
           <a class="btn btn-primary btn-block" href="https://square.link/u/bPvzu5Ik">Buy Personal Pro</a>
+          <a class="learn-more" href="personal-pro/">Learn more about Personal Pro &rarr;</a>
         </div>
 
         <!-- Commercial Pro -->
@@ -92,12 +206,13 @@
           <ul>
             <li>Everything in Personal Pro</li>
             <li>Commercial-use rights</li>
-            <li>Multi-host fleet management</li>
             <li>365-day audit retention</li>
             <li>AES-256 encryption at rest</li>
+            <li>Multi-host fleet management <span class="soon">coming soon</span></li>
           </ul>
           <!-- Square line-item SKU: DRK-COMMERCIAL-PRO-LAUNCH ($99/seat/year launch, locked for life; standard SKU DRK-COMMERCIAL-PRO-STANDARD is $149/seat/year). Enable seat-quantity selection at checkout; 3-seat minimum. -->
           <a class="btn btn-primary btn-block" href="https://square.link/u/9it5UmKX">Buy Commercial Pro</a>
+          <a class="learn-more" href="commercial-pro/">Learn more about Commercial Pro &rarr;</a>
         </div>
 
         <!-- Enterprise -->
@@ -147,6 +262,10 @@
         <p>Commercial Pro is licensed per seat at $99/seat/year (launch price, locked for life), with a 3-seat minimum. You choose the number of seats at Square checkout, and the quantity you select sets your licensed seat count. The regular price is $149/seat/year.</p>
       </details>
       <details>
+        <summary>Which storage backends does DRK support?</summary>
+        <p>Seven first-class backends — local disk, SMB/CIFS, SFTP, Amazon S3, Proxmox Backup Server, and Restic — plus 40+ additional clouds through Rclone. You bring your own storage on every plan.</p>
+      </details>
+      <details>
         <summary>Is encryption included on the Free plan?</summary>
         <p>Yes. AES-256 encryption at rest is included in every plan, including Free. Personal Pro and above add bring-your-own / customer-managed encryption keys.</p>
       </details>
@@ -159,12 +278,26 @@
         <p>After checkout you&rsquo;ll receive a license token by email. Paste it into the extension at <strong>Settings &rarr; About &rarr; &ldquo;Have a license key?&rdquo;</strong>, or set the <code>DRK_LICENSE_KEY</code> environment variable.</p>
       </details>
     </section>
+
+    <!-- Closing CTA -->
+    <section class="container">
+      <div class="cta-band">
+        <h2>Protect your Docker stack in minutes</h2>
+        <p>Install free from Docker Hub, point it at your storage, and set your first backup policy. Upgrade any time.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href="https://hub.docker.com/r/gozippy/dockerrescuekit">Get DRK Free</a>
+          <a class="btn btn-secondary btn-lg" href="https://square.link/u/bPvzu5Ik">Buy Personal Pro — $29</a>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="site-footer">
     <div class="container">
-      <div>&copy; 2026 Zippy Technologies, LLC &middot; DockerRescueKit</div>
+      <div>&copy; 2026 <a href="https://gozippy.com">Zippy Technologies, LLC</a> &middot; DockerRescueKit</div>
       <nav class="footer-links">
+        <a href="https://gozippy.com">About Zippy</a>
+        <a href="https://hub.docker.com/r/gozippy/dockerrescuekit">Docker Hub</a>
         <a href="https://github.com/gozippy/DockerRescueKit">GitHub</a>
         <a href="https://github.com/gozippy/DockerRescueKit/blob/main/LICENSE">License</a>
         <a href="mailto:Support@GoZippy.com">Support</a>
