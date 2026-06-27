@@ -28,19 +28,19 @@ export const UpdatePolicySchema = CreatePolicySchema.partial()
 
 export const RestoreRequestSchema = z.object({
   dryRun: z.boolean().optional(),
-  targetOverrides: z.record(z.any()).optional()
+  targetOverrides: z.record(z.string(), z.any()).optional()
 })
 
 // ---- Connectors -------------------------------------------------------------
 
 export const ConnectorTestSchema = z.object({
   type: z.string().min(1),
-  config: z.record(z.any())
+  config: z.record(z.string(), z.any())
 })
 
 export const ConnectorDiscoverSchema = z.object({
   type: z.string().min(1),
-  config: z.record(z.any()),
+  config: z.record(z.string(), z.any()),
   // DR-001: which discovery semantic the caller wants. Defaults to
   // 'destinations' (pre-config enumeration) in resolveDiscovery().
   mode: z.enum(['destinations', 'contents']).optional()
@@ -50,7 +50,7 @@ export const SaveConnectorSchema = z.object({
   id: z.string().optional(),
   type: z.string().min(1),
   name: z.string().min(1),
-  config: z.record(z.any())
+  config: z.record(z.string(), z.any())
 })
 
 // ---- Docker stacks ----------------------------------------------------------
@@ -62,7 +62,7 @@ export const ProtectStackSchema = z.object({}).passthrough()
 export const RcloneCreateRemoteSchema = z.object({
   name: z.string().min(1),
   providerType: z.string().min(1),
-  params: z.record(z.any()).optional()
+  params: z.record(z.string(), z.any()).optional()
 })
 
 export const RcloneOAuthStartSchema = z.object({
