@@ -44,9 +44,9 @@ Square line-item SKU it must use — these SKUs MUST match
 
 | Placeholder `href` | Square line-item SKU | Price / term |
 |---|---|---|
-| `SQUARE_PAYMENT_LINK_PERSONAL_PRO` | `DRK-PERSONAL-PRO-V1` | $29 one-time, perpetual within major version |
-| `SQUARE_PAYMENT_LINK_COMMERCIAL_PRO_LAUNCH` | `DRK-COMMERCIAL-PRO-LAUNCH` | $99/seat/year launch (locked for life); standard SKU `DRK-COMMERCIAL-PRO-STANDARD` = $149/seat/year |
-| `SQUARE_PAYMENT_LINK_PRIORITY_QUEUE` | `DRK-PRIORITY-QUEUE` | $750/year |
+| `https://square.link/u/bPvzu5Ik` | `DRK-PERSONAL-PRO-V1` | $29 one-time, perpetual within major version |
+| `https://square.link/u/9it5UmKX` | `DRK-COMMERCIAL-PRO-LAUNCH` | $99/seat/year launch (locked for life); standard SKU `DRK-COMMERCIAL-PRO-STANDARD` = $149/seat/year |
+| `https://square.link/u/5hPPzp8r` | `DRK-PRIORITY-QUEUE` | $750/year |
 
 Placeholders appear in:
 - `index.html` (all three: Personal Pro, Commercial Pro, Priority Queue)
