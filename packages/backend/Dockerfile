@@ -8,7 +8,7 @@
 # cannot silently change what we build. Dependabot updates the tag+digest
 # together. Re-resolve manually via:
 #   docker buildx imagetools inspect node:20-alpine
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+FROM node:26-alpine@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS builder
 
 WORKDIR /workspace
 
@@ -75,7 +75,7 @@ ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags="-s -w" -o /restic ./cmd/restic
 
 # ─── Stage 2: final ──────────────────────────────────────────────────────────
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS final
+FROM node:26-alpine@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS final
 
 LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
       org.opencontainers.image.description="Backup and restore service for Docker containers, volumes, and stacks" \
