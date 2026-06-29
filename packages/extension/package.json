@@ -28,7 +28,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "cross-env": "^10.1.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.4.5",
+    "typescript": "^6.0.3",
     "vite": "^8.1.0"
   },
   "//optionalDependencies": "Force-install rollup native binaries for the platforms our Docker images target, so a lockfile generated on Windows still resolves on alpine linux (npm/cli#4828). Add other arches here if you build for them.",
