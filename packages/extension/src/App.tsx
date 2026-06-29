@@ -12,6 +12,7 @@ const SetupScreen = React.lazy(() => import('./components/SetupScreen').then(m =
 const RehearsalsPage = React.lazy(() => import('./components/RehearsalsPage').then(m => ({ default: m.RehearsalsPage })))
 const CostAnalysisPage = React.lazy(() => import('./components/CostAnalysisPage').then(m => ({ default: m.CostAnalysisPage })))
 const NotificationsPage = React.lazy(() => import('./components/NotificationsPage').then(m => ({ default: m.NotificationsPage })))
+const PruneGuardPage = React.lazy(() => import('./components/PruneGuardPage').then(m => ({ default: m.PruneGuardPage })))
 import { VersionBadge } from './components/VersionBadge'
 import { FeedbackModal } from './components/FeedbackModal'
 import { getApiKey, getStatus, getSettingsMeta, getNotificationUnreadCount, isPaymentRequired } from './api'
@@ -22,7 +23,7 @@ import { useGuardStream } from './hooks/useGuardStream'
 import {
   Activity, Database, Layers, Clock, ShieldCheck,
   Server, Plug, Shield, Settings, Menu, X, ChevronLeft, TrendingUp,
-  Loader2, Bell,
+  Loader2, Bell, RotateCcw,
   type LucideProps,
 } from 'lucide-react'
 
@@ -33,7 +34,7 @@ const PageFallback = () => (
 )
 
 type TabId =
-  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals' | 'costs'
+  | 'dashboard' | 'policies' | 'stacks' | 'history' | 'verify' | 'rehearsals' | 'guard' | 'costs'
   | 'storage' | 'connectors' | 'audit' | 'notifications' | 'settings'
 
 interface NavItem {
@@ -50,6 +51,7 @@ const NAV: NavItem[] = [
   { id: 'history',    label: 'Backup History',   icon: Clock,       bottomNav: true },
   { id: 'verify',     label: 'Verify History',   icon: ShieldCheck, bottomNav: false },
   { id: 'rehearsals', label: 'Rehearsals',        icon: ShieldCheck, bottomNav: false },
+  { id: 'guard',      label: 'Prune Guard',       icon: RotateCcw,   bottomNav: false },
   { id: 'costs',      label: 'Cost Analysis',     icon: TrendingUp,  bottomNav: false },
   { id: 'storage',    label: 'Storage Vault',    icon: Server,      bottomNav: false },
   { id: 'connectors', label: 'Integrations',     icon: Plug,        bottomNav: false },
@@ -456,6 +458,7 @@ const MainApp: React.FC = () => {
             {active === 'history'    && <BackupHistory />}
             {active === 'verify'     && <VerifyHistory />}
             {active === 'rehearsals' && <RehearsalsPage />}
+            {active === 'guard'      && <PruneGuardPage />}
             {active === 'costs'      && <CostAnalysisPage />}
             {active === 'storage'    && <VaultList />}
             {active === 'connectors' && <ConnectorsPage />}
