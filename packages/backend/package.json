@@ -14,7 +14,7 @@
     "@docker-rescue-kit/shared": "*",
     "archiver": "^8.0.0",
     "axios": "^1.18.1",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
     "dockerode": "^5.0.1",
