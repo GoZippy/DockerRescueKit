@@ -43,7 +43,8 @@ describe('PartialRestoreService.listEntries (with mocked tar)', () => {
   beforeEach(() => {
     const policyManager: any = {
       getBackup: jest.fn().mockResolvedValue({ id: 'b1', policyId: 'p1', status: 'success' }),
-      getPolicy: jest.fn().mockResolvedValue({ id: 'p1', storage: { type: 'local', path: '/tmp/x' } })
+      getPolicy: jest.fn().mockResolvedValue({ id: 'p1', storage: { type: 'local', path: '/tmp/x' } }),
+      resolveStorageConfig: jest.fn().mockImplementation(s => Promise.resolve(s || {}))
     }
     svc = new PartialRestoreService(policyManager, '/tmp/drk-staging')
     // Short-circuit fetchToStaging to avoid touching a real adapter.
@@ -56,5 +57,11 @@ describe('PartialRestoreService.listEntries (with mocked tar)', () => {
     expect(entries[0].path).toBe('./hello.txt')
     expect(entries[0].size).toBe(12)
     expect(entries[1].mode.startsWith('d')).toBe(true)
+  })
+
+  it('returns formatted storage location for local backups', async () => {
+    const loc = await svc.getStorageLocation('b1')
+    expect(loc.type).toBe('local')
+    expect(loc.location).toContain('b1')
   })
 })

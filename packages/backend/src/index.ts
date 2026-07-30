@@ -696,6 +696,11 @@ export class BackupService {
       res.json(entries)
     }))
 
+    this.app.get('/api/backups/:id/location', validateParams(idParamSchema), asyncHandler(async (req, res) => {
+      const info = await this.partial.getStorageLocation(req.params.id)
+      res.json(info)
+    }))
+
     this.app.get('/api/backups/:id/files/extract', validateParams(idParamSchema), validateQuery(fileQuerySchema), asyncHandler(async (req, res) => {
       const fileName = String(req.query.name || '')
       const entryPath = String(req.query.path || '')

@@ -41,18 +41,49 @@ export class PartialRestoreService {
     }
   }
 
+  public async getStorageLocation(backupId: string): Promise<{ type: string; location: string; path?: string }> {
+    const backup = await this.policyManager.getBackup(backupId)
+    if (!backup) throw new NotFoundError('Backup', backupId)
+    const policy = await this.policyManager.getPolicy(backup.policyId)
+    if (!policy) throw new NotFoundError('Policy (parent)', backup.policyId)
+
+    const resolved = await this.policyManager.resolveStorageConfig(policy.storage)
+    const type = String(policy.storage?.type || 'local')
+
+    if (type === 'local') {
+      const basePath = path.resolve(resolved.path || resolved.basePath || 'data/backups')
+      const fullPath = path.join(basePath, backupId)
+      return { type: 'local', location: fullPath, path: fullPath }
+    } else if (type === 's3') {
+      const loc = `s3://${resolved.bucket || 'default'}/${resolved.prefix || ''}${backupId}`
+      return { type: 's3', location: loc }
+    } else if (type === 'smb') {
+      const loc = `\\\\${resolved.host || 'server'}\\${resolved.share || 'backups'}\\${backupId}`
+      return { type: 'smb', location: loc }
+    } else if (type === 'sftp') {
+      const loc = `sftp://${resolved.host || 'server'}:${resolved.port || 22}${resolved.path || '/backups'}/${backupId}`
+      return { type: 'sftp', location: loc }
+    } else if (type === 'pbs') {
+      const loc = `pbs://${resolved.server || 'server'}/${resolved.datastore || 'backup'}/${backupId}`
+      return { type: 'pbs', location: loc }
+    } else if (type === 'rclone') {
+      const loc = `rclone://${resolved.remote || 'remote'}:${resolved.path || ''}/${backupId}`
+      return { type: 'rclone', location: loc }
+    }
+    return { type, location: `${type}://${backupId}` }
+  }
+
   public async extractFile(backupId: string, fileName: string, entryPath: string): Promise<NodeJS.ReadableStream> {
     // Validate the user-supplied entry path BEFORE any I/O. Throws on `..`,
     // null bytes, leading `/`, leading `-`, absolute Windows paths, etc.
     const safeEntry = assertSafeEntryPath(entryPath)
     const tarPath = await this.fetchToStaging(backupId, fileName)
-    // tar -xzOf <archive> -- <path>  emits the file's bytes on stdout.
-    // The `--` separator prevents any future entry name that begins with `-`
-    // (already rejected above, but defense in depth) from being parsed as a
-    // CLI option. We also pass `--no-same-owner` and `--no-same-permissions`
-    // for hygiene even though `-O` writes to stdout (no filesystem write).
+    const gzipped = await this.isGzipped(tarPath)
+    const flags = gzipped ? '-xzO' : '-xO'
+
+    // tar -xzOf or -xOf <archive> -- <path> emits the file's bytes on stdout.
     const proc = spawn('tar', [
-      '-xzO',
+      flags,
       '--no-same-owner',
       '--no-same-permissions',
       '-f', tarPath,
@@ -63,6 +94,18 @@ export class PartialRestoreService {
   }
 
   // --- internals ---------------------------------------------------------
+
+  private async isGzipped(filePath: string): Promise<boolean> {
+    try {
+      const fd = await fs.open(filePath, 'r')
+      const buf = Buffer.alloc(2)
+      await fs.read(fd, buf, 0, 2, 0)
+      await fs.close(fd)
+      return buf[0] === 0x1f && buf[1] === 0x8b
+    } catch {
+      return true
+    }
+  }
 
   private async fetchToStaging(backupId: string, fileName: string): Promise<string> {
     const backup = await this.policyManager.getBackup(backupId)
@@ -91,9 +134,23 @@ export class PartialRestoreService {
     return localTar
   }
 
-  private tarList(tarPath: string): Promise<TarEntry[]> {
+  private async tarList(tarPath: string): Promise<TarEntry[]> {
+    const gzipped = await this.isGzipped(tarPath)
+    const primaryFlags = gzipped ? '-tzvf' : '-tvf'
+    try {
+      return await this.execTarList(tarPath, primaryFlags)
+    } catch (err) {
+      // Fallback: if gzip mode failed (e.g. file named .tar.gz but uncompressed), try uncompressed
+      if (gzipped) {
+        return await this.execTarList(tarPath, '-tvf')
+      }
+      throw err
+    }
+  }
+
+  private execTarList(tarPath: string, flags: string): Promise<TarEntry[]> {
     return new Promise((resolve, reject) => {
-      const proc = spawn('tar', ['-tzvf', tarPath])
+      const proc = spawn('tar', [flags, tarPath])
       const chunks: Buffer[] = []
       const errChunks: Buffer[] = []
       proc.stdout.on('data', c => chunks.push(c))
@@ -101,7 +158,7 @@ export class PartialRestoreService {
       proc.on('error', reject)
       proc.on('close', code => {
         if (code !== 0) {
-          return reject(new Error(`tar -tzvf exited ${code}: ${Buffer.concat(errChunks)}`))
+          return reject(new Error(`tar ${flags} exited ${code}: ${Buffer.concat(errChunks)}`))
         }
         const lines = Buffer.concat(chunks).toString('utf-8').split('\n').filter(Boolean)
         resolve(lines.map(line => parseTarLine(line)).filter((e): e is TarEntry => !!e))

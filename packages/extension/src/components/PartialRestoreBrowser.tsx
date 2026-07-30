@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Backup } from '@docker-rescue-kit/shared'
-import { listBackupFiles, extractBackupFileUrl } from '../api'
-import { X, Folder, File, Download, RefreshCw, FolderOpen } from 'lucide-react'
+import { listBackupFiles, extractBackupFileUrl, getBackupLocation } from '../api'
+import { X, Folder, File, Download, RefreshCw, FolderOpen, HardDrive, Copy, Check } from 'lucide-react'
 import { EmptyState } from './EmptyState'
 
 interface Props {
@@ -21,6 +21,8 @@ export const PartialRestoreBrowser: React.FC<Props> = ({ backup, onClose }) => {
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [locationInfo, setLocationInfo] = useState<{ type: string; location: string; path?: string } | null>(null)
+  const [copied, setCopied] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
 
   // ESC-to-close + focus trap
@@ -49,10 +51,16 @@ export const PartialRestoreBrowser: React.FC<Props> = ({ backup, onClose }) => {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEffect(() => {
+    getBackupLocation(backup.id)
+      .then(info => setLocationInfo(info))
+      .catch(() => setLocationInfo(null))
+  }, [backup.id])
+
   // Infer candidate archive names from target list. The PolicyManager names
   // backup files as `{type}_{selector}.tar.gz`, so derive from targets.
   const archives = backup.targets
-    .filter(t => t.type === 'volume' || t.type === 'container')
+    .filter(t => t.type === 'volume' || t.type === 'container' || t.type === 'image')
     .map(t => `${t.type}_${t.selector.replace(/[^a-zA-Z0-9._-]/g, '_')}.tar.gz`)
 
   useEffect(() => {
@@ -73,6 +81,13 @@ export const PartialRestoreBrowser: React.FC<Props> = ({ backup, onClose }) => {
   }
 
   useEffect(() => { load() }, [archive])
+
+  const copyPath = () => {
+    if (!locationInfo?.location) return
+    navigator.clipboard.writeText(locationInfo.location)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const fmt = (n: number) => {
     if (!n) return '—'
@@ -96,6 +111,23 @@ export const PartialRestoreBrowser: React.FC<Props> = ({ backup, onClose }) => {
           <h3 id="partial-restore-title" className="text-lg font-bold flex items-center gap-2"><Folder size={18} /> Browse backup</h3>
           <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-white"><X size={20} /></button>
         </div>
+
+        {locationInfo && (
+          <div className="flex items-center justify-between text-xs px-3 py-1.5 rounded bg-slate-900/80 border border-white/10 text-slate-400 font-mono overflow-hidden">
+            <span className="truncate flex items-center gap-1.5" title={locationInfo.location}>
+              <HardDrive size={13} className="text-blue-400 shrink-0" />
+              <span className="text-slate-300 font-medium font-sans">Storage:</span> {locationInfo.location}
+            </span>
+            <button
+              onClick={copyPath}
+              className="ml-2 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 flex items-center gap-1 shrink-0 font-sans text-[11px]"
+              title="Copy storage location path"
+            >
+              {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              {copied ? 'Copied' : 'Copy Path'}
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <select
