@@ -81,8 +81,8 @@ FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb836
 
 # Extension version surfaced in `docker extension ls` / Docker Desktop. Defaults
 # to the current release; the release pipeline can override per build:
-#   docker build --build-arg DRK_VERSION=1.4.1 -t gozippy/dockerrescuekit:latest .
-ARG DRK_VERSION=1.4.1
+#   docker build --build-arg DRK_VERSION=1.4.2 -t gozippy/dockerrescuekit:latest .
+ARG DRK_VERSION=1.4.2
 
 LABEL org.opencontainers.image.title="Docker Rescue Kit" \
       org.opencontainers.image.description="Backup and restore for Docker containers, volumes, and stacks" \

@@ -1,6 +1,7 @@
 import Docker from 'dockerode'
 import fs from 'fs-extra'
 import path from 'path'
+import zlib from 'zlib'
 
 export interface ComposeStack {
   project: string
@@ -193,11 +194,14 @@ export class DockerService {
     const container = this.docker.getContainer(containerId)
     const stream = await container.export()
     const output = fs.createWriteStream(destPath)
+    const compress = destPath.endsWith('.gz')
+    const finalStream: any = compress ? stream.pipe(zlib.createGzip()) : stream
 
     await new Promise<void>((resolve, reject) => {
-      stream.pipe(output)
+      finalStream.pipe(output)
       output.on('finish', () => resolve())
       output.on('error', reject)
+      finalStream.on('error', reject)
       stream.on('error', reject)
     })
   }
@@ -222,10 +226,14 @@ export class DockerService {
     const img = this.docker.getImage(imageName)
     const stream = await img.get()
     const output = fs.createWriteStream(destPath)
+    const compress = destPath.endsWith('.gz')
+    const finalStream: any = compress ? stream.pipe(zlib.createGzip()) : stream
+
     await new Promise<void>((resolve, reject) => {
-      stream.pipe(output)
+      finalStream.pipe(output)
       output.on('finish', () => resolve())
       output.on('error', reject)
+      finalStream.on('error', reject)
       stream.on('error', reject)
     })
   }

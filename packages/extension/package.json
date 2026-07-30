@@ -1,6 +1,6 @@
 {
   "name": "@docker-rescue-kit/extension",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
@@ -22,21 +22,21 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.25",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^6.0.4",
     "cross-env": "^10.1.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.4.5",
-    "vite": "^8.1.0"
+    "vite": "^8.1.5"
   },
   "//optionalDependencies": "Force-install rollup native binaries for the platforms our Docker images target, so a lockfile generated on Windows still resolves on alpine linux (npm/cli#4828). Add other arches here if you build for them.",
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-musl": "^4.62.2",
-    "@rollup/rollup-linux-arm64-musl": "^4.62.2",
-    "lightningcss-linux-x64-musl": "^1.27.0",
-    "lightningcss-linux-arm64-musl": "^1.27.0",
+    "@rollup/rollup-linux-x64-musl": "^4.62.3",
+    "@rollup/rollup-linux-arm64-musl": "^4.62.3",
+    "lightningcss-linux-x64-musl": "^1.33.0",
+    "lightningcss-linux-arm64-musl": "^1.33.0",
     "@tailwindcss/oxide-linux-x64-musl": "^4.2.0",
     "@tailwindcss/oxide-linux-arm64-musl": "^4.2.0"
   }

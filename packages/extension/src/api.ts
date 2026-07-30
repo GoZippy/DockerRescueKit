@@ -93,6 +93,10 @@ export const listBackupFiles = async (backupId: string, fileName: string) => {
   )
 }
 
+export const getBackupLocation = async (backupId: string) => {
+  return apiClient.get<{ type: string; location: string; path?: string }>(`/backups/${backupId}/location`)
+}
+
 export const extractBackupFileUrl = (backupId: string, fileName: string, entryPath: string) => {
   const q = new URLSearchParams({ name: fileName, path: entryPath }).toString()
   if (import.meta.env.VITE_TRANSPORT === 'extension') {

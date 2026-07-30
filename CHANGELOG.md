@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ---
 
+## [1.4.2] - 2026-07-30
+
+### Fixed
+
+- **Backup Browsing HTTP 500 Fix**: `PartialRestoreService` now inspects magic bytes (`0x1f 0x8b`) and falls back to uncompressed `tar` reading when archive files are uncompressed. This fixes the `HTTP 500 Internal Server Error` when opening container or image backups in the file browser.
+- **Container & Image Compression**: `DockerService` now pipes container export and image export streams through gzip compression when saving to `.tar.gz` destination filenames.
+
+### Added
+
+- **Storage Location Transparency**: Added `/api/backups/:id/location` endpoint and a **Storage Location Banner** with a **Copy Path** button in the Browse Backup modal (`PartialRestoreBrowser.tsx`) to show resolved local and remote backup storage paths.
+- **Image Target Support in File Browser**: Updated the backup archive selector to include `image` backup target types alongside `container` and `volume` targets.
+
+---
+
 ## [1.4.1] - 2026-06-13
 
 ### Added
