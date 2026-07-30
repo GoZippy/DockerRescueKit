@@ -195,7 +195,7 @@ export class DockerService {
     const stream = await container.export()
     const output = fs.createWriteStream(destPath)
     const compress = destPath.endsWith('.gz')
-    const finalStream = compress ? stream.pipe(zlib.createGzip()) : stream
+    const finalStream: any = compress ? stream.pipe(zlib.createGzip()) : stream
 
     await new Promise<void>((resolve, reject) => {
       finalStream.pipe(output)
@@ -227,7 +227,7 @@ export class DockerService {
     const stream = await img.get()
     const output = fs.createWriteStream(destPath)
     const compress = destPath.endsWith('.gz')
-    const finalStream = compress ? stream.pipe(zlib.createGzip()) : stream
+    const finalStream: any = compress ? stream.pipe(zlib.createGzip()) : stream
 
     await new Promise<void>((resolve, reject) => {
       finalStream.pipe(output)

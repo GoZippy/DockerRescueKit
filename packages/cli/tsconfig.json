@@ -9,7 +9,9 @@
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": false
+    "declaration": false,
+    "types": ["jest", "node"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/__tests__", "**/__tests__/**"]
 }
