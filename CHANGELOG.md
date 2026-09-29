@@ -880,7 +880,7 @@ backup space ships end-to-end stack restore rehearsal; DRK now does.
 
 ## [1.2.0-rc.1] - 2026-05-24
 
-Competitive-response release driven by [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md).
+Competitive-response release.
 The Docker Desktop Extension Marketplace category for backup/restore is
 effectively empty since Docker archived their own
 `docker/volumes-backup-extension` on 2024-10-29. This release closes
