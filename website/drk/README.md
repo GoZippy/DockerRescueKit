@@ -88,8 +88,7 @@ the `src` / `href` references.
 ## Pricing source of truth
 
 The binding source of truth is **LICENSE Schedule A**. Keep these pages in sync
-with it (and with the README License section, `docs/ROADMAP.md`, and
-`docs/MARKETPLACE_LISTING_DRAFT.md`). Notably:
+with it (and with the README License section and `docs/ROADMAP.md`). Notably:
 
 - Do **not** reintroduce the retired "$89/year" figure.
 - Do **not** use "SLA / guaranteed response time" language (LICENSE §5.7 forbids

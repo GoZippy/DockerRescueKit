@@ -23,7 +23,7 @@ const LICENSE_URL     = 'https://github.com/gozippy/DockerRescueKit/blob/main/LI
 const CHANGELOG_URL   = 'https://github.com/gozippy/DockerRescueKit/blob/main/CHANGELOG.md'
 // Canonical purchase/pricing page. Keep this in sync with the upgrade URLs the
 // backend returns in its 402 body (licenseGate.ts). This page must exist and
-// route to the Square checkout links — see docs/BUY_PAGE_SPEC.md.
+// route to the checkout links.
 const UPGRADE_URL     = 'https://gozippy.com/drk'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -388,7 +388,6 @@ unrelated to the container running on port 42880. See
 | [Homelab Quickstart](docs/QUICKSTART_HOMELAB.md) | Proxmox, TrueNAS, Unraid setup guides |
 | [Backup Tools Comparison](docs/BACKUP_TOOLS_COMPARISON.md) | Honest comparison to offen, restic, Duplicati, kopia |
 | [Stack Recipes](docs/STACK_RECIPES.md) | Copy-paste policies for 6 homelab stacks |
-| [Competitive Analysis](docs/COMPETITIVE_ANALYSIS.md) | SWOT, gap analysis, strategic recommendations |
 | [Roadmap](docs/ROADMAP.md) | Implementation status and planned features |
 | [Observability](docs/OBSERVABILITY.md) | Prometheus metrics, Grafana, alerting |
 | [FAQ](docs/FAQ.md) | Frequently asked questions |
