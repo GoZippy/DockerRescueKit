@@ -27,6 +27,7 @@ Report-only mode checks:
 - Docker Desktop named pipes.
 - Docker Desktop settings drift.
 - Docker data paths and free space.
+- duplicate default-bridge network conflict (see below).
 - recent Docker Desktop log signals.
 - restart-looping containers.
 
@@ -56,6 +57,62 @@ pwsh ./tools/rescue/Invoke-DrkStartupRescue.ps1 -Rescue -ClearWslIntegrationList
 
 `-ClearWslIntegrationList` backs up `%APPDATA%\Docker\settings-store.json`
 before editing it.
+
+## Duplicate default-bridge network
+
+A stale entry in libnetwork's key-value store can end up owning the default
+bridge name. `dockerd` then fails to create the default `bridge` network and
+exits 1 on **every** start:
+
+```
+failed to start daemon: Error initializing network controller: error creating
+default "bridge" network: cannot create network <new-id> (docker0): conflicts
+with network <stale-id> (docker0): networks have same bridge name
+```
+
+Two things make this hard to find without help:
+
+1. **Docker Desktop reports the wrong error.** The "An unexpected error
+   occurred" dialog shows whatever non-fatal warning `dockerd` logged last —
+   commonly `enable fsverity failed: operation not supported`, which is a
+   capability probe against `/var/lib/docker/plugins/storage` and has nothing
+   to do with the failure. The real error appears only in the VM-side
+   `%LOCALAPPDATA%\Docker\log\vm\init.log`.
+2. **The store does not self-heal.** It is a boltdb file; a hard kill mid-write
+   can leave the duplicate behind permanently. The only in-product remedy Docker
+   offers is *Reset to factory defaults*, which destroys every image, container
+   and volume to fix one stale record.
+
+The scanner detects it from `init.log` and reports `DUPLICATE_BRIDGE_NETWORK`
+(critical) when the engine is also unreachable, or
+`DUPLICATE_BRIDGE_NETWORK_RESOLVED` (info) when the conflict appears in history
+but the engine is healthy now.
+
+To repair:
+
+```powershell
+pwsh ./tools/rescue/Invoke-DrkStartupRescue.ps1 -Rescue -FullWslShutdown -RepairNetworkStore -StartDocker
+```
+
+The repair is gated on evidence: it refuses unless `init.log` actually shows the
+conflict **and** the engine is unreachable, so it cannot fire on a hunch and destroy
+networks on a healthy install. `-WhatIf` and `-Confirm` are supported; `-Force`
+overrides the gates.
+
+What the repair does, in order: stops the Docker Desktop stack, terminates WSL,
+mounts the Docker data VHDX read-write via `wsl --mount`, locates
+`*/network/files/local-kv.db`, copies it to a timestamped `.bak` beside the
+original, removes it, syncs, and unmounts.
+
+**Scope of the change.** All user-defined networks are erased. Docker rebuilds
+`bridge`, `host` and `none` on next start, and compose projects recreate their
+own networks on the next `up`. Images, containers, volumes and build cache are
+not touched.
+
+`-RepairNetworkStore` requires `-Rescue`; on its own it refuses to run, because
+the data disk cannot be safely mounted while the engine holds it. The VHDX is
+auto-detected from `CustomWslDistroDir` and the default WSL data directory —
+override with `-DataVhdxPath` if detection fails.
 
 ## Finding Model
 
@@ -104,6 +161,8 @@ Rescue tools must avoid destructive actions by default.
 - Never unregister WSL distros automatically.
 - Never delete Docker Desktop data VHDs automatically.
 - Never prune images, volumes, or containers from startup rescue.
+- Never remove the network store without an explicit flag, and always leave a
+  timestamped backup beside the original.
 - Back up settings before edits.
 - Keep report-only mode as the default.
 - Require explicit flags for service stops, WSL shutdown, and settings edits.

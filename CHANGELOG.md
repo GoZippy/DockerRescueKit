@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+### Added
+
+- **`drk doctor`** — offline diagnosis for a Docker daemon that will not start. Reads Docker Desktop's VM init log directly from the host and matches it against a catalogue of known-fatal daemon errors. Requires no daemon, no API key, and no running DRK, because when the daemon is down every containerised component is down with it — including this extension. Add `--repair-network-store` to clear a corrupted network store in place (Windows/WSL2; mounts the data VHDX, backs up `local-kv.db`, removes it, unmounts). `--json` for scripting; exit 2 when a fatal error is found.
+- **Fatal-error catalogue** (`packages/shared/src/dockerFatalErrors.ts`) — matchers for known daemon startup failures plus a generic `failed to start daemon:` fallback, shared by the CLI and the PowerShell companion. Also carries a decoy list: messages Docker Desktop is known to misreport as the cause, so DRK can tell the user outright that the dialog is pointing at the wrong thing.
+- **Control-plane snapshots** — every policy run now captures Docker's own network topology and daemon identity to `control-plane.json` alongside the payload. Costs a few KB. Turns a corrupted network store from "factory reset is your only option" into a replay.
+- **Host-side rescue tooling ships with the extension.** `metadata.json` now declares `host.binaries`, so installing DRK from the Extensions Marketplace puts the doctor on the host — where it keeps working when the daemon, and therefore the extension itself, is down. Shell scripts rather than compiled binaries: three platform builds of a Node single-executable would add ~150 MB to a 112 MB image to deliver a tool that reads a log file. The macOS/Linux script is self-contained (the pattern table is inlined at generation time) because `host.binaries` copies declared files and makes no promise about sibling directories.
+- **`npm run gen:catalogue`** — generates the PowerShell and POSIX-shell catalogues from `dockerFatalErrors.ts` so the tables cannot drift. Runs inside the Docker build, so nothing generated needs committing. Hard-fails on any pattern outside the POSIX-ERE subset, which prevents a PCRE-only regex silently shipping a shell doctor that matches nothing.
+- **`drk backup:restore-networks <backupId>`** and `POST /api/backups/:id/restore-networks` — rebuild network topology from a control-plane snapshot after a store repair. Skips predefined networks, networks that already exist, and any entry whose bridge name is already claimed; a naive replay would reintroduce the duplicate-bridge conflict that made the repair necessary. `--dry-run` supported.
+
+- **Duplicate default-bridge detection and repair** (`tools/rescue/Invoke-DrkStartupRescue.ps1`): detects the failure where a stale entry in libnetwork's key-value store owns the default bridge name, so `dockerd` exits 1 on every start. Docker Desktop misreports this as an unrelated non-fatal warning (typically `enable fsverity failed: operation not supported`), so the dialog text never mentions networking. New findings `DUPLICATE_BRIDGE_NETWORK` (critical) and `DUPLICATE_BRIDGE_NETWORK_RESOLVED` (info). New `-RepairNetworkStore` flag backs up and removes `local-kv.db` from the Docker data VHDX; requires `-Rescue`, leaves a timestamped `.bak`, and erases user-defined networks only — images, containers and volumes are untouched. New `-DataVhdxPath` override for when VHDX auto-detection fails.
+- `DockerService.removeVolume(name, force)` — public volume removal, replacing a private-field cast in `VerifyService`.
+
+### Fixed
+
+- **Scratch volume leak in verify runs**: `drk-verify-*` volumes could accumulate indefinitely. Two causes — the volume name was registered for cleanup only *after* `importVolume()` resolved, so a failure partway through orphaned it; and the in-run `finally` cannot execute at all when the process is killed mid-verify (engine crash, container force-stop). `VerifyService` now registers the name before creating the volume, logs cleanup failures instead of swallowing them, and reaps orphaned `drk-verify-*` volumes at startup before the scheduler can fire a verify job.
+
 ---
 
 ## [1.4.2] - 2026-07-30

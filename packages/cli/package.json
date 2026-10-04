@@ -8,6 +8,8 @@
   },
   "main": "dist/index.js",
   "scripts": {
+    "prebuild": "npm run build --workspace=@docker-rescue-kit/shared",
+    "pretest": "npm run build --workspace=@docker-rescue-kit/shared",
     "build": "tsc",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "test": "jest"

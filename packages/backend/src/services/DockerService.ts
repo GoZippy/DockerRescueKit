@@ -10,6 +10,23 @@ export interface ComposeStack {
   networks: string[]
 }
 
+/**
+ * Docker's own configuration state, as opposed to the payload it hosts.
+ * Captured alongside every backup so a corrupted network store can be repaired
+ * by replay instead of a factory reset.
+ */
+export interface ControlPlaneSnapshot {
+  capturedAt: string
+  daemon: {
+    version?: string
+    apiVersion?: string
+    os?: string
+    kernel?: string
+  }
+  /** Full inspect output for every network visible to the daemon. */
+  networks: any[]
+}
+
 export class DockerService {
   private docker: Docker
 
@@ -398,6 +415,146 @@ export class DockerService {
     } catch {
       return 0
     }
+  }
+
+  /**
+   * Capture Docker's control-plane state — the daemon's own configuration
+   * rather than the payload it hosts.
+   *
+   * WHY: a corrupted network store can make the daemon unstartable, and the
+   * only in-product remedy Docker offers is a factory reset. Repairing it means
+   * clearing the store, which erases every user-defined network. Holding a
+   * recent copy of the network definitions turns that from data loss into a
+   * replay.
+   *
+   * This deliberately captures ALL networks, not just the ones a policy targets
+   * — the point is to be able to rebuild the network topology wholesale.
+   *
+   * Note the boundary: DRK's backend runs inside a container and cannot read
+   * /var/lib/docker directly, so this captures the logical definitions over the
+   * API rather than the raw boltdb file. That is the better artefact anyway —
+   * portable across hosts and Docker versions, where the raw store is not.
+   */
+  public async captureControlPlane(): Promise<ControlPlaneSnapshot> {
+    const snapshot: ControlPlaneSnapshot = {
+      capturedAt: new Date().toISOString(),
+      daemon: {},
+      networks: []
+    }
+
+    try {
+      const version = await this.docker.version()
+      snapshot.daemon = {
+        version: version?.Version,
+        apiVersion: version?.ApiVersion,
+        os: version?.Os,
+        kernel: version?.KernelVersion
+      }
+    } catch { /* daemon detail is best-effort */ }
+
+    try {
+      const networks = await this.docker.listNetworks()
+      for (const summary of networks) {
+        try {
+          snapshot.networks.push(await this.docker.getNetwork(summary.Id).inspect())
+        } catch {
+          // A network can disappear between list and inspect. Keep the summary
+          // rather than dropping it entirely.
+          snapshot.networks.push(summary)
+        }
+      }
+    } catch { /* leave networks empty */ }
+
+    return snapshot
+  }
+
+  /**
+   * Recreate user-defined networks from a control-plane snapshot.
+   *
+   * Skips Docker's predefined networks, anything that already exists, and — the
+   * important one — any entry whose bridge name is already claimed. Replaying a
+   * snapshot naively is how you reintroduce a duplicate-bridge conflict, which
+   * is the exact failure this feature exists to recover from.
+   */
+  public async restoreNetworksFromSnapshot(
+    snapshot: ControlPlaneSnapshot
+  ): Promise<{ created: string[]; skipped: Array<{ name: string; reason: string }> }> {
+    const created: string[] = []
+    const skipped: Array<{ name: string; reason: string }> = []
+
+    // bridge/host/none are created by the daemon; ingress and docker_gwbridge
+    // are swarm-managed. Attempting any of them yields a confusing raw dockerode
+    // error instead of a clear "not ours to recreate".
+    const predefined = new Set(['bridge', 'host', 'none', 'ingress', 'docker_gwbridge'])
+    const bridgeNameOf = (net: any): string | undefined =>
+      net?.Options?.['com.docker.network.bridge.name']
+
+    const existing = await this.docker.listNetworks()
+    const existingNames = new Set(existing.map((n: any) => n.Name))
+    const claimedBridges = new Set<string>()
+    for (const net of existing) {
+      const bridge = bridgeNameOf(net)
+      if (bridge) claimedBridges.add(bridge)
+    }
+    // The default bridge always owns docker0 whether or not it is labelled.
+    claimedBridges.add('docker0')
+
+    for (const net of snapshot.networks) {
+      const name: string = net?.Name
+      if (!name) continue
+
+      if (predefined.has(name)) {
+        skipped.push({ name, reason: 'daemon- or swarm-managed network, not ours to recreate' })
+        continue
+      }
+      if (existingNames.has(name)) {
+        skipped.push({ name, reason: 'already exists' })
+        continue
+      }
+
+      const bridge = bridgeNameOf(net)
+      if (bridge && claimedBridges.has(bridge)) {
+        skipped.push({
+          name,
+          reason: `bridge name "${bridge}" already claimed — recreating would block daemon startup`
+        })
+        continue
+      }
+
+      try {
+        await this.docker.createNetwork({
+          Name: name,
+          Driver: net.Driver,
+          EnableIPv6: net.EnableIPv6,
+          IPAM: net.IPAM,
+          Internal: net.Internal,
+          Attachable: net.Attachable,
+          Ingress: net.Ingress,
+          Options: net.Options,
+          Labels: net.Labels
+        })
+        created.push(name)
+        existingNames.add(name)
+        if (bridge) claimedBridges.add(bridge)
+      } catch (err: any) {
+        skipped.push({ name, reason: err?.message || 'create failed' })
+      }
+    }
+
+    return { created, skipped }
+  }
+
+  /**
+   * Remove a volume by name.
+   *
+   * `force` is appropriate when tearing down a scratch volume this process
+   * created and still owns. Prefer `force: false` when reaping volumes left
+   * behind by a previous process — a non-forced remove fails loudly if the
+   * volume is unexpectedly in use, instead of ripping it out from under a
+   * running container.
+   */
+  public async removeVolume(name: string, force = true): Promise<void> {
+    await this.docker.getVolume(name).remove({ force })
   }
 
   private async ensureVolume(name: string): Promise<void> {

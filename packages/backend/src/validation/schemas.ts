@@ -31,6 +31,15 @@ export const RestoreRequestSchema = z.object({
   targetOverrides: z.record(z.string(), z.any()).optional()
 })
 
+/**
+ * Body for POST /api/backups/:id/restore-networks. Deliberately narrow — the
+ * handler recreates Docker networks, so nothing beyond the dry-run switch should
+ * be reachable from the request.
+ */
+export const RestoreNetworksRequestSchema = z.object({
+  dryRun: z.boolean().optional()
+})
+
 // ---- Connectors -------------------------------------------------------------
 
 export const ConnectorTestSchema = z.object({

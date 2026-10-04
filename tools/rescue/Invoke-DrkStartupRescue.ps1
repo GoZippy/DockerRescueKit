@@ -32,6 +32,28 @@
 .PARAMETER GatherDiagnostics
     Run com.docker.diagnose.exe gather when available and include the bundle path.
 
+.PARAMETER RepairNetworkStore
+    With Rescue, back up and remove libnetwork's key-value store (local-kv.db)
+    from the Docker data disk. Use when the report shows DUPLICATE_BRIDGE_NETWORK:
+    a stale network owns the default bridge name, so dockerd exits 1 on every
+    start and Docker Desktop reports an unrelated warning instead.
+
+    DESTRUCTIVE: erases all user-defined networks. Images, containers and volumes
+    are untouched; compose recreates its networks on the next up. A timestamped
+    .bak is left beside the original.
+
+    Gated: refuses unless init.log actually shows a duplicate-bridge conflict and
+    the engine is unreachable. Supports -WhatIf and -Confirm. Override the gates
+    with -Force.
+
+.PARAMETER Force
+    Bypass the safety gates on RepairNetworkStore. Only use this when you have
+    confirmed the network store is the problem by other means.
+
+.PARAMETER DataVhdxPath
+    Explicit path to the Docker data VHDX. Only needed when auto-detection from
+    CustomWslDistroDir and the default WSL data directory fails.
+
 .PARAMETER ReportPath
     Optional path for the JSON report. Defaults to a timestamped file in TEMP.
 
@@ -49,15 +71,22 @@
 
 .EXAMPLE
     pwsh ./tools/rescue/Invoke-DrkStartupRescue.ps1 -Rescue -ClearWslIntegrationList -StartDocker
+
+.EXAMPLE
+    # Engine will not start and the report shows DUPLICATE_BRIDGE_NETWORK
+    pwsh ./tools/rescue/Invoke-DrkStartupRescue.ps1 -Rescue -FullWslShutdown -RepairNetworkStore -StartDocker
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [switch] $Rescue,
+    [switch] $Force,
     [switch] $FullWslShutdown,
     [switch] $StartDocker,
     [switch] $ClearWslIntegrationList,
     [switch] $GatherDiagnostics,
+    [switch] $RepairNetworkStore,
+    [string] $DataVhdxPath = "",
     [string] $ReportPath = "",
     [int] $WaitSeconds = 180
 )
@@ -278,14 +307,15 @@ function Get-DockerDesktopGuestServices {
         return [PSCustomObject]@{ checked = $false; output = ""; hasSocketForwarder = $false; processSummary = "" }
     }
 
-    $args = @(
+    # NOT $args — that shadows the PowerShell automatic argument array.
+    $wslArgs = @(
         "-d", "docker-desktop",
         "--",
         "sh", "-lc",
         "ps -ef | sed -n '1,80p'; echo '---guest-services---'; ls -la /run/guest-services 2>/dev/null || true"
     )
 
-    $result = Invoke-External -FilePath $wslPath -Arguments $args -TimeoutSeconds 15
+    $result = Invoke-External -FilePath $wslPath -Arguments $wslArgs -TimeoutSeconds 15
     $output = ConvertFrom-WslText ($result.stdout + $result.stderr)
     return [PSCustomObject]@{
         checked            = ($result.exitCode -eq 0)
@@ -372,11 +402,13 @@ function Get-DockerLogSignals {
     foreach ($target in $targets) {
         if (-not (Test-Path $target -ErrorAction SilentlyContinue)) { continue }
         try {
-            $matches = Get-Content $target -Tail 500 -ErrorAction Stop |
+            # NOT $matches — that is a PowerShell automatic variable and
+            # clobbering it breaks any later -match in this scope.
+            $logMatches = Get-Content $target -Tail 500 -ErrorAction Stop |
                 Select-String -Pattern 'still waiting|context deadline exceeded|engine.*_ping|socketforwarder|backend is not running|failed|fatal|panic|exit code|shutdown with exit code' -CaseSensitive:$false |
                 Select-Object -Last 30
 
-            foreach ($match in $matches) {
+            foreach ($match in $logMatches) {
                 $signals += [PSCustomObject]@{
                     file = $target
                     line = $match.Line.Trim()
@@ -426,6 +458,251 @@ function Get-DockerDataLocations {
         }
     }
     return $locations
+}
+
+function Get-DockerBridgeConflict {
+    <#
+        Detects the failure mode where a stale entry in libnetwork's key-value
+        store already owns the default bridge name, so dockerd cannot create
+        the default "bridge" network and exits 1 during startup.
+
+        Docker Desktop does NOT surface this. The dialog reports whatever
+        non-fatal warning dockerd logged last (commonly "enable fsverity
+        failed: operation not supported"), which sends people chasing
+        filesystem features instead of one stale network record. The real
+        error only appears in the VM-side init.log.
+    #>
+    $initLog = Join-Path $env:LOCALAPPDATA "Docker\log\vm\init.log"
+    $result = [PSCustomObject]@{
+        detected    = $false
+        bridgeName  = ""
+        conflictId  = ""
+        attemptedId = ""
+        timestamp   = ""
+        logPath     = $initLog
+    }
+
+    if (-not (Test-Path $initLog -ErrorAction SilentlyContinue)) { return $result }
+
+    $pattern = 'cannot create network (?<attempted>[0-9a-f]{12,64}) \((?<bridge>[^)]+)\): conflicts with network (?<conflict>[0-9a-f]{12,64})'
+    try {
+        $match = Get-Content $initLog -Tail 4000 -ErrorAction Stop |
+            Select-String -Pattern $pattern |
+            Select-Object -Last 1
+    } catch {
+        return $result
+    }
+
+    if (-not $match) { return $result }
+
+    $groups = $match.Matches[0].Groups
+    $result.detected    = $true
+    $result.attemptedId = $groups['attempted'].Value
+    $result.bridgeName  = $groups['bridge'].Value
+    $result.conflictId  = $groups['conflict'].Value
+
+    $timeMatch = [regex]::Match($match.Line, '"time":"(?<ts>[^"]+)"')
+    if ($timeMatch.Success) { $result.timestamp = $timeMatch.Groups['ts'].Value }
+
+    return $result
+}
+
+function Import-DrkCatalogue {
+    <#
+        Load the generated fatal-error catalogue if it shipped alongside this
+        script. Generated from packages/shared/src/dockerFatalErrors.ts so the
+        table has a single source of truth — see tools/gen-catalogue.js.
+
+        Absence is not an error: the bespoke bridge-conflict detector below works
+        standalone, which keeps this script useful when run straight from a repo
+        checkout with nothing built.
+    #>
+    $candidates = @(
+        (Join-Path $PSScriptRoot "generated\drk-catalogue.ps1"),
+        (Join-Path $PSScriptRoot "..\..\host\generated\drk-catalogue.ps1")
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate -ErrorAction SilentlyContinue)) {
+            try {
+                . $candidate
+                return $true
+            } catch {
+                Write-DrkLine "Could not load catalogue at ${candidate}: $($_.Exception.Message)" DarkYellow
+            }
+        }
+    }
+    return $false
+}
+
+function Get-DockerFatalErrors {
+    <#
+        Scan the VM init log against the generated catalogue. Returns at most one
+        match per code, newest first. Catalogue order is significant: specific
+        patterns precede the generic `failed to start daemon:` fallback, so a
+        specific finding is never masked by the generic one.
+    #>
+    $results = @()
+    if (-not $script:DrkFatalPatterns) { return $results }
+
+    $initLog = Join-Path $env:LOCALAPPDATA "Docker\log\vm\init.log"
+    if (-not (Test-Path $initLog -ErrorAction SilentlyContinue)) { return $results }
+
+    try {
+        $tail = Get-Content $initLog -Tail 4000 -ErrorAction Stop
+    } catch {
+        return $results
+    }
+
+    # FIRST match wins, then stop. Catalogue order puts specific patterns ahead
+    # of the generic `failed to start daemon:` fallback, and both match the SAME
+    # log line — without the break the user is shown their exact diagnosis
+    # immediately followed by a critical finding reading "this failure is not in
+    # DRK's catalogue yet", which contradicts it.
+    foreach ($entry in $script:DrkFatalPatterns) {
+        $hit = $tail | Select-String -Pattern $entry.Pattern | Select-Object -Last 1
+        if (-not $hit) { continue }
+
+        $timestamp = ""
+        $timeMatch = [regex]::Match($hit.Line, '"time":"(?<ts>[^"]+)"')
+        if ($timeMatch.Success) { $timestamp = $timeMatch.Groups['ts'].Value }
+
+        $results += [PSCustomObject]@{
+            code           = $entry.Code
+            title          = $entry.Title
+            recommendation = $entry.Recommendation
+            repairable     = $entry.Repairable
+            repairImpact   = $entry.RepairImpact
+            timestamp      = $timestamp
+            line           = $hit.Line.Trim()
+        }
+        break
+    }
+
+    return $results
+}
+
+function Get-RepairDistro {
+    <#
+        Pick a WSL distro to run repair commands in. Never docker-desktop —
+        that distro is Docker's own and may be mid-teardown. Any other distro
+        can see the mounted disk at /mnt/wsl/<name>.
+    #>
+    $status = Get-WslStatus
+    $candidate = @($status.distros |
+        Where-Object { $_.name -and $_.name -notlike "docker-desktop*" } |
+        Select-Object -First 1)
+    if ($candidate) { return $candidate[0].name }
+    return ""
+}
+
+function Get-DockerDataVhdxPath {
+    if ($DataVhdxPath) { return $DataVhdxPath }
+
+    $candidates = @()
+    $settings = Get-DockerSettings
+    if ($settings.exists -and $settings.data -and $settings.data.CustomWslDistroDir) {
+        $candidates += (Join-Path $settings.data.CustomWslDistroDir "disk\docker_data.vhdx")
+    }
+    $candidates += (Join-Path $env:LOCALAPPDATA "Docker\wsl\disk\docker_data.vhdx")
+    $candidates += (Join-Path $env:LOCALAPPDATA "Docker\wsl\data\ext4.vhdx")
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate -ErrorAction SilentlyContinue)) { return $candidate }
+    }
+    return ""
+}
+
+function Repair-DockerNetworkStore {
+    <#
+        Back up and remove libnetwork's key-value store from the Docker data
+        disk while the engine is stopped.
+
+        DESTRUCTIVE: every user-defined network is erased. Docker rebuilds
+        bridge/host/none on next start; compose projects recreate their own
+        networks on the next `up`. Images, containers and volumes are NOT
+        touched. A timestamped .bak is left beside the original.
+
+        Requires Docker Desktop stopped and WSL shut down first, which is what
+        the -Rescue path does before calling this.
+    #>
+    param([string] $VhdxPath)
+
+    $mountName = "drk-netrepair"
+    $result = [PSCustomObject]@{
+        attempted  = $true
+        ok         = $false
+        vhdx       = $VhdxPath
+        distro     = ""
+        storePath  = ""
+        backupPath = ""
+        message    = ""
+    }
+
+    if (-not $VhdxPath) {
+        $result.message = "Could not locate the Docker data VHDX. Pass -DataVhdxPath explicitly."
+        return $result
+    }
+
+    $wslExe = Get-CommandPathSafe "wsl.exe"
+    if (-not $wslExe) {
+        $result.message = "wsl.exe not found."
+        return $result
+    }
+
+    $distro = Get-RepairDistro
+    if (-not $distro) {
+        $result.message = "No non-docker-desktop WSL distro available to run repair commands in."
+        return $result
+    }
+    $result.distro = $distro
+
+    $mount = Invoke-External -FilePath $wslExe -Arguments @(
+        "--mount", "--vhd", $VhdxPath, "--name", $mountName, "--type", "ext4"
+    ) -TimeoutSeconds 120
+    if ($mount.exitCode -ne 0) {
+        $result.message = "Mount failed: $(ConvertFrom-WslText ($mount.stderr + $mount.stdout))"
+        return $result
+    }
+
+    try {
+        $root = "/mnt/wsl/$mountName"
+
+        $find = Invoke-External -FilePath $wslExe -Arguments @(
+            "-d", $distro, "-u", "root", "--", "bash", "-lc",
+            "find $root -maxdepth 6 -path '*/network/files/local-kv.db' 2>/dev/null | head -n 1"
+        ) -TimeoutSeconds 180
+        $storePath = ConvertFrom-WslText $find.stdout
+
+        if (-not $storePath) {
+            $result.message = "No network store (local-kv.db) found on the mounted disk. Nothing to repair."
+            return $result
+        }
+        $result.storePath = $storePath
+
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $backupPath = "$storePath.drk-$stamp.bak"
+
+        $repair = Invoke-External -FilePath $wslExe -Arguments @(
+            "-d", $distro, "-u", "root", "--", "bash", "-lc",
+            "cp -a '$storePath' '$backupPath' && rm -f '$storePath' && sync && echo DRK_REPAIR_OK"
+        ) -TimeoutSeconds 180
+
+        if ((ConvertFrom-WslText $repair.stdout) -notmatch "DRK_REPAIR_OK") {
+            $result.message = "Repair command failed: $(ConvertFrom-WslText ($repair.stderr + $repair.stdout))"
+            return $result
+        }
+
+        $result.backupPath = $backupPath
+        $result.ok = $true
+        $result.message = "Removed $storePath (backup at $backupPath). Docker rebuilds bridge/host/none on next start; user-defined networks must be recreated with docker compose up."
+        return $result
+    } finally {
+        $unmount = Invoke-External -FilePath $wslExe -Arguments @("--unmount", $VhdxPath) -TimeoutSeconds 120
+        if ($unmount.exitCode -ne 0) {
+            # WSL sometimes only accepts the \\?\ device form for --unmount.
+            [void] (Invoke-External -FilePath $wslExe -Arguments @("--unmount", "\\?\$VhdxPath") -TimeoutSeconds 120)
+        }
+    }
 }
 
 function Invoke-DockerDiagnosticsGather {
@@ -578,6 +855,36 @@ function New-StartupReport {
         $findings += New-DrkFinding -Severity "info" -Code "ENGINE_OK" -Title "Docker Engine is reachable" -Detail $engine.info
     }
 
+    $bridgeConflict = $Diagnostics.bridgeConflict
+    if ($bridgeConflict -and $bridgeConflict.detected -and -not $engine.ok) {
+        $findings += New-DrkFinding -Severity "critical" -Code "DUPLICATE_BRIDGE_NETWORK" `
+            -Title "Docker daemon cannot start: a stale network already owns the default bridge" `
+            -Detail "dockerd failed to create the default `"$($bridgeConflict.bridgeName)`" network because network $($bridgeConflict.conflictId) already uses that bridge name$(if ($bridgeConflict.timestamp) { " (last seen $($bridgeConflict.timestamp))" }). Docker Desktop reports an unrelated warning for this failure, so the dialog text will not mention networking." `
+            -Recommendation "Run with -Rescue -RepairNetworkStore to back up and clear libnetwork's key-value store. This erases user-defined networks only; images, containers and volumes are untouched, and compose recreates networks on the next up."
+    } elseif ($bridgeConflict -and $bridgeConflict.detected -and $engine.ok) {
+        $findings += New-DrkFinding -Severity "info" -Code "DUPLICATE_BRIDGE_NETWORK_RESOLVED" `
+            -Title "A duplicate bridge conflict appears in the logs but the engine is healthy" `
+            -Detail "Network $($bridgeConflict.conflictId) previously blocked the default `"$($bridgeConflict.bridgeName)`" network. The engine is reachable now, so this is historical." `
+            -Recommendation "No action needed."
+    }
+
+    # Catalogue-driven fatal errors. DUPLICATE_BRIDGE_NETWORK is skipped because
+    # the bespoke finding above carries the conflicting network ID and the repair
+    # instruction, which the generic table cannot.
+    foreach ($fatal in @($Diagnostics.fatalErrors)) {
+        if ($fatal.code -eq "DUPLICATE_BRIDGE_NETWORK") { continue }
+        if ($engine.ok) { continue }
+
+        $detail = $fatal.line
+        if ($detail.Length -gt 400) { $detail = $detail.Substring(0, 400) + "..." }
+        if ($fatal.timestamp) { $detail = "$detail (logged $($fatal.timestamp))" }
+
+        $findings += New-DrkFinding -Severity "critical" -Code $fatal.code `
+            -Title $fatal.title `
+            -Detail $detail `
+            -Recommendation $fatal.recommendation
+    }
+
     $desktopRunning = @($processes | Where-Object { $_.ProcessName -eq "Docker Desktop" }).Count -gt 0
     $enginePipePresent = ($pipes -contains "dockerDesktopLinuxEngine" -or $pipes -contains "docker_engine")
     if ($desktopRunning -and -not $engine.ok -and -not $enginePipePresent) {
@@ -641,10 +948,19 @@ if (-not $ReportPath) {
 Write-DrkLine "DockerRescueKit Startup Rescue" Cyan
 Write-DrkLine "Mode: $($(if ($Rescue) { 'rescue' } else { 'report-only' }))" DarkCyan
 
+$script:DrkCatalogueLoaded = Import-DrkCatalogue
+if (-not $script:DrkCatalogueLoaded) {
+    Write-DrkLine "Fatal-error catalogue not found; using built-in checks only." DarkGray
+}
+
 $diagnosticsBundle = $null
 if ($GatherDiagnostics) {
     Write-DrkLine "Gathering Docker diagnostics bundle..." Yellow
     $diagnosticsBundle = Invoke-DockerDiagnosticsGather
+}
+
+if ($RepairNetworkStore -and -not $Rescue) {
+    Write-DrkLine "-RepairNetworkStore requires -Rescue (the engine and WSL must be stopped first). Skipping repair." Red
 }
 
 $actions = @()
@@ -660,6 +976,49 @@ if ($Rescue) {
     if ($ClearWslIntegrationList) {
         Write-DrkLine "Clearing Docker Desktop WSL integration list..." Yellow
         $actions += [PSCustomObject]@{ action = "clearWslIntegrationList"; result = Clear-DockerWslIntegration }
+    }
+
+    if ($RepairNetworkStore) {
+        # Runs only after the stack is down and WSL is terminated, so nothing
+        # holds the data disk open when we mount it.
+        #
+        # Gated on evidence. This erases every user-defined network, so it must
+        # not fire on a hunch — the diagnosis is re-read here (before the main
+        # snapshot, which is collected later) specifically so the destructive
+        # action can require a matching finding.
+        $preRepairConflict = Get-DockerBridgeConflict
+        $engineHealth = Get-DockerEngineHealth
+
+        if (-not $preRepairConflict.detected -and -not $Force) {
+            Write-DrkLine "Skipping network-store repair: no duplicate-bridge conflict found in init.log." Yellow
+            Write-DrkLine "  Re-run with -Force only if you are certain the network store is the problem." DarkGray
+            $actions += [PSCustomObject]@{
+                action = "repairNetworkStore"
+                result = [PSCustomObject]@{ attempted = $false; ok = $false; message = "skipped: no DUPLICATE_BRIDGE_NETWORK finding" }
+            }
+        }
+        elseif ($engineHealth.ok -and -not $Force) {
+            Write-DrkLine "Skipping network-store repair: the Docker engine is reachable." Yellow
+            Write-DrkLine "  Repairing a healthy install would destroy networks for no reason. Use -Force to override." DarkGray
+            $actions += [PSCustomObject]@{
+                action = "repairNetworkStore"
+                result = [PSCustomObject]@{ attempted = $false; ok = $false; message = "skipped: engine is healthy" }
+            }
+        }
+        elseif (-not $PSCmdlet.ShouldProcess("Docker network store (local-kv.db)", "Back up and remove — erases all user-defined networks")) {
+            $actions += [PSCustomObject]@{
+                action = "repairNetworkStore"
+                result = [PSCustomObject]@{ attempted = $false; ok = $false; message = "skipped: declined at confirmation" }
+            }
+        }
+        else {
+            $vhdx = Get-DockerDataVhdxPath
+            Write-DrkLine "Repairing Docker network store (this erases user-defined networks)..." Yellow
+            Write-DrkLine "  Data disk: $(if ($vhdx) { $vhdx } else { '<not found>' })" DarkGray
+            $repairResult = Repair-DockerNetworkStore -VhdxPath $vhdx
+            $actions += [PSCustomObject]@{ action = "repairNetworkStore"; result = $repairResult }
+            Write-DrkLine "  $($repairResult.message)" $(if ($repairResult.ok) { [ConsoleColor]::Green } else { [ConsoleColor]::Red })
+        }
     }
 
     if ($StartDocker) {
@@ -692,6 +1051,9 @@ $snapshot = [PSCustomObject]@{
     restartingContainers  = @(Get-RestartingContainers)
     settings              = Get-DockerSettings
     dataLocations         = @(Get-DockerDataLocations)
+    bridgeConflict        = Get-DockerBridgeConflict
+    catalogueLoaded       = $script:DrkCatalogueLoaded
+    fatalErrors           = @(Get-DockerFatalErrors)
     logSignals            = @(Get-DockerLogSignals)
     diagnosticsBundle     = $diagnosticsBundle
     actions               = $actions

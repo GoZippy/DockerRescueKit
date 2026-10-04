@@ -10,6 +10,14 @@ import { sha256File } from '../utils/Checksum'
 import { safeJoin, safeFilenameFragment } from '../utils/PathSafety'
 import { logger } from '../utils/logger'
 
+/**
+ * Prefix for throwaway volumes created by a verify run. Anything carrying this
+ * prefix is owned by VerifyService and is safe to reap on startup — verify runs
+ * are synchronous within a single process, so a volume with this prefix that
+ * survives a restart is by definition orphaned.
+ */
+export const SCRATCH_VOLUME_PREFIX = 'drk-verify-'
+
 export interface VerifyReport {
   backupId: string
   ok: boolean
@@ -98,9 +106,13 @@ export class VerifyService {
         const selector = rest.join('_')
 
         if (type === 'volume') {
-          const scratchName = `drk-verify-${backupId.slice(0, 8)}-${selector}`.replace(/[^a-z0-9_.-]/gi, '_')
-          await this.docker.importVolume(scratchName, localPath)
+          const scratchName = `${SCRATCH_VOLUME_PREFIX}${backupId.slice(0, 8)}-${selector}`
+            .replace(/[^a-z0-9_.-]/gi, '_')
+          // Register before creating. importVolume() creates the volume and then
+          // streams a tar into it via a helper container; if that second half
+          // throws, the volume already exists. Pushing afterwards would leak it.
           scratchVolumes.push(scratchName)
+          await this.docker.importVolume(scratchName, localPath)
           report.steps.push({ label: `restore-to-scratch ${selector}`, ok: true, detail: scratchName })
         } else {
           report.steps.push({
@@ -118,12 +130,67 @@ export class VerifyService {
       await fs.remove(workDir).catch(() => {})
       for (const v of scratchVolumes) {
         try {
-          await (this.docker as any).docker.getVolume(v).remove({ force: true })
-        } catch { /* volume may already be gone */ }
+          await this.docker.removeVolume(v, true)
+        } catch (err: any) {
+          // Don't fail the verify over cleanup, but don't swallow it either —
+          // silent failures here are exactly how scratch volumes accumulate.
+          if (!/no such volume/i.test(err?.message || '')) {
+            logger.warn(
+              { err, volume: v },
+              '[Verify] Failed to remove scratch volume; it will be reaped on next startup'
+            )
+          }
+        }
       }
     }
 
     return this.finish(report, start)
+  }
+
+  /**
+   * Remove scratch volumes orphaned by a previous process.
+   *
+   * The in-run `finally` handles the normal path, but it cannot run if the
+   * process is killed mid-verify — which is exactly what happens when the
+   * Docker engine dies or the extension container is force-stopped. Those
+   * volumes then persist forever with nothing to collect them.
+   *
+   * Safe to call at startup, before any verify can be in flight. Uses a
+   * non-forced remove so a volume unexpectedly in use errors instead of being
+   * pulled out from under a running container.
+   *
+   * @returns the names of the volumes that were removed
+   */
+  public async reapOrphanedScratchVolumes(): Promise<string[]> {
+    const removed: string[] = []
+    let volumes: Array<{ Name?: string }>
+    try {
+      volumes = await this.docker.listVolumes()
+    } catch (err) {
+      logger.warn({ err }, '[Verify] Could not list volumes to reap scratch leftovers')
+      return removed
+    }
+
+    const orphans = volumes
+      .map(v => v.Name)
+      .filter((n): n is string => !!n && n.startsWith(SCRATCH_VOLUME_PREFIX))
+
+    for (const name of orphans) {
+      try {
+        await this.docker.removeVolume(name, false)
+        removed.push(name)
+      } catch (err: any) {
+        logger.warn({ err, volume: name }, '[Verify] Could not reap orphaned scratch volume')
+      }
+    }
+
+    if (removed.length > 0) {
+      logger.info(
+        { count: removed.length, volumes: removed },
+        '[Verify] Reaped orphaned scratch volumes from a previous run'
+      )
+    }
+    return removed
   }
 
   private finish(report: VerifyReport, start: number): VerifyReport {

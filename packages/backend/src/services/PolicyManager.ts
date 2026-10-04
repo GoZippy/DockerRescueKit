@@ -225,6 +225,23 @@ export class PolicyManager {
         uploadedFiles.push({ remote: remotePath, checksum, size: stats.size })
       }
 
+      // Control-plane snapshot: Docker's own network topology and daemon
+      // identity, captured on every run regardless of what the policy targets.
+      // Costs a few KB and turns "the network store is corrupt, factory reset
+      // is your only option" into a replay. Best-effort — never fail a backup
+      // over it, because the payload matters more than the metadata.
+      let controlPlaneRemote: string | undefined
+      try {
+        const controlPlane = await this.dockerService.captureControlPlane()
+        const controlPlaneLocal = safeJoin(stageDir, 'control-plane.json')
+        await fs.writeJson(controlPlaneLocal, controlPlane, { spaces: 2 })
+        controlPlaneRemote = path.posix.join(backupId, 'control-plane.json')
+        await adapter.upload(controlPlaneLocal, controlPlaneRemote)
+      } catch (err) {
+        controlPlaneRemote = undefined
+        logger.warn({ err, backupId }, '[Backup] control-plane snapshot failed; continuing')
+      }
+
       // Write a manifest so restore can find files without DB access.
       const manifest = {
         backupId,
@@ -234,6 +251,7 @@ export class PolicyManager {
         type: policy.backupType,
         targets: policy.targets,
         files: uploadedFiles,
+        controlPlane: controlPlaneRemote,
         tags: backup.tags
       }
       const manifestLocal = safeJoin(stageDir, 'manifest.json')
@@ -282,6 +300,77 @@ export class PolicyManager {
   }
 
   // ----- Restore ----------------------------------------------------------
+
+  /**
+   * Rebuild Docker's network topology from a backup's control-plane snapshot.
+   *
+   * Intended for the aftermath of a network-store repair: clearing the store to
+   * get the daemon started erases every user-defined network, and this puts
+   * them back. Independent of `restoreBackup` because it restores Docker's own
+   * configuration, not the backup payload.
+   *
+   * Networks whose bridge name is already claimed are skipped and reported —
+   * replaying one of those is what caused the outage in the first place.
+   */
+  public async restoreControlPlaneNetworks(
+    backupId: string,
+    opts: { dryRun?: boolean } = {}
+  ): Promise<{
+    dryRun: boolean
+    capturedAt?: string
+    created: string[]
+    skipped: Array<{ name: string; reason: string }>
+  }> {
+    const backup = await this.db.getBackup(backupId)
+    if (!backup) throw new NotFoundError('Backup', backupId)
+    if (backup.status !== 'success') {
+      throw new Error(`Backup ${backupId} is not in a restorable state (status=${backup.status})`)
+    }
+
+    const policy = await this.getPolicy(backup.policyId)
+    if (!policy) throw new NotFoundError('Policy (parent)', backup.policyId)
+
+    const adapter = StorageFactory.create(policy.storage.type, await this.resolveStorageConfig(policy.storage))
+    const stageDir = safeJoin(this.stagingDir, `control-plane-${safeFilenameFragment(backupId)}`)
+    await fs.ensureDir(stageDir)
+
+    try {
+      // Consult the manifest first. Backups taken before control-plane capture
+      // existed — and runs where capture failed — have no snapshot, and a raw
+      // adapter 404 surfaces as an opaque 500 rather than something actionable.
+      const manifestLocal = safeJoin(stageDir, 'manifest.json')
+      await adapter.download(path.posix.join(backupId, 'manifest.json'), manifestLocal)
+      const manifest = await fs.readJson(manifestLocal)
+      if (!manifest.controlPlane) {
+        throw new NotFoundError('Control-plane snapshot', backupId)
+      }
+
+      const localPath = safeJoin(stageDir, 'control-plane.json')
+      await adapter.download(manifest.controlPlane, localPath)
+      const snapshot = await fs.readJson(localPath)
+
+      if (opts.dryRun) {
+        return {
+          dryRun: true,
+          capturedAt: snapshot.capturedAt,
+          created: [],
+          skipped: (snapshot.networks || []).map((n: any) => ({
+            name: n?.Name || '<unnamed>',
+            reason: 'dry run — nothing created'
+          }))
+        }
+      }
+
+      const result = await this.dockerService.restoreNetworksFromSnapshot(snapshot)
+      logger.info(
+        { backupId, created: result.created.length, skipped: result.skipped.length },
+        '[Restore] control-plane networks replayed'
+      )
+      return { dryRun: false, capturedAt: snapshot.capturedAt, ...result }
+    } finally {
+      await fs.remove(stageDir).catch(() => {})
+    }
+  }
 
   public async restoreBackup(req: RestoreRequest): Promise<{ status: string; restored: string[]; dryRun: boolean }> {
     const backup = await this.db.getBackup(req.backupId)

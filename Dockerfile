@@ -43,6 +43,15 @@ RUN npm run build --workspace=@docker-rescue-kit/backend
 COPY packages/extension/ ./packages/extension/
 RUN npm run build:extension --workspace=@docker-rescue-kit/extension
 
+# Generate the host-side rescue tooling from the shared catalogue. Done here
+# rather than committing the output so the table cannot drift from
+# packages/shared/src/dockerFatalErrors.ts — the generator hard-fails on a
+# pattern that is not POSIX-ERE safe, so a bad pattern breaks the build instead
+# of silently shipping a doctor that finds nothing.
+COPY tools/gen-catalogue.js        ./tools/gen-catalogue.js
+COPY host/drk-doctor.template.sh   ./host/drk-doctor.template.sh
+RUN node tools/gen-catalogue.js
+
 # Prune devDependencies; keeps node_modules slim for the final stage copy
 RUN npm prune --omit=dev
 
@@ -130,6 +139,27 @@ COPY --from=builder /workspace/packages/extension/dist          /ui
 COPY metadata.json                /metadata.json
 COPY docker-compose.extension.yml /compose.yaml
 COPY drk-icon.svg                 /drk-icon.svg
+
+# Host-side rescue tooling. Docker Desktop copies anything declared under
+# metadata.json `host.binaries` onto the host at install time, so these land on
+# the user's machine and keep working when the daemon — and therefore this
+# extension — is down. Scripts rather than compiled binaries on purpose: three
+# platform builds of a Node single-executable would add ~150MB to a 112MB image
+# to deliver a tool that reads a log file.
+#
+# The shell doctor is SELF-CONTAINED — the pattern table is inlined by the
+# generator, not dot-sourced. `host.binaries` copies the declared files; it makes
+# no promise about sibling directories, and a doctor that dies on a missing
+# include fails at precisely the moment it is needed.
+COPY --from=builder /workspace/host/generated/drk-doctor.sh  /host/darwin/drk-doctor.sh
+COPY --from=builder /workspace/host/generated/drk-doctor.sh  /host/linux/drk-doctor.sh
+RUN chmod +x /host/darwin/drk-doctor.sh /host/linux/drk-doctor.sh
+
+# Windows gets the PowerShell rescue script plus its catalogue. Unlike the shell
+# script this one degrades gracefully without the catalogue (built-in bridge
+# detection still runs), so a sibling file is an acceptable risk here.
+COPY tools/rescue/Invoke-DrkStartupRescue.ps1                     /host/windows/drk-doctor.ps1
+COPY --from=builder /workspace/host/generated/drk-catalogue.ps1   /host/windows/generated/drk-catalogue.ps1
 
 # Socket transport — Docker Desktop SDK discovers /run/guest-services/drk.sock
 ENV NODE_ENV=production \

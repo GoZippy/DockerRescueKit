@@ -305,6 +305,23 @@ export const SCRUB_ENV_DEFAULT_PATTERNS: readonly RegExp[] = [
 // single `@docker-rescue-kit/shared` import path.
 export { SMOKE_CHECK_TEMPLATES } from './smokeCheckTemplates'
 
+// Docker daemon fatal-error catalogue. Same reasoning as above: sibling module,
+// re-exported so consumers keep the single '@docker-rescue-kit/shared' import.
+export {
+  DOCKER_FATAL_ERROR_PATTERNS,
+  KNOWN_DECOY_PATTERNS,
+  matchDockerFatalError,
+  scanDockerFatalErrors,
+  parseLogTimestamp,
+  unescapeJsonFragment,
+  findDecoy,
+} from './dockerFatalErrors'
+export type {
+  DockerFatalErrorPattern,
+  DockerFatalErrorMatch,
+  DockerFatalErrorSeverity,
+} from './dockerFatalErrors'
+
 export interface Backup {
   readonly id: string
   readonly policyId: string

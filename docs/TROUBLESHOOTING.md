@@ -3,6 +3,11 @@
 Problems you're most likely to hit, in roughly the order people hit
 them. Each entry is symptom → diagnosis → fix.
 
+> **Docker itself won't start?** Nothing on this page will help — DRK runs in a
+> container, so it is down too. Go to [`DAEMON_WONT_START.md`](DAEMON_WONT_START.md)
+> and run `drk doctor`, which works from the host with no daemon. Note that the
+> error Docker Desktop shows you in that situation is frequently not the cause.
+
 ---
 
 ## "Docker offline" badge in the dashboard

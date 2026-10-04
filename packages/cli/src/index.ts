@@ -41,6 +41,10 @@ const RESET = '\x1b[0m'
 
 const GROUPS: { label: string; names: string[] }[] = [
   {
+    label: 'Rescue',
+    names: ['doctor']
+  },
+  {
     label: 'Service',
     names: ['status', 'scheduler:pause', 'scheduler:resume']
   },
@@ -50,7 +54,7 @@ const GROUPS: { label: string; names: string[] }[] = [
   },
   {
     label: 'Backups',
-    names: ['backup:list', 'backup:show', 'backup:restore', 'backup:verify', 'backup:delete', 'backup:files']
+    names: ['backup:list', 'backup:show', 'backup:restore', 'backup:restore-networks', 'backup:verify', 'backup:delete', 'backup:files']
   },
   {
     label: 'Rehearsals',
@@ -90,7 +94,12 @@ function printHelp(): void {
     '',
     `${DIM}Environment:${RESET}`,
     '  DRK_URL       API base URL (default: http://localhost:42880)',
-    '  DRK_API_KEY   API key (required)',
+    '  DRK_API_KEY   API key (required for everything except `doctor`)',
+    '',
+    `${DIM}`,
+    '  `drk doctor` runs entirely on the host and needs no daemon, no API key,',
+    '  and no running DRK. Use it when Docker itself will not start.',
+    `${RESET}`,
     ''
   ]
 

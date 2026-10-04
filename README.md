@@ -393,3 +393,4 @@ unrelated to the container running on port 42880. See
 | [Observability](docs/OBSERVABILITY.md) | Prometheus metrics, Grafana, alerting |
 | [FAQ](docs/FAQ.md) | Frequently asked questions |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and fixes |
+| [Daemon Won't Start](docs/DAEMON_WONT_START.md) | `drk doctor` — offline diagnosis when Docker itself is down |

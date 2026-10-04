@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { createClient } from './client'
+import { runDoctor, repairNetworkStore } from './doctor'
 
 export interface CommandDef {
   name: string
@@ -632,6 +633,82 @@ export const commands: CommandDef[] = [
       const id = must(pos[0], 'rehearsalId')
       await createClient().delete(`/rehearsals/${id}`)
       return 0
+    }
+  },
+  {
+    name: 'backup:restore-networks',
+    args: '<backupId> [--dry-run]',
+    summary: 'Replay Docker network topology from a backup\'s control-plane snapshot.',
+    run: async (pos, flags) => {
+      const id = must(pos[0], 'backupId')
+      const res = await createClient().post(`/backups/${id}/restore-networks`, {
+        dryRun: 'dry-run' in flags
+      })
+      printJson(res.data)
+      return 0
+    }
+  },
+  {
+    name: 'doctor',
+    args: '[--json] [--repair-network-store] [--force] [--log <path>] [--vhdx <path>]',
+    summary: 'Diagnose a Docker daemon that will not start. Works with Docker down.',
+    run: async (_pos, flags) => {
+      const report = runDoctor({ logPath: flags.log || undefined })
+      const asJson = 'json' in flags
+      // Keep stdout parseable under --json: progress and errors go to stderr.
+      const say = (text: string) =>
+        asJson ? process.stderr.write(text) : process.stdout.write(text)
+
+      if (asJson) {
+        printJson(report)
+      } else {
+        process.stdout.write(`\ndrk doctor — offline Docker daemon diagnosis\n`)
+        process.stdout.write(`log: ${report.initLogPath || '<not found>'}\n`)
+        if (report.initLogMtime) {
+          process.stdout.write(`last written: ${report.initLogMtime} (${report.scannedLines} lines scanned)\n`)
+        }
+        process.stdout.write('\n')
+
+        if (report.findings.length === 0) {
+          process.stdout.write('No fatal daemon errors found.\n')
+        }
+        for (const finding of report.findings) {
+          process.stdout.write(`[CRITICAL] ${finding.code}: ${finding.title}\n`)
+          process.stdout.write(`  ${finding.detail}\n`)
+          if (finding.timestamp) process.stdout.write(`  seen: ${finding.timestamp}\n`)
+          process.stdout.write(`  next: ${finding.recommendation}\n`)
+          if (finding.repairable) {
+            process.stdout.write(`  repairable by drk: yes — ${finding.repairImpact || 'see docs'}\n`)
+          }
+          process.stdout.write('\n')
+        }
+        for (const note of report.notes) process.stdout.write(`${note}\n`)
+        process.stdout.write('\n')
+      }
+
+      // Exit contract, shared with host/drk-doctor.template.sh:
+      //   0 nothing fatal found · 2 fatal error found · 1 could not run
+      // A missing log means the diagnosis never ran; reporting 0 there would
+      // hand a script an all-clear it has not earned.
+      if (!report.initLogPath) return 1
+
+      if (!('repair-network-store' in flags)) {
+        return report.findings.length > 0 ? 2 : 0
+      }
+
+      const repairable = report.findings.some(f => f.code === 'DUPLICATE_BRIDGE_NETWORK')
+      if (!repairable && !('force' in flags)) {
+        process.stderr.write(
+          'refusing to repair: no DUPLICATE_BRIDGE_NETWORK finding in the log. ' +
+            'Re-run with --force only if you are certain the network store is the problem.\n'
+        )
+        return 2
+      }
+
+      say('Repairing network store (this erases user-defined networks)...\n')
+      const result = repairNetworkStore(flags.vhdx || undefined)
+      say(`${result.message}\n`)
+      return result.ok ? 0 : 1
     }
   }
 ]

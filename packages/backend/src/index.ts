@@ -10,6 +10,7 @@ import {
   CreatePolicySchema,
   UpdatePolicySchema,
   RestoreRequestSchema,
+  RestoreNetworksRequestSchema,
   ConnectorTestSchema,
   ConnectorDiscoverSchema,
   SaveConnectorSchema,
@@ -675,6 +676,23 @@ export class BackupService {
       res.json(report)
     }))
 
+    // Replay Docker's network topology from a backup's control-plane snapshot.
+    // Used after a network-store repair, which clears every user-defined network
+    // in order to get the daemon startable again.
+    this.app.post('/api/backups/:id/restore-networks', validateParams(idParamSchema), validate(RestoreNetworksRequestSchema), asyncHandler(async (req, res) => {
+      const result = await this.policyManager.restoreControlPlaneNetworks(req.params.id, {
+        dryRun: !!req.body?.dryRun
+      })
+      if (!result.dryRun) {
+        await this.audit.record('backup.restoreNetworks', {
+          id: req.params.id,
+          created: result.created.length,
+          skipped: result.skipped.length
+        })
+      }
+      res.json(result)
+    }))
+
     this.app.get('/api/backups/:id/verify-history', validateParams(idParamSchema), asyncHandler(async (req, res) => {
       const history = await this.db.getVerifyHistory(req.params.id)
       res.json(history)
@@ -1048,6 +1066,16 @@ export class BackupService {
       }
     } catch (err) {
       logger.error({ err }, '[DRK] encryption key rotation recovery failed')
+    }
+
+    // HOUSEKEEPING: collect scratch volumes orphaned by a verify run that was
+    // killed mid-flight (engine crash, container force-stop). Runs before the
+    // scheduler so a due verify job can't race the reaper. Best-effort — the
+    // method logs and swallows its own failures.
+    try {
+      await this.verify.reapOrphanedScratchVolumes()
+    } catch (err) {
+      logger.warn({ err }, '[DRK] scratch volume reap failed')
     }
 
     await this.scheduler.start()

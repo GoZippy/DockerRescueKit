@@ -17,6 +17,15 @@
     }
   },
   "host": {
-    "binaries": []
+    "binaries": [
+      {
+        "darwin": [{ "path": "/host/darwin/drk-doctor.sh" }],
+        "linux": [{ "path": "/host/linux/drk-doctor.sh" }],
+        "windows": [
+          { "path": "/host/windows/drk-doctor.ps1" },
+          { "path": "/host/windows/generated/drk-catalogue.ps1" }
+        ]
+      }
+    ]
   }
 }
