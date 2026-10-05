@@ -29,6 +29,8 @@ import { HttpError, NotFoundError, BadRequestError } from './errors'
 
 import { PolicyManager } from './services/PolicyManager'
 import { SchedulerEngine } from './scheduler/SchedulerEngine'
+import { effectiveTimezone, isValidTimeZone } from './scheduler/timezone'
+import type { BackupPolicy, BackupPolicyView } from '@docker-rescue-kit/shared'
 import { Database } from './db/Database'
 import { DockerService } from './services/DockerService'
 import { ConnectorRegistry, resolveDiscovery } from './connectors'
@@ -549,6 +551,20 @@ export class BackupService {
     })
   }
 
+  /**
+   * Policy as the API returns it: the stored policy plus the zone the
+   * scheduler really evaluates it in and its next run, so no client has to
+   * guess a zone or evaluate cron.
+   */
+  private presentPolicy(policy: BackupPolicy): BackupPolicyView {
+    const next = this.scheduler.nextRunFor(policy)
+    return {
+      ...policy,
+      effectiveTimezone: effectiveTimezone(policy),
+      nextRun: next ? next.toISOString() : null,
+    }
+  }
+
   private setupRoutes() {
     // Wrap an async route handler so any thrown error / rejected promise is
     // forwarded to the central error middleware via `next(err)`. Lets each
@@ -605,27 +621,28 @@ export class BackupService {
 
     // ---- Policies --------------------------------------------------------
     this.app.get('/api/policies', async (_req, res) => {
-      res.json(await this.policyManager.listPolicies())
+      const policies = await this.policyManager.listPolicies()
+      res.json(policies.map(p => this.presentPolicy(p)))
     })
 
     this.app.post('/api/policies', validate(CreatePolicySchema), async (req, res) => {
       const policy = await this.policyManager.createPolicy(req.body)
       if (policy.enabled) this.scheduler.schedulePolicy(policy)
       await this.audit.record('policy.create', { id: policy.id, name: policy.name })
-      res.status(201).json(policy)
+      res.status(201).json(this.presentPolicy(policy))
     })
 
     this.app.get('/api/policies/:id', validateParams(idParamSchema), asyncHandler(async (req, res) => {
       const policy = await this.policyManager.getPolicy(req.params.id)
       if (!policy) throw new NotFoundError('Policy', req.params.id)
-      res.json(policy)
+      res.json(this.presentPolicy(policy))
     }))
 
     this.app.put('/api/policies/:id', validateParams(idParamSchema), validate(UpdatePolicySchema), async (req, res) => {
       const policy = await this.policyManager.updatePolicy(req.params.id, req.body)
       if (policy.enabled) this.scheduler.schedulePolicy(policy)
       else this.scheduler.unschedulePolicy(policy.id)
-      res.json(policy)
+      res.json(this.presentPolicy(policy))
     })
 
     this.app.delete('/api/policies/:id', validateParams(idParamSchema), async (req, res) => {
@@ -911,6 +928,12 @@ export class BackupService {
     this.app.post('/api/docker/stacks/:project/protect', validateParams(projectParamSchema), async (req, res) => {
       try {
         const project = req.params.project
+        // Optional { timezone }: the UI sends the browser's zone. Absent = UTC.
+        // Checked before touching Docker so a bad zone is a 400 either way.
+        const requestedZone = req.body?.timezone
+        if (requestedZone !== undefined && !isValidTimeZone(requestedZone)) {
+          return res.status(400).json({ error: 'Validation error', details: { fieldErrors: { timezone: ['Must be an IANA time zone name such as "America/Chicago" or "UTC"'] } } })
+        }
         let stacks
         try {
           stacks = await this.dockerService.listComposeStacks()
@@ -920,13 +943,13 @@ export class BackupService {
         }
         const match = stacks.find((s: any) => s.project === project)
         if (!match) return res.status(404).json({ error: `Stack ${project} not found` })
-        const policy = await this.policyManager.protectStack(project, match)
+        const policy = await this.policyManager.protectStack(project, match, requestedZone)
         if (!policy.existing) {
           this.scheduler.schedulePolicy(policy)
           await this.audit.record('stack.protect', { project, policyId: policy.id })
         }
-        const { existing: _existing, ...policyOut } = policy as any
-        res.status(policy.existing ? 200 : 201).json(policyOut)
+        const { existing: _existing, ...stored } = policy as any
+        res.status(policy.existing ? 200 : 201).json(this.presentPolicy(stored))
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }

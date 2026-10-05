@@ -1,4 +1,4 @@
-import { BackupPolicy, Backup, ConnectorInstance, ConnectorDefinition, GuardEvent, GuardSettings } from '@docker-rescue-kit/shared'
+import { BackupPolicy, BackupPolicyView, Backup, ConnectorInstance, ConnectorDefinition, GuardEvent, GuardSettings } from '@docker-rescue-kit/shared'
 import { apiClient, TRANSPORT } from './transport'
 
 // Use import.meta.env directly (rather than the re-exported TRANSPORT const)
@@ -39,16 +39,16 @@ export const getStatus = async () => {
   return apiClient.get<any>('/status')
 }
 
-export const getPolicies = async (): Promise<BackupPolicy[]> => {
-  return apiClient.get<BackupPolicy[]>('/policies')
+export const getPolicies = async (): Promise<BackupPolicyView[]> => {
+  return apiClient.get<BackupPolicyView[]>('/policies')
 }
 
-export const createPolicy = async (policyData: any): Promise<BackupPolicy> => {
-  return apiClient.post<BackupPolicy>('/policies', policyData)
+export const createPolicy = async (policyData: any): Promise<BackupPolicyView> => {
+  return apiClient.post<BackupPolicyView>('/policies', policyData)
 }
 
-export const updatePolicy = async (id: string, policyData: any): Promise<BackupPolicy> => {
-  return apiClient.put<BackupPolicy>(`/policies/${id}`, policyData)
+export const updatePolicy = async (id: string, policyData: any): Promise<BackupPolicyView> => {
+  return apiClient.put<BackupPolicyView>(`/policies/${id}`, policyData)
 }
 
 export const deletePolicy = async (id: string) => {
@@ -216,8 +216,8 @@ export const finishRcloneOAuth = async (remoteName: string, providerType: string
   return apiClient.post<any>('/rclone/oauth/finish', { remoteName, providerType, token })
 }
 
-export const protectStack = async (project: string) => {
-  return apiClient.post<any>(`/docker/stacks/${encodeURIComponent(project)}/protect`)
+export const protectStack = async (project: string, timezone?: string) => {
+  return apiClient.post<any>(`/docker/stacks/${encodeURIComponent(project)}/protect`, timezone ? { timezone } : undefined)
 }
 
 export const getContainers = async () => {

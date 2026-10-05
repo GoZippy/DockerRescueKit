@@ -11,6 +11,12 @@ export interface BackupPolicy {
   readonly enabled: boolean
   readonly targets: readonly BackupPolicyTarget[]
   readonly schedule: string // cron expression for the backup itself
+  /** IANA time zone (e.g. "America/Chicago") that `schedule` and
+   *  `verifySchedule` are evaluated in, DST included. Absent on policies
+   *  created before this field existed: those keep running in UTC, exactly
+   *  as they always did. New policies always carry one (UTC when the
+   *  creator did not choose). */
+  readonly timezone?: string
   readonly backupType: BackupType
   readonly retention: RetentionPolicy
   readonly storage: StorageConfig
@@ -22,6 +28,17 @@ export interface BackupPolicy {
   readonly verifySchedule?: string
   readonly createdAt: Date
   readonly updatedAt: Date
+}
+
+/**
+ * What the policy API returns: the stored policy plus two computed fields so
+ * clients never have to evaluate cron themselves.
+ */
+export interface BackupPolicyView extends BackupPolicy {
+  /** The zone the scheduler actually evaluates this policy in (UTC when `timezone` is absent). */
+  readonly effectiveTimezone: string
+  /** ISO-8601 instant of the next scheduled run, null when the policy is disabled or its cron is invalid. */
+  readonly nextRun: string | null
 }
 
 export interface VerifyRecord {

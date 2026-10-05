@@ -26,7 +26,8 @@ Create and manage the policies that drive every backup.
 - A card per policy showing: enabled/disabled state, **Active** status, backup
   mode (e.g. `full`), destination (e.g. `local`), and the selected targets
   (`container:…`, `volume:…`, with a `+N` overflow count).
-- **Schedule** (e.g. *Daily at 02:00*) and **retention** (e.g. *Keep 7*).
+- **Schedule** (e.g. *Daily at 02:00 (America/Chicago)*), the policy time zone, and
+  the next scheduled run time. **Retention** (e.g. *Keep 7*).
 - Per-card **Run now** (▶) and a **⋮ menu** (edit, run, delete).
 - A **New Policy** tile to protect more containers & volumes.
 

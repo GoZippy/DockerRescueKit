@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
-import { BackupPolicy, Backup, DatabaseExporter } from '@docker-rescue-kit/shared'
+import { BackupPolicyView, Backup, DatabaseExporter } from '@docker-rescue-kit/shared'
 import { getPolicyHistory, runPolicy, verifyPolicy, deletePolicy } from '../api'
-import { humanizeCron } from '../utils/cronHumanize'
+import { humanizeSchedule } from '../utils/cronHumanize'
+import { policyTimeZone, isLegacyUtcPolicy, formatNextRun } from '../utils/schedule'
 import {
   Play, ShieldCheck, CheckCircle2, AlertCircle, Clock, X,
   Pencil, Trash2, Loader2, HardDrive, Layers, Database, Calendar,
@@ -11,7 +12,7 @@ import { PolicyWizard } from './PolicyWizard'
 import { useToast } from '../hooks/useToast'
 
 interface Props {
-  policy: BackupPolicy
+  policy: BackupPolicyView
   onClose: () => void
   onChange: () => void
 }
@@ -185,8 +186,12 @@ export const PolicyDetail: React.FC<Props> = ({ policy, onClose, onChange }) => 
             <StatTile
               icon={<Calendar size={14} />}
               label="Schedule"
-              value={humanizeCron(policy.schedule)}
-              subtitle={humanizeCron(policy.schedule) !== policy.schedule ? policy.schedule : undefined}
+              value={humanizeSchedule(policy.schedule, policyTimeZone(policy))}
+              subtitle={[
+                policy.schedule,
+                isLegacyUtcPolicy(policy) ? 'legacy: runs in UTC' : null,
+                policy.enabled && policy.nextRun ? `next ${formatNextRun(policy.nextRun)}` : null,
+              ].filter(Boolean).join(' · ')}
             />
           </div>
 
@@ -312,7 +317,7 @@ export const PolicyDetail: React.FC<Props> = ({ policy, onClose, onChange }) => 
                 Verify schedule
               </div>
               <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>
-                {policy.verifySchedule || 'Disabled'}
+                {policy.verifySchedule ? `${policy.verifySchedule} (${policyTimeZone(policy)})` : 'Disabled'}
               </div>
             </div>
           </div>

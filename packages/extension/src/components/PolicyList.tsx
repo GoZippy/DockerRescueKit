@@ -5,25 +5,26 @@ import {
   Loader2, CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react'
 import { getPolicies, runPolicy, deletePolicy } from '../api'
-import { BackupPolicy } from '@docker-rescue-kit/shared'
+import { BackupPolicyView } from '@docker-rescue-kit/shared'
 import { PolicyWizard } from './PolicyWizard'
 import { PolicyDetail } from './PolicyDetail'
 import { PageError, PageErrorKind } from './PageError'
 import { useToast } from '../hooks/useToast'
 import { humanizeCron } from '../utils/cronHumanize'
+import { policyTimeZone, formatNextRun } from '../utils/schedule'
 
 interface PolicyListProps {
   initialPolicyId?: string
 }
 
 export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
-  const [policies, setPolicies] = useState<BackupPolicy[]>([])
+  const [policies, setPolicies] = useState<BackupPolicyView[]>([])
   const [loading, setLoading] = useState(true)
   const [errorKind, setErrorKind] = useState<PageErrorKind | null>(null)
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set())
   const [showWizard, setShowWizard] = useState(false)
-  const [selected, setSelected] = useState<BackupPolicy | null>(null)
-  const [editPolicy, setEditPolicy] = useState<BackupPolicy | null>(null)
+  const [selected, setSelected] = useState<BackupPolicyView | null>(null)
+  const [editPolicy, setEditPolicy] = useState<BackupPolicyView | null>(null)
   const [kebabOpenId, setKebabOpenId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -259,7 +260,7 @@ export const PolicyList: React.FC<PolicyListProps> = ({ initialPolicyId }) => {
 
 /* ── Policy card ──────────────────────────────────────────── */
 interface CardProps {
-  policy: BackupPolicy
+  policy: BackupPolicyView
   running: boolean
   onRun: (e: React.MouseEvent) => void
   onClick: () => void
@@ -290,6 +291,8 @@ const PolicyCard: React.FC<CardProps> = ({
 
   const humanLabel = humanizeCron(policy.schedule)
   const isRaw = humanLabel === policy.schedule
+  const zone = policyTimeZone(policy)
+  const nextRunLabel = policy.enabled && policy.nextRun ? formatNextRun(policy.nextRun) : null
 
   return (
   <div
@@ -438,13 +441,19 @@ const PolicyCard: React.FC<CardProps> = ({
     }}>
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 12, minWidth: 0 }}
-        title={isRaw ? undefined : policy.schedule}
+        title={[
+          isRaw ? null : policy.schedule,
+          `Runs in ${zone}`,
+          nextRunLabel ? `Next run ${nextRunLabel}` : null,
+        ].filter(Boolean).join(' · ')}
       >
         <Clock size={12} style={{ flexShrink: 0 }} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {isRaw
             ? <span className="font-mono" style={{ fontSize: 11 }}>{policy.schedule}</span>
             : humanLabel}
+          <span style={{ marginLeft: 6 }}>({zone})</span>
+          {nextRunLabel && <span style={{ marginLeft: 6 }}>· next {nextRunLabel}</span>}
         </span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>

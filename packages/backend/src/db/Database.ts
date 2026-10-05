@@ -221,6 +221,14 @@ export class Database {
       this.db.exec(`ALTER TABLE policies ADD COLUMN verifySchedule TEXT`)
     } catch { /* column already exists */ }
 
+    // Lightweight migration: IANA zone the policy's cron is evaluated in.
+    // Deliberately added WITHOUT a default: existing rows stay NULL, which
+    // means "UTC, as before" (see scheduler/timezone.ts), so upgrading never
+    // moves an existing policy's run time.
+    try {
+      this.db.exec(`ALTER TABLE policies ADD COLUMN timezone TEXT`)
+    } catch { /* column already exists */ }
+
     // Lightweight migration (v1.4): per-sink delivery targets for N-1
     // notifications. webhook_url already existed; ntfy + email need their own
     // target so all three sinks can be configured independently.
@@ -247,8 +255,8 @@ export class Database {
     const stmt = this.db.prepare(`
       INSERT INTO policies (
         id, name, description, enabled, targets, schedule, backupType,
-        retention, storage, hooks, notifications, verifySchedule, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        retention, storage, hooks, notifications, verifySchedule, timezone, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -261,6 +269,7 @@ export class Database {
         hooks = excluded.hooks,
         notifications = excluded.notifications,
         verifySchedule = excluded.verifySchedule,
+        timezone = excluded.timezone,
         updatedAt = CURRENT_TIMESTAMP
     `)
     stmt.run(
@@ -276,6 +285,7 @@ export class Database {
       JSON.stringify(policy.hooks || null),
       JSON.stringify(policy.notifications || null),
       policy.verifySchedule || null,
+      policy.timezone || null,
       policy.createdAt ? policy.createdAt.toISOString() : null
     )
   }
@@ -733,6 +743,8 @@ export class Database {
       storage: JSON.parse(row.storage),
       hooks: JSON.parse(row.hooks),
       notifications: JSON.parse(row.notifications),
+      // NULL (legacy row) -> absent, which the scheduler reads as UTC.
+      timezone: row.timezone || undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
     }

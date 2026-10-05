@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+### Fixed
+
+- **Backup schedules ran in UTC while the UI showed local time.** "Daily at 02:00" fired at 02:00 UTC inside the container (21:00 the evening before in CDT). Each policy now carries an IANA `timezone`, the scheduler evaluates its cron (backup and verify) in that zone with DST handled by node-cron, and the UI shows the zone next to the schedule plus the next run in your local time. New policies default to the browser's zone in the UI and to UTC from the CLI/API. **Existing policies keep running in UTC** (nothing moves on upgrade) and are labelled UTC; the policy editor has a one-click **Use my timezone**. `timezone` is validated on create/update; `drk policy:create|update|stack:protect` accept `--timezone`. See "Schedule Time Zones" in `docs/ARCHITECTURE.md` (including the one skipped run on a spring-forward night for times inside the skipped hour).
+
 ---
 
 ## [1.4.2] - 2026-07-30

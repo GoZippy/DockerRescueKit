@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { NotFoundError, LicenseRequiredError } from '../errors'
 import { LicenseService, FREE_TIER_POLICY_LIMIT } from './LicenseService'
 import { logger } from '../utils/logger'
+import { DEFAULT_SCHEDULE_TIMEZONE } from '../scheduler/timezone'
 
 export interface RestoreRequest {
   backupId: string
@@ -135,6 +136,10 @@ export class PolicyManager {
       hooks: policy.hooks,
       notifications: policy.notifications,
       verifySchedule: policy.verifySchedule,
+      // The UI sends the browser's zone; the CLI/API (and stack auto-protect)
+      // send none, which means UTC. Never leave it unset on a NEW policy:
+      // an unset zone is reserved for pre-existing rows.
+      timezone: policy.timezone || DEFAULT_SCHEDULE_TIMEZONE,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -370,7 +375,8 @@ export class PolicyManager {
    */
   public async protectStack(
     project: string,
-    stack: { containers: any[]; volumes: string[] }
+    stack: { containers: any[]; volumes: string[] },
+    timezone?: string
   ): Promise<BackupPolicy & { existing?: boolean }> {
     const policyName = `stack-${project}`
     const policies = await this.listPolicies()
@@ -392,6 +398,9 @@ export class PolicyManager {
       enabled: true,
       targets,
       schedule: '0 2 * * *',
+      // The UI passes the browser's zone so "02:00" is the user's 02:00; the
+      // CLI/API default (undefined) becomes UTC in createPolicy.
+      timezone,
       backupType: 'full',
       retention: { strategy: 'count', count: 7 },
       storage: { id: `storage-stack-${project}`, type: 'local', path: 'data/backups' },

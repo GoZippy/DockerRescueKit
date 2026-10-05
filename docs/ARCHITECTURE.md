@@ -254,6 +254,56 @@ protect, otherwise it is fail-open and never breaks tooling. See
    └─> Success/partial/failed status
 ```
 
+## Schedule Time Zones
+
+A policy's `schedule` (and `verifySchedule`) is a standard 5-field cron
+expression evaluated as **wall-clock time in the policy's own IANA time zone**,
+daylight saving included. `"0 2 * * *"` with `"timezone": "America/Chicago"`
+means 02:00 in Chicago all year: 07:00 UTC in summer, 08:00 UTC in winter.
+
+```
+policy.timezone   IANA name, e.g. "America/Chicago", "Europe/London", "UTC"
+                  (fixed offsets such as "+05:00" are rejected: they have no DST)
+
+created in the UI          -> the browser's zone (editable, "Use my timezone" button)
+created via CLI / API      -> "UTC" unless a timezone is given
+stack auto-protect         -> the browser's zone from the UI, "UTC" from the CLI
+policy with no stored zone -> legacy: keeps running in UTC, shown as UTC in the UI
+```
+
+The backend container runs with `TZ` unset (UTC), so the zone is never inherited
+from the host: it is always passed to the cron engine explicitly. Before this
+field existed the UI showed "Daily at 02:00" as if it were local time while the
+scheduler fired it at 02:00 UTC (21:00 the evening before in CDT).
+
+**Migration.** Upgrading adds a nullable `timezone` column and leaves every
+existing row NULL. NULL means "UTC, as before", so no existing policy changes
+its run time on upgrade. The UI labels those policies UTC and the policy editor
+offers a one-click **Use my timezone** to move one to local time.
+
+**API.** `POST/PUT /api/policies` validate `timezone` (400 on an unknown zone).
+Every policy response also carries two computed fields so clients never
+evaluate cron themselves: `effectiveTimezone` (the zone the scheduler really
+uses) and `nextRun` (ISO instant, `null` when the policy is disabled). Both
+are ignored on write. `POST /api/docker/stacks/:project/protect` accepts an
+optional `{ "timezone": "..." }` body.
+
+**Daylight saving** is handled by node-cron's time-zone support:
+
+- Fixed local times keep their wall-clock hour across both changes (a 03:00
+  job stays at 03:00 local).
+- Fall back: a time in the repeated hour (01:30 on the night clocks go back)
+  runs once, not twice.
+- Spring forward: a time inside the skipped hour (02:30 on the night clocks go
+  forward) does not exist that day, so **that one run is skipped** and the job
+  resumes the next day. Pick a time outside 02:00-02:59 local (for US zones) if
+  a missed run on that single night matters.
+- Sub-hourly jobs (`*/15 * * * *`) can pause for up to the length of the DST
+  shift during the repeated hour. Use `UTC` for a strict fixed interval.
+
+The periodic config-export snapshot job (Settings) is not a policy and still
+runs on the server clock (UTC).
+
 ## Backup Types
 
 ### Full Snapshot
@@ -377,7 +427,7 @@ Tier 1: LOCAL (Docker host)
 └─ Purpose: Fast recovery, development/testing
 
 Tier 2: NAS (Local network)
-├─ Schedule: Daily full backup at 2 AM
+├─ Schedule: Daily full backup at 2 AM (policy time zone, see "Schedule Time Zones")
 ├─ Retention: Keep 30 daily backups
 ├─ Storage: CIFS share on NAS (1TB)
 ├─ Offload: Auto-move old local backups to NAS weekly
@@ -390,7 +440,7 @@ Tier 3: CLOUD (Long-term archive)
 ├─ Compression: Enabled (zstd)
 └─ Purpose: Disaster recovery, regulatory compliance, offsite
 
-Daily workflow:
+Daily workflow (all times in the policy time zone):
   6:00 AM → Local snapshot (fast, low storage)
   12:00 PM → Local snapshot
   6:00 PM → Local snapshot
