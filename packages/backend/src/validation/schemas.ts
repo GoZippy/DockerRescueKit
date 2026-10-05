@@ -22,7 +22,10 @@ export const CreatePolicySchema = z.object({
   notifications: z.array(z.any()).optional()
 })
 
-export const UpdatePolicySchema = CreatePolicySchema.partial()
+export const UpdatePolicySchema = CreatePolicySchema.partial().extend({
+  description: z.string().nullish().transform(v => v ?? undefined),
+  notifications: z.array(z.any()).nullish().transform(v => v ?? undefined),
+})
 
 // ---- Backups ----------------------------------------------------------------
 

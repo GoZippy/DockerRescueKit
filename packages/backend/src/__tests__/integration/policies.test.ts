@@ -129,6 +129,42 @@ describe('integration: /api/policies', () => {
     expect(second.status).toBe(204)
   })
 
+  it('PUT /api/policies/:id with null description/notifications round-trips to 200', async () => {
+    // Policy created without description or notifications → DB stores null for both.
+    // GET returns { description: null, notifications: null }; PUT that body back must not 400.
+    const bodyWithoutNullable = {
+      name: 'null-roundtrip-policy',
+      enabled: true,
+      targets: [{ type: 'volume', selector: 'demo-vol' }],
+      schedule: '0 3 * * *',
+      backupType: 'full' as const,
+      retention: { strategy: 'count', count: 3 },
+      storage: { id: 'local-default', type: 'local', path: 'data/backups' },
+    }
+    const created = await auth(
+      request(server.app).post('/api/policies').send(bodyWithoutNullable)
+    )
+    expect(created.status).toBe(201)
+    const id = created.body.id
+
+    const got = await auth(request(server.app).get(`/api/policies/${id}`))
+    expect(got.status).toBe(200)
+    expect(got.body.description).toBeNull()
+    expect(got.body.notifications).toBeNull()
+
+    const put = await auth(
+      request(server.app).put(`/api/policies/${id}`).send(got.body)
+    )
+    expect(put.status).toBe(200)
+    expect(put.body.id).toBe(id)
+
+    // Verify the stored values are unchanged via a fresh GET.
+    const refetch = await auth(request(server.app).get(`/api/policies/${id}`))
+    expect(refetch.status).toBe(200)
+    expect(refetch.body.description).toBeNull()
+    expect(refetch.body.notifications).toBeNull()
+  })
+
   it('GET /api/policies/:id/history returns [] for a fresh policy', async () => {
     const created = await auth(
       request(server.app).post('/api/policies').send(validPolicyBody)
