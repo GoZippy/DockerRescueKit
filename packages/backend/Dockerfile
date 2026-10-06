@@ -64,12 +64,12 @@ RUN go build -trimpath -ldflags="-s -w" -tags noselfupdate -o /rclone .
 # BELOW CVE fix versions). We `go get` newer versions before build to cut
 # the bundled-Go CVEs. The crypto APIs restic uses (SCrypt, Poly1305,
 # Salsa20) are stable across these versions.
-FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS restic-build
+FROM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS restic-build
 RUN apk add --no-cache git
 ARG RESTIC_VERSION=0.18.1
 WORKDIR /src
 RUN git clone --depth 1 --branch v${RESTIC_VERSION} https://github.com/restic/restic.git .
-RUN go get golang.org/x/crypto@v0.52.0 golang.org/x/net@v0.55.0 google.golang.org/grpc@v1.81.1 \
+RUN go get golang.org/x/crypto@v0.53.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 google.golang.org/grpc@v1.82.1 \
  && go mod tidy
 ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags="-s -w" -o /restic ./cmd/restic
