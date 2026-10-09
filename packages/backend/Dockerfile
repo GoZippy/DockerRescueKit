@@ -92,6 +92,7 @@ LABEL org.opencontainers.image.title="Docker Rescue Kit – Backend" \
 # ~50MB AND eliminates every CVE in npm's transitive deps (tar, minimatch,
 # glob, cross-spawn, etc. all bundled inside /usr/local/lib/node_modules/npm).
 RUN apk add --no-cache tini ca-certificates fuse3 \
+ && apk upgrade --no-cache libssl3 libcrypto3 \
  && mkdir -p /data /backups \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
