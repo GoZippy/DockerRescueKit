@@ -13,8 +13,9 @@ import { UpgradeBanner } from './UpgradeBanner'
 import { useToast } from '../hooks/useToast'
 import {
   Key, Database, Folder, RefreshCw, AlertTriangle, Copy, Check, Pause, Play, Loader2, LogOut,
-  Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Github, Package, Upload, FileText,
+  Info, ExternalLink, Bell, Webhook, Lock, CheckCircle2, Download, Package, Upload, FileText,
 } from 'lucide-react'
+import { GithubMark } from './icons/GithubMark'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const DOCKER_HUB_URL  = 'https://hub.docker.com/r/gozippy/dockerrescuekit'
@@ -736,7 +737,7 @@ export const SettingsPage: React.FC = () => {
           <ExtLink href={DOCKER_HUB_URL} icon={<Package size={13} color="var(--blue-500)" />}>
             Docker Hub
           </ExtLink>
-          <ExtLink href={GITHUB_URL} icon={<Github size={13} color="var(--text-secondary)" />}>
+          <ExtLink href={GITHUB_URL} icon={<GithubMark size={13} color="var(--text-secondary)" />}>
             GitHub
           </ExtLink>
           <ExtLink href={LICENSE_URL} icon={<Lock size={13} color="var(--text-muted)" />}>
