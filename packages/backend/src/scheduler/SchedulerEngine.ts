@@ -3,6 +3,7 @@ import { PolicyManager } from '../services/PolicyManager'
 import { VerifyService } from '../services/VerifyService'
 import { ExportService } from '../services/ExportService'
 import { BackupPolicy, Backup, RetentionPolicy, BackupTier } from '@docker-rescue-kit/shared'
+import { resolvePolicyTimezone, nextRun as nextRunIn } from './timezone'
 
 export interface ScheduledJob {
   policyId: string
@@ -106,6 +107,17 @@ export class SchedulerEngine {
       return
     }
 
+    // Cron is evaluated as wall-clock time in the policy's IANA zone (DST
+    // aware). A policy without a zone is a pre-timezone legacy row and keeps
+    // running in UTC, as it always did.
+    const { timezone, usedFallback } = resolvePolicyTimezone(policy)
+    if (usedFallback) {
+      console.error(
+        `[Scheduler] Policy ${policy.name} has an unusable timezone "${policy.timezone}"; running it in UTC instead. ` +
+        `Edit the policy to pick a valid zone.`
+      )
+    }
+
     const job = cron.schedule(policy.schedule, async () => {
       if (this.paused) {
         console.log(`[Scheduler] Paused — skipping scheduled run of ${policy.name}`)
@@ -120,7 +132,7 @@ export class SchedulerEngine {
       } catch (error) {
         console.error(`[Scheduler] Backup failed for policy ${policy.id}:`, error)
       }
-    })
+    }, { timezone })
 
     this.jobs.set(policy.id, { policyId: policy.id, job })
 
@@ -131,10 +143,20 @@ export class SchedulerEngine {
       } else {
         const vjob = cron.schedule(policy.verifySchedule, async () => {
           await this.runVerifyForPolicy(policy.id)
-        })
+        }, { timezone })
         this.verifyJobs.set(policy.id, { policyId: policy.id, job: vjob })
       }
     }
+  }
+
+  /**
+   * The next time `policy`'s backup fires, or null when the policy is
+   * disabled or its cron is invalid. Computed with the same engine and zone
+   * the job is registered with, so it is what the scheduler will actually do.
+   */
+  public nextRunFor(policy: BackupPolicy): Date | null {
+    if (!policy.enabled) return null
+    return nextRunIn(policy.schedule, resolvePolicyTimezone(policy).timezone)
   }
 
   public unschedulePolicy(policyId: string) {

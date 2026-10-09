@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { listStacks, protectStack, listAllBackups, getPolicies } from '../api'
 import { humanizeCron } from '../utils/cronHumanize'
+import { policyTimeZone, formatNextRun, getBrowserTimeZone } from '../utils/schedule'
 import {
   Layers, ShieldPlus, RefreshCw, Loader2, CheckCircle2, AlertCircle,
   Clock, Shield, Edit2, Calendar,
 } from 'lucide-react'
-import { Backup, BackupPolicy } from '@docker-rescue-kit/shared'
+import { Backup, BackupPolicyView } from '@docker-rescue-kit/shared'
 import { EmptyState } from './EmptyState'
 
 interface Stack {
@@ -16,13 +17,13 @@ interface Stack {
 }
 
 interface Props {
-  onEditPolicy?: (policy: BackupPolicy) => void
+  onEditPolicy?: (policy: BackupPolicyView) => void
 }
 
 export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
   const [stacks, setStacks]       = useState<Stack[]>([])
   const [backups, setBackups]     = useState<Backup[]>([])
-  const [policies, setPolicies]   = useState<BackupPolicy[]>([])
+  const [policies, setPolicies]   = useState<BackupPolicyView[]>([])
   const [loading, setLoading]     = useState(true)
   const [protectingId, setProtectingId] = useState<string | null>(null)
   const [error, setError]         = useState<string | null>(null)
@@ -34,7 +35,7 @@ export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
       const [s, b, p] = await Promise.all([
         listStacks(),
         listAllBackups().catch(() => [] as Backup[]),
-        getPolicies().catch(() => [] as BackupPolicy[]),
+        getPolicies().catch(() => [] as BackupPolicyView[]),
       ])
       setStacks(s)
       setBackups(b)
@@ -52,7 +53,8 @@ export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
     setProtectingId(project)
     setError(null)
     try {
-      await protectStack(project)
+      // The policy runs at 02:00 in the user's own zone, not the server's UTC.
+      await protectStack(project, getBrowserTimeZone())
       // Reload to pick up the newly created (or confirmed existing) policy
       await load()
     } catch (e: any) {
@@ -62,7 +64,7 @@ export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
     }
   }
 
-  const policyForStack = (project: string): BackupPolicy | undefined =>
+  const policyForStack = (project: string): BackupPolicyView | undefined =>
     policies.find(p => p.name === `stack-${project}`)
 
   const stackLastBackupStatus = (s: Stack): 'success' | 'failed' | 'never' => {
@@ -207,6 +209,8 @@ export const StacksPage: React.FC<Props> = ({ onEditPolicy }) => {
                           ? <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 11 }}>{policy.schedule}</span>
                           : <span style={{ color: 'var(--text-primary)' }} title={policy.schedule}>{human}</span>
                         }
+                        {' '}({policyTimeZone(policy)})
+                        {policy.enabled && policy.nextRun && <> · next {formatNextRun(policy.nextRun)}</>}
                       </span>
                     </div>
                   )

@@ -10,6 +10,9 @@ import {
 } from '../api'
 import { BackupPolicy, DatabaseExporter } from '@docker-rescue-kit/shared'
 import { CronPicker } from './CronPicker'
+import { TimezoneField } from './TimezoneField'
+import { getBrowserTimeZone, isValidTimeZone, UTC } from '../utils/schedule'
+import { humanizeSchedule } from '../utils/cronHumanize'
 
 interface WizardProps {
   onClose: () => void
@@ -78,6 +81,8 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   const [form, setForm] = useState(() => initialPolicy ? {
     name: initialPolicy.name,
     schedule: initialPolicy.schedule,
+    // A policy with no stored zone has always run in UTC: show exactly that.
+    timezone: initialPolicy.timezone || UTC,
     verifySchedule: initialPolicy.verifySchedule || '',
     backupType: initialPolicy.backupType,
     retentionCount: initialPolicy.retention.count ?? 7,
@@ -89,6 +94,8 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   } : {
     name: '',
     schedule: '0 2 * * *',
+    // New policies default to the user's own zone, so "02:00" means 02:00 for them.
+    timezone: getBrowserTimeZone(),
     verifySchedule: '',
     backupType: 'full',
     retentionCount: 7,
@@ -216,6 +223,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
         enabled: form.enabled,
         targets: form.targets,
         schedule: form.schedule,
+        timezone: form.timezone,
         verifySchedule: form.verifySchedule || undefined,
         backupType: form.backupType,
         retention: { strategy: 'count', count: form.retentionCount },
@@ -246,7 +254,11 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
   }
 
   // Allow proceeding without targets if Docker is offline (can add targets later or manually)
-  const canNext = step === 1 ? (form.targets.length > 0 || dockerOffline) : true
+  const canNext = step === 1
+    ? (form.targets.length > 0 || dockerOffline)
+    : step === 2
+      ? isValidTimeZone(form.timezone)  // the backend rejects anything else
+      : true
 
   // Step labels for the wizard pill row. Order matches the step === N
   // conditionals in the body and the canNext / footer logic.
@@ -504,8 +516,14 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                   {/* Left: backup schedule via CronPicker */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <TimezoneField
+                      value={form.timezone}
+                      onChange={tz => setForm(f => ({ ...f, timezone: tz }))}
+                      legacy={isEdit && !initialPolicy?.timezone}
+                    />
                     <CronPicker
                       label="Backup schedule"
+                      timezone={form.timezone}
                       value={form.schedule}
                       onChange={v => setForm(f => ({ ...f, schedule: v }))}
                     />
@@ -552,7 +570,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                     </div>
 
                     <div>
-                      <label className="form-label">Verify schedule</label>
+                      <label className="form-label">Verify schedule ({form.timezone})</label>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                         <Info size={11} color="var(--emerald)" style={{ flexShrink: 0, marginTop: 1 }} />
                         Automatically scratch-restores your latest backup to confirm it is actually recoverable.
@@ -1012,7 +1030,8 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                       {[
                          ['Name', form.name || '(auto-generated)'],
                          ['Targets', `${form.targets.length} selected`],
-                         ['Schedule', form.schedule],
+                         ['Schedule', humanizeSchedule(form.schedule, form.timezone)],
+                         ['Cron',    form.schedule],
                          ['Verify',  form.verifySchedule || 'Disabled'],
                          ['Retention', `Keep ${form.retentionCount}`],
                          ['Storage', form.storageType],
@@ -1021,7 +1040,7 @@ export const PolicyWizard: React.FC<WizardProps> = ({ onClose, onSuccess, initia
                        ].map(([k, v]) => (
                         <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                           <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{k}</span>
-                          <span className={k === 'Schedule' || k === 'Verify' ? 'font-mono' : ''} style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
+                          <span className={k === 'Cron' || k === 'Verify' ? 'font-mono' : ''} style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
                         </div>
                       ))}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--surface-4)', paddingTop: 10 }}>

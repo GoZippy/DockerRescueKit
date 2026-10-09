@@ -560,6 +560,8 @@ function parseLegacyPolicy(row: any, warnings: string[]): any {
     hooks: safeParse(row.hooks, 'hooks', null),
     notifications: safeParse(row.notifications, 'notifications', null),
     verifySchedule: row.verifySchedule ?? undefined,
+    // Legacy databases predate the column: undefined keeps them on UTC.
+    timezone: row.timezone ?? undefined,
     createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
   }
 }

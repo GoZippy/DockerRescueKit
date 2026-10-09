@@ -22,6 +22,14 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 function pad2(n: number) { return String(n).padStart(2, '0') }
 
+/**
+ * The schedule with the zone it runs in, e.g. "Daily at 02:00 (America/Chicago)".
+ * A missing zone is a pre-timezone policy, which runs in UTC, and says so.
+ */
+export function humanizeSchedule(cron: string, timezone?: string | null): string {
+  return `${humanizeCron(cron)} (${timezone || 'UTC'})`
+}
+
 export function humanizeCron(cron: string): string {
   const trimmed = cron.trim()
   if (PRESETS[trimmed]) return PRESETS[trimmed]

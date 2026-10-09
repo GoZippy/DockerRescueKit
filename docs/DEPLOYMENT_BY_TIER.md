@@ -146,6 +146,7 @@ sudo systemctl enable --now docker-backup
 docker backup policy create homelab-daily \
   --containers my-app,my-db \
   --schedule "0 2 * * *" \
+  --timezone "America/Chicago" \
   --retention days=7 \
   --destination local:///mnt/backups
 
@@ -221,6 +222,7 @@ EOF
 docker backup policy create nas-backup \
   --containers my-app \
   --schedule "0 2 * * *" \
+  --timezone "America/Chicago" \
   --retention count=7 \
   --destination local:///mnt/nas
 
@@ -456,6 +458,7 @@ S3_SECRET_KEY=your-docker-api-secret
 docker backup policy create hybrid-backup \
   --containers my-app,my-db \
   --schedule "0 2 * * *" \
+  --timezone "America/Chicago" \
   --retention days=7 \
   --destination local:///mnt/nas \
   --secondary-destination s3://docker-backup-managed/backups \

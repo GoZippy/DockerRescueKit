@@ -5,6 +5,8 @@ interface Props {
   value: string
   onChange: (cron: string) => void
   label?: string
+  /** Zone the schedule runs in; shown next to every time so "2:00 AM" is never ambiguous. */
+  timezone?: string
 }
 
 const PRESETS = [
@@ -35,7 +37,7 @@ function buildCron(min: string, hr: string, dom: string, mon: string, dow: strin
   return `${min} ${hr} ${dom} ${mon} ${dow}`
 }
 
-export const CronPicker: React.FC<Props> = ({ value, onChange, label }) => {
+export const CronPicker: React.FC<Props> = ({ value, onChange, label, timezone }) => {
   const matchedPreset = PRESETS.find(p => p.cron === value)
   const initialMode: Mode = matchedPreset ? 'preset' : 'custom'
 
@@ -85,6 +87,12 @@ export const CronPicker: React.FC<Props> = ({ value, onChange, label }) => {
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {label}
         </label>
+      )}
+
+      {timezone && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          Times below are in <strong style={{ color: 'var(--text-primary)' }}>{timezone}</strong>
+        </div>
       )}
 
       {/* Mode tabs */}
@@ -258,6 +266,7 @@ export const CronPicker: React.FC<Props> = ({ value, onChange, label }) => {
                 {freq === 'weekly'   && `every ${DAYS_OF_WEEK[weekDay]} at ${fmt24(hour, minute)}`}
                 {freq === 'monthly'  && `on the ${monthDay}${['st','nd','rd'][monthDay-1]||'th'} at ${fmt24(hour, minute)}`}
               </span>
+              {timezone && <span style={{ color: 'var(--text-muted)' }}> ({timezone})</span>}
             </div>
             <code style={{
               fontSize: 11, fontFamily: 'monospace', padding: '2px 6px',
@@ -293,7 +302,7 @@ export const CronPicker: React.FC<Props> = ({ value, onChange, label }) => {
           </div>
           <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Standard 5-field cron. Use <code>*</code> for "every", <code>*/n</code> for intervals,
-            <code>1-5</code> for ranges. Example: <code>0 3 * * 1</code> = every Monday at 03:00.
+            <code>1-5</code> for ranges. Example: <code>0 3 * * 1</code> = every Monday at 03:00{timezone ? ` (${timezone})` : ''}.
           </p>
         </div>
       )}
@@ -307,7 +316,7 @@ export const CronPicker: React.FC<Props> = ({ value, onChange, label }) => {
         }}>
           <Info size={12} color="var(--blue-400, #60a5fa)" />
           {currentPreset
-            ? <span style={{ color: 'var(--text-muted)' }}>{currentPreset.desc}</span>
+            ? <span style={{ color: 'var(--text-muted)' }}>{currentPreset.desc}{timezone ? ` (${timezone})` : ''}</span>
             : <span style={{ color: 'var(--text-muted)' }}>Custom schedule: <code style={{ fontFamily: 'monospace' }}>{value}</code></span>}
         </div>
       )}

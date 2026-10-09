@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isValidTimeZone } from '../scheduler/timezone'
 
 // ---- Policies ---------------------------------------------------------------
 
@@ -13,6 +14,11 @@ export const CreatePolicySchema = z.object({
     })
   ),
   schedule: z.string(),
+  // IANA zone the schedule is evaluated in (e.g. "America/Chicago"). Optional:
+  // omitted on create means UTC; omitted on update leaves the zone unchanged.
+  timezone: z.string().refine(isValidTimeZone, {
+    message: 'Must be an IANA time zone name such as "America/Chicago" or "UTC" (fixed offsets like "+05:00" are not accepted)'
+  }).optional(),
   backupType: z.enum(['full', 'incremental', 'differential']),
   retention: z.object({}).passthrough(),
   storage: z.object({

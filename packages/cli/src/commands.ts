@@ -41,6 +41,33 @@ function readJsonFile(file: string): any {
   }
 }
 
+/** True when `tz` is an IANA zone name this runtime knows (offsets like +05:00 are not zones). */
+function isIanaZone(tz: string): boolean {
+  if (!tz || tz !== tz.trim() || /^[+-]/.test(tz)) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** The validated --timezone flag, or undefined when absent. Exits 2 on a bad value. */
+function timezoneFlag(flags: Record<string, string>): string | undefined {
+  if (flags.timezone === undefined) return undefined
+  if (!isIanaZone(flags.timezone)) {
+    process.stderr.write(`--timezone must be an IANA zone name such as America/Chicago or UTC (got "${flags.timezone}")\n`)
+    process.exit(2)
+  }
+  return flags.timezone
+}
+
+/** --timezone overrides a "timezone" key in the JSON body. */
+function applyTimezoneFlag(body: any, flags: Record<string, string>): void {
+  const tz = timezoneFlag(flags)
+  if (tz && body && typeof body === 'object') body.timezone = tz
+}
+
 export const commands: CommandDef[] = [
   {
     name: 'status',
@@ -177,11 +204,12 @@ export const commands: CommandDef[] = [
   },
   {
     name: 'stack:protect',
-    args: '<project>',
-    summary: 'Create a daily protection policy for a compose stack.',
-    run: async (pos) => {
+    args: '<project> [--timezone <IANA zone>]',
+    summary: 'Create a daily (02:00) protection policy for a compose stack. Runs in UTC unless --timezone is given.',
+    run: async (pos, flags) => {
       const project = must(pos[0], 'project')
-      const res = await createClient().post(`/docker/stacks/${encodeURIComponent(project)}/protect`)
+      const timezone = timezoneFlag(flags)
+      const res = await createClient().post(`/docker/stacks/${encodeURIComponent(project)}/protect`, timezone ? { timezone } : undefined)
       printJson(res.data)
       return 0
     }
@@ -400,11 +428,12 @@ export const commands: CommandDef[] = [
   },
   {
     name: 'policy:create',
-    args: '<file.json>',
-    summary: 'Create a policy from a JSON file (see policy:template).',
-    run: async (pos) => {
+    args: '<file.json> [--timezone <IANA zone>]',
+    summary: 'Create a policy from a JSON file (see policy:template). Schedule runs in the policy timezone; UTC if none is given.',
+    run: async (pos, flags) => {
       const file = must(pos[0], 'file.json')
       const body = readJsonFile(file)
+      applyTimezoneFlag(body, flags)
       const res = await createClient().post('/policies', body)
       printJson(res.data)
       return 0
@@ -412,12 +441,13 @@ export const commands: CommandDef[] = [
   },
   {
     name: 'policy:update',
-    args: '<policyId> <file.json>',
-    summary: 'Update a policy from a JSON file (partial body allowed).',
-    run: async (pos) => {
+    args: '<policyId> <file.json> [--timezone <IANA zone>]',
+    summary: 'Update a policy from a JSON file (partial body allowed). --timezone moves its schedule to that zone.',
+    run: async (pos, flags) => {
       const id = must(pos[0], 'policyId')
       const file = must(pos[1], 'file.json')
       const body = readJsonFile(file)
+      applyTimezoneFlag(body, flags)
       const res = await createClient().put(`/policies/${id}`, body)
       printJson(res.data)
       return 0
@@ -702,7 +732,7 @@ function parseSmokeChecks(raw: string | string[] | undefined): any[] {
  */
 const POLICY_TEMPLATE = JSON.stringify(
   {
-    _comment: 'Example DRK policy. Edit the values, then: drk policy:create <file>. Required: name, targets, schedule, backupType, retention, storage.',
+    _comment: 'Example DRK policy. Edit the values, then: drk policy:create <file>. Required: name, targets, schedule, backupType, retention, storage. Optional: timezone (default UTC).',
     name: 'nightly-app-data',
     description: 'Daily backup of the app data volume',
     enabled: true,
@@ -714,7 +744,9 @@ const POLICY_TEMPLATE = JSON.stringify(
       }
     ],
     schedule: '0 2 * * *',
-    _comment_schedule: 'Standard 5-field cron. "0 2 * * *" = daily at 02:00.',
+    _comment_schedule: 'Standard 5-field cron, evaluated in "timezone" below. "0 2 * * *" = daily at 02:00 in that zone.',
+    timezone: 'UTC',
+    _comment_timezone: 'IANA zone the schedule runs in, e.g. "America/Chicago" (follows daylight saving). Omit it and the policy runs in UTC. Offsets like "+05:00" are not accepted.',
     backupType: 'full',
     _comment_backupType: 'One of: full | incremental | differential.',
     retention: {
