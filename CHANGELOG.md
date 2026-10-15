@@ -9,23 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
-### Fixed
-
-- **Backup schedules ran in UTC while the UI showed local time.** "Daily at 02:00" fired at 02:00 UTC inside the container (21:00 the evening before in CDT). Each policy now carries an IANA `timezone`, the scheduler evaluates its cron (backup and verify) in that zone with DST handled by node-cron, and the UI shows the zone next to the schedule plus the next run in your local time. New policies default to the browser's zone in the UI and to UTC from the CLI/API. **Existing policies keep running in UTC** (nothing moves on upgrade) and are labelled UTC; the policy editor has a one-click **Use my timezone**. `timezone` is validated on create/update; `drk policy:create|update|stack:protect` accept `--timezone`. See "Schedule Time Zones" in `docs/ARCHITECTURE.md` (including the one skipped run on a spring-forward night for times inside the skipped hour).
-
 ---
 
-## [1.4.2] - 2026-07-30
+## [1.5.0] - 2026-10-14
 
-### Fixed
-
-- **Backup Browsing HTTP 500 Fix**: `PartialRestoreService` now inspects magic bytes (`0x1f 0x8b`) and falls back to uncompressed `tar` reading when archive files are uncompressed. This fixes the `HTTP 500 Internal Server Error` when opening container or image backups in the file browser.
-- **Container & Image Compression**: `DockerService` now pipes container export and image export streams through gzip compression when saving to `.tar.gz` destination filenames.
+This release folds the never-tagged 1.4.2 work (backup browsing fix, storage
+location transparency) into 1.5.0 together with everything merged since 1.4.1.
+There is no `v1.4.2` tag or image; upgrade directly from 1.4.1.
 
 ### Added
 
-- **Storage Location Transparency**: Added `/api/backups/:id/location` endpoint and a **Storage Location Banner** with a **Copy Path** button in the Browse Backup modal (`PartialRestoreBrowser.tsx`) to show resolved local and remote backup storage paths.
-- **Image Target Support in File Browser**: Updated the backup archive selector to include `image` backup target types alongside `container` and `volume` targets.
+- **BYOK key rotation (Pro).** Rotate the credential vault to a customer-managed encryption key from **Settings -> About** (`POST /api/encryption/rotate`, `byok_encryption` feature, `402` on Free). Re-encryption is crash-safe: the new key is written atomically, a rotation marker holds both keys, all stored credentials are re-encrypted in one all-or-nothing transaction, and an interrupted rotation is finished or rolled back on the next start. Baseline AES-256 encryption at rest stays universal and decryption is never gated on the license. Encryption key provenance (customer-managed vs auto-generated) is shown in About and on `GET /api/status`. See `docs/BYOK_FEATURE_SPEC.md`.
+- **Monetization upgrade flow.** In-app license activation and removal (**Settings -> About**), a canonical upgrade link (gozippy.com/drk) on every upgrade call to action, and a tier fix so paying personal-pro / commercial-pro customers are recognised as Pro in the UI. Pricing and tier claims in `README`, `LICENSE` Schedule A and `docs/ROADMAP.md` now match the code, a test pins the `FEATURES_BY_TIER` contract, and multi-host fleet management is disclosed as in development.
+- **Startup Rescue companion for Windows/WSL.** `Invoke-DrkStartupRescue.ps1` diagnoses Docker engine failures that happen before Docker is available (DRK itself runs inside Docker). Report-only by default; `-Rescue`, `-FullWslShutdown`, `-ClearWslIntegrationList`, `-GatherDiagnostics` and `-StartDocker` opt in to repairs. Backs up `settings-store.json` before any edit and emits a JSON finding model with exit codes 0/1/2. See `docs/STARTUP_RESCUE.md`.
+- **Arrange mode for the dashboard.** Drag handles appear only after you press **Arrange** (and disappear on **Done**), so they no longer overlap live card controls.
+- **Prune Guard navigation page.** A dedicated **Prune Guard** page presents the "Undo for Docker" value proposition and, when `DRK_PRUNE_GUARD=1` is not set, shows how to enable it instead of a blank screen.
+- **Storage location transparency.** `GET /api/backups/:id/location` and a **Storage Location** banner with a **Copy Path** button in the Browse Backup dialog show the resolved local and remote path of a backup.
+- **Image backups in the file browser.** The archive selector now includes `image` targets alongside `container` and `volume`.
+- **Per-policy time zones.** Each policy carries an IANA `timezone`; `drk policy:create|update|stack:protect` accept `--timezone`. See "Schedule Time Zones" in `docs/ARCHITECTURE.md`.
+- **Website.** The DRK buy page was redesigned and expanded into a full sales and info site with live checkout links.
+
+### Changed
+
+- **Backup schedules now follow the policy's time zone.** The scheduler evaluates backup and verify cron expressions in the policy zone (DST handled by node-cron) and the UI shows the zone next to the schedule plus the next run in your local time. New policies default to the browser's zone in the UI and to UTC from the CLI/API. **Existing policies keep running in UTC** (nothing moves on upgrade) and are labelled UTC; the policy editor has a one-click **Use my timezone**. `timezone` is validated on create/update. A spring-forward night skips one run for times inside the skipped hour.
+- **Major dependency upgrades:** express 4 -> 5 (SPA-fallback wildcard route adjusted), zod 3 -> 4, dockerode 4 -> 5, node-cron 3 -> 4, helmet 8, express-rate-limit 8, date-fns 4, dotenv 17, React and React DOM 18.3.1, lucide-react 1.x, vite 8 with `@vitejs/plugin-react` 6, a TypeScript 6-compatible backend `tsconfig` (Node16 module resolution, explicit `rootDir`), `@modelcontextprotocol/sdk` 1.32, nodemailer 10, axios 1.20, and the Go build stages (golang 1.26-alpine, re-pinned to the current index digest).
+- Documentation: internal business documents were removed from the public tree and the links to them dropped; `docs/ROADMAP.md` no longer carries internal pricing or status detail; the dashboard hero screenshot was refreshed.
+- CI: Docker Hub login added to the image and extension jobs (it degrades instead of failing the job) and the Trivy SARIF report step no longer gates the build; the Trivy CRITICAL gate on the image is unchanged. GitHub Actions dependencies were bumped (checkout 7, setup-node 7, upload-artifact 7, codeql-action 4, setup-buildx 4, build-push 7, login 4, setup-qemu 4).
+
+### Fixed
+
+- **Backup browsing returned HTTP 500.** `PartialRestoreService` now inspects the gzip magic bytes (`0x1f 0x8b`) and falls back to plain `tar` for uncompressed archives. Container and image exports are now gzip-compressed when saved to `.tar.gz` destinations.
+- **Backup schedules ran in UTC while the UI showed local time.** "Daily at 02:00" fired at 02:00 UTC inside the container; see Changed above for the per-policy time zone fix.
+- **`PUT /api/policies/:id` rejected the nulls `GET` returns.** `description` and `notifications` now accept `null`, so a GET -> PUT round trip returns 200 instead of 400.
+- **Extension build fixes:** replaced the GitHub icon that lucide-react 1.x no longer ships with an inline component; the Linux and macOS rolldown and tailwind-oxide native bindings are locked so the extension builds in CI; the stale vite 5 tree was deduplicated.
+- **MCP server version** was hardcoded to `1.4.1`; it now reports `1.5.0`.
+
+### Security
+
+- **rclone 1.75.1** bundled in the image (clears CVE-2026-49980, CRITICAL, and the Trivy CRITICAL gate).
+- **restic** is built with Go 1.26.8 and patched `x/net`, `x/text` and `grpc`; the runtime image upgrades Alpine `libssl3`/`libcrypto3` to 3.5.9-r0.
+- **nodemailer 10** (GHSA-p6gq-j5cr-w38f: the `raw` option bypassed `disableFileAccess`/`disableUrlAccess`) and **form-data >= 4.0.6** (GHSA-hmw2-7cc7-3qxx: CRLF injection).
+- **axios 1.20** (clears 10 advisories).
+- Patched `hono`, `@hono/node-server`, `protobufjs`, `qs`, `body-parser`, `browserslist`, `fast-copy` and `baseline-browser-mapping` in the backend and MCP workspaces and the root lock, aimed at keeping `npm audit --omit=dev --audit-level=high` clean.
 
 ---
 
