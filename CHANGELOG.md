@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+### Changed
+
+- **Go build stages:** upgraded from `golang:1.26-alpine` to `golang:1.27-alpine` (digest `sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd`).
+
 ---
 
 ## [1.5.0] - 2026-10-14
