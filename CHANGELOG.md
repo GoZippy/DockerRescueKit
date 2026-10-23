@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/semver-spec
 
 ## [Unreleased]
 
+### Security
+
+- rclone 1.75.1 → 1.75.2, restic 0.18.1 → 0.19.1 (source builds; clears the remaining Trivy module findings from the 1.5.0 report).
+
 ### Changed
 
 - **Go build stages:** upgraded from `golang:1.26-alpine` to `golang:1.27-alpine` (digest `sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd`).
