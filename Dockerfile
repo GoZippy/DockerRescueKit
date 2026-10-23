@@ -55,7 +55,7 @@ RUN npm prune --omit=dev
 # from the git tag picks up the fixed deps.
 FROM golang:1.27-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS rclone-build
 RUN apk add --no-cache git
-ARG RCLONE_VERSION=1.75.1
+ARG RCLONE_VERSION=1.75.2
 WORKDIR /src
 RUN git clone --depth 1 --branch v${RCLONE_VERSION} https://github.com/rclone/rclone.git .
 ENV CGO_ENABLED=0
@@ -68,7 +68,7 @@ RUN go build -trimpath -ldflags="-s -w" -tags noselfupdate -o /rclone .
 # Salsa20) are stable across these versions.
 FROM golang:1.27-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS restic-build
 RUN apk add --no-cache git
-ARG RESTIC_VERSION=0.18.1
+ARG RESTIC_VERSION=0.19.1
 WORKDIR /src
 RUN git clone --depth 1 --branch v${RESTIC_VERSION} https://github.com/restic/restic.git .
 RUN go get golang.org/x/crypto@v0.53.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 google.golang.org/grpc@v1.82.1 \
